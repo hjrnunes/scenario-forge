@@ -25,9 +25,10 @@ from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
 
 from .validators import (
     BRANCH_CATEGORIES,
-    _collect_valid_tree_ids,
-    _count_branch_categories,
-    _get_branch_categories,
+    TraceabilityError,
+    collect_valid_tree_ids,
+    count_branch_categories,
+    get_branch_categories,
     validate_traceability,
 )
 
@@ -85,7 +86,7 @@ def metric_bdi_grounding(
         A dict with ``belief_grounding_rate``, ``desire_grounding_rate``,
         and ``intention_grounding_rate``.
     """
-    valid_ids = _collect_valid_tree_ids(cs)
+    valid_ids = collect_valid_tree_ids(cs)
 
     total_beliefs = grounded_beliefs = 0
     total_desires = grounded_desires = 0
@@ -146,7 +147,7 @@ def metric_tree_branch_coverage(
     total = len(scenarios)
     covered = sum(
         1 for s in scenarios
-        if _count_branch_categories(s.attack_tree) >= 2
+        if count_branch_categories(s.attack_tree) >= 2
     )
     return {
         "total_scenarios": total,
@@ -160,6 +161,8 @@ def metric_traceability_depth(
     enriched_threat_set: EnrichedThreatSet,
     control_structure: ControlStructure,
     loss_analysis: LossAnalysis,
+    *,
+    precomputed_errors: list[TraceabilityError] | None = None,
 ) -> dict:
     """Compute fraction of scenarios with complete unbroken provenance chains.
 
@@ -168,6 +171,8 @@ def metric_traceability_depth(
         enriched_threat_set: The enriched threat set.
         control_structure: The control structure.
         loss_analysis: The loss analysis.
+        precomputed_errors: If provided, use these traceability errors
+            instead of re-running :func:`validate_traceability`.
 
     Returns:
         A dict with ``total_scenarios``, ``complete_chains``, and
@@ -177,8 +182,12 @@ def metric_traceability_depth(
     if total == 0:
         return {"total_scenarios": 0, "complete_chains": 0, "traceability_rate": 0}
 
-    errors = validate_traceability(
-        scenarios, enriched_threat_set, control_structure, loss_analysis
+    errors = (
+        precomputed_errors
+        if precomputed_errors is not None
+        else validate_traceability(
+            scenarios, enriched_threat_set, control_structure, loss_analysis
+        )
     )
     error_scenario_ids = {e.scenario_id for e in errors}
     complete = sum(1 for s in scenarios if s.scenario_id not in error_scenario_ids)
@@ -226,7 +235,7 @@ def _count_branch_usage(scenarios: list[ScenarioEnvelope]) -> dict[str, int]:
     """Count how many scenarios use each branch category."""
     counts: dict[str, int] = {cat: 0 for cat in BRANCH_CATEGORIES}
     for s in scenarios:
-        cats = _get_branch_categories(s.attack_tree)
+        cats = get_branch_categories(s.attack_tree)
         for cat in cats:
             counts[cat] = counts.get(cat, 0) + 1
     return counts
@@ -286,6 +295,8 @@ def compute_eval_scorecard(
     stage_local_errors: list[str] | None = None,
     traceability_errors: list[str] | None = None,
     coverage_gaps: dict | None = None,
+    *,
+    precomputed_trace_errors: list[TraceabilityError] | None = None,
 ) -> dict:
     """Compute the full eval scorecard with all 6 metrics.
 
@@ -297,6 +308,9 @@ def compute_eval_scorecard(
         stage_local_errors: List of stage-local validation error messages.
         traceability_errors: List of traceability error messages.
         coverage_gaps: Coverage gap analysis dict.
+        precomputed_trace_errors: If provided, pass these to
+            :func:`metric_traceability_depth` to avoid re-running
+            :func:`validate_traceability`.
 
     Returns:
         A dict with ``metrics``, ``coverage_gaps``, and ``validation`` sections.
@@ -308,7 +322,8 @@ def compute_eval_scorecard(
             "bdi_grounding": metric_bdi_grounding(scenarios, control_structure),
             "tree_branch_coverage": metric_tree_branch_coverage(scenarios),
             "traceability_depth": metric_traceability_depth(
-                scenarios, enriched_threat_set, control_structure, loss_analysis
+                scenarios, enriched_threat_set, control_structure, loss_analysis,
+                precomputed_errors=precomputed_trace_errors,
             ),
             "diversity": metric_diversity(scenarios),
         },

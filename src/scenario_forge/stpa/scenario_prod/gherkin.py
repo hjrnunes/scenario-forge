@@ -17,7 +17,7 @@ from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 
 from ._constants import PROMPTS_DIR
 
-__all__ = ["generate_gherkin", "build_gherkin_prompts"]
+__all__ = ["generate_gherkin", "build_gherkin_prompts", "find_security_constraint"]
 
 
 def generate_gherkin(
@@ -48,7 +48,7 @@ def generate_gherkin(
     if loader is None:
         loader = TemplateLoader(PROMPTS_DIR)
 
-    security_constraint = _find_security_constraint(scenario_spec, loss_analysis)
+    security_constraint = find_security_constraint(scenario_spec, loss_analysis)
     system_prompt, user_prompt = build_gherkin_prompts(
         scenario_spec, security_constraint, loader
     )
@@ -68,7 +68,7 @@ def generate_gherkin(
     return text, None
 
 
-def _find_security_constraint(
+def find_security_constraint(
     scenario_spec: ScenarioSpec,
     loss_analysis: LossAnalysis,
 ) -> SecurityConstraint | None:

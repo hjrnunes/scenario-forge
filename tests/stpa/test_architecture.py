@@ -652,3 +652,250 @@ class TestStageErrorLocation:
 
         mod = importlib.import_module("scenario_forge.stpa.infra.llm_helpers")
         assert hasattr(mod, "StageError")
+
+
+# ---------------------------------------------------------------------------
+# SP3 Scenario Production architecture guards
+# ---------------------------------------------------------------------------
+
+SCENARIO_PROD_DIR = STPA_ROOT / "scenario_prod"
+
+# Dependency layers within scenario_prod (lower = closer to leaf).
+# A module at layer N may import from modules at layer <= N.
+_SCENARIO_PROD_LAYERS: dict[str, int] = {
+    "_constants": 0,
+    "assembly": 1,
+    "bdi_generation": 1,
+    "narrative": 1,
+    "attack_tree": 1,
+    "gherkin": 1,
+    "validators": 1,
+    "eval_metrics": 2,
+    "coverage": 2,
+    "run": 3,
+}
+
+
+def _scenario_prod_internal_imports(file_path: Path) -> list[str]:
+    """Return bare module names imported from within scenario_prod.
+
+    Relative imports like ``from .validators import X`` yield ``"validators"``.
+    """
+    result: list[str] = []
+    for imp in _extract_imports(file_path):
+        prefix = "scenario_forge.stpa.scenario_prod."
+        if imp.startswith(prefix):
+            result.append(imp[len(prefix):].split(".")[0])
+    # Also handle relative imports (from .xxx import ...)
+    source = file_path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(file_path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level == 1 and node.module:
+                result.append(node.module)
+    return result
+
+
+def _has_local_imports(file_path: Path) -> list[str]:
+    """Return descriptions of import statements inside function bodies."""
+    source = file_path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(file_path))
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.walk(node):
+                if isinstance(child, ast.Import):
+                    for alias in child.names:
+                        violations.append(
+                            f"{file_path.name}:{node.name}: "
+                            f"local import '{alias.name}'"
+                        )
+                elif isinstance(child, ast.ImportFrom):
+                    mod = child.module or ""
+                    violations.append(
+                        f"{file_path.name}:{node.name}: "
+                        f"local from-import '{mod}'"
+                    )
+    return violations
+
+
+def _private_imports_across_modules(file_path: Path) -> list[str]:
+    """Return names starting with '_' imported from scenario_prod siblings."""
+    source = file_path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(file_path))
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            # Check relative imports from scenario_prod siblings
+            is_sp3_sibling = (
+                node.level == 1
+                or (node.module and node.module.startswith("scenario_forge.stpa.scenario_prod"))
+            )
+            if not is_sp3_sibling:
+                continue
+            for alias in node.names:
+                if alias.name.startswith("_") and alias.name != "_":
+                    violations.append(
+                        f"{file_path.name}: imports private name "
+                        f"'{alias.name}' from sibling module"
+                    )
+    return violations
+
+
+class TestScenarioProdNoImportCycles:
+    """All scenario_prod modules must import without circular dependency errors."""
+
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "scenario_forge.stpa.scenario_prod",
+            "scenario_forge.stpa.scenario_prod._constants",
+            "scenario_forge.stpa.scenario_prod.assembly",
+            "scenario_forge.stpa.scenario_prod.bdi_generation",
+            "scenario_forge.stpa.scenario_prod.narrative",
+            "scenario_forge.stpa.scenario_prod.attack_tree",
+            "scenario_forge.stpa.scenario_prod.gherkin",
+            "scenario_forge.stpa.scenario_prod.validators",
+            "scenario_forge.stpa.scenario_prod.eval_metrics",
+            "scenario_forge.stpa.scenario_prod.coverage",
+            "scenario_forge.stpa.scenario_prod.run",
+        ],
+    )
+    def test_module_imports_cleanly(self, module_name):
+        """Module can be imported without errors."""
+        mod = importlib.import_module(module_name)
+        assert mod is not None
+
+
+class TestScenarioProdDependencyDirection:
+    """scenario_prod modules must follow layer ordering."""
+
+    @pytest.fixture
+    def scenario_prod_files(self) -> dict[str, Path]:
+        files: dict[str, Path] = {}
+        for path in sorted(SCENARIO_PROD_DIR.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            files[path.stem] = path
+        return files
+
+    def test_no_reverse_dependencies(self, scenario_prod_files):
+        """A module at layer N must not import from a module at layer > N."""
+        violations: list[str] = []
+        for name, path in scenario_prod_files.items():
+            my_layer = _SCENARIO_PROD_LAYERS.get(name, 99)
+            for imported in _scenario_prod_internal_imports(path):
+                target_layer = _SCENARIO_PROD_LAYERS.get(imported, 99)
+                if target_layer > my_layer:
+                    violations.append(
+                        f"{name} (layer {my_layer}) imports "
+                        f"{imported} (layer {target_layer}) — "
+                        f"dependency direction violation"
+                    )
+        assert not violations, (
+            "scenario_prod dependency direction violations:\n"
+            + "\n".join(violations)
+        )
+
+    def test_constants_is_leaf(self, scenario_prod_files):
+        """_constants.py must not import any other module."""
+        path = scenario_prod_files.get("_constants")
+        assert path is not None, "_constants.py not found"
+        all_imports = _extract_imports(path)
+        non_stdlib = [
+            imp for imp in all_imports
+            if not imp.startswith("_") and imp not in ("pathlib",)
+        ]
+        assert not non_stdlib, (
+            f"_constants.py imports non-stdlib modules: {non_stdlib}"
+        )
+
+    def test_stage_modules_do_not_import_eval_or_coverage(self, scenario_prod_files):
+        """Stage modules must not import eval_metrics, coverage, or run."""
+        stage_modules = {
+            "assembly", "bdi_generation", "narrative",
+            "attack_tree", "gherkin", "validators",
+        }
+        forbidden = {"eval_metrics", "coverage", "run"}
+        for name in stage_modules:
+            path = scenario_prod_files[name]
+            imports = set(_scenario_prod_internal_imports(path))
+            found = imports & forbidden
+            assert not found, (
+                f"{name}.py imports higher-level module(s): {found}"
+            )
+
+    def test_eval_metrics_does_not_import_run(self, scenario_prod_files):
+        """eval_metrics.py must not import the orchestrator."""
+        path = scenario_prod_files["eval_metrics"]
+        imports = set(_scenario_prod_internal_imports(path))
+        assert "run" not in imports, (
+            "eval_metrics.py imports run.py — direction violation"
+        )
+
+
+class TestScenarioProdNoPrivateCrossModuleImports:
+    """No scenario_prod module should import private (_-prefixed) names
+    from a sibling module within scenario_prod."""
+
+    @pytest.fixture
+    def scenario_prod_python_files(self) -> list[Path]:
+        return sorted(
+            p for p in SCENARIO_PROD_DIR.glob("*.py")
+            if p.name != "__init__.py"
+        )
+
+    def test_no_private_imports(self, scenario_prod_python_files):
+        """No file in scenario_prod/ imports private names from siblings."""
+        violations: list[str] = []
+        for path in scenario_prod_python_files:
+            violations.extend(_private_imports_across_modules(path))
+        assert not violations, (
+            "Private cross-module imports in scenario_prod/:\n"
+            + "\n".join(violations)
+        )
+
+
+class TestScenarioProdNoLocalImports:
+    """No scenario_prod module should have import statements inside
+    function bodies. Local imports suggest circular dependencies or
+    lazy-loading workarounds that should be resolved structurally."""
+
+    @pytest.fixture
+    def scenario_prod_python_files(self) -> list[Path]:
+        return sorted(
+            p for p in SCENARIO_PROD_DIR.glob("*.py")
+            if p.name != "__init__.py"
+        )
+
+    def test_no_function_body_imports(self, scenario_prod_python_files):
+        """No import statements inside function bodies."""
+        violations: list[str] = []
+        for path in scenario_prod_python_files:
+            violations.extend(_has_local_imports(path))
+        assert not violations, (
+            "Local imports inside function bodies in scenario_prod/:\n"
+            + "\n".join(violations)
+        )
+
+
+class TestScenarioProdNoDirectCompleteCalls:
+    """No scenario_prod module should call llm_client.complete() directly.
+    All LLM calls must go through safe_llm_call or safe_llm_call_raw."""
+
+    def test_no_direct_complete_calls(self):
+        """No scenario_prod module calls .complete() directly."""
+        violations: list[str] = []
+        for path in sorted(SCENARIO_PROD_DIR.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if ".complete(" in source:
+                violations.append(
+                    f"{path.name}: calls .complete() directly — "
+                    f"must use safe_llm_call() or safe_llm_call_raw()"
+                )
+        assert not violations, (
+            "Direct .complete() calls in scenario_prod/:\n"
+            + "\n".join(violations)
+        )

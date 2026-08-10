@@ -29,6 +29,9 @@ __all__ = [
     "validate_traceability",
     "detect_orphan_elements",
     "detect_orphan_icas",
+    "collect_valid_tree_ids",
+    "count_branch_categories",
+    "get_branch_categories",
     "BRANCH_CATEGORIES",
 ]
 
@@ -120,12 +123,12 @@ def validate_vulnerability_completeness(
     return ValidationResult(passed=len(errors) == 0, errors=errors)
 
 
-def _count_branch_categories(attack_tree: dict) -> int:
+def count_branch_categories(attack_tree: dict) -> int:
     """Count how many of the 3 branch categories are used in the tree."""
-    return len(_get_branch_categories(attack_tree))
+    return len(get_branch_categories(attack_tree))
 
 
-def _get_branch_categories(attack_tree: dict) -> set[str]:
+def get_branch_categories(attack_tree: dict) -> set[str]:
     """Get the set of branch categories used in the tree."""
     branches = attack_tree.get("branches", [])
     categories: set[str] = set()
@@ -145,7 +148,7 @@ def validate_tree_branch_coverage(attack_tree: dict) -> ValidationResult:
     Returns:
         A :class:`ValidationResult`.
     """
-    count = _count_branch_categories(attack_tree)
+    count = count_branch_categories(attack_tree)
     if count < 2:
         return ValidationResult.failure([
             f"Attack tree uses only {count} branch categor"
@@ -204,7 +207,7 @@ def validate_tree_id_references(
     Returns:
         A :class:`ValidationResult`.
     """
-    valid_ids = _collect_valid_tree_ids(control_structure)
+    valid_ids = collect_valid_tree_ids(control_structure)
     tree_text = _flatten_tree_to_text(attack_tree)
 
     errors: list[str] = []
@@ -214,7 +217,7 @@ def validate_tree_id_references(
     return ValidationResult(passed=len(errors) == 0, errors=errors)
 
 
-def _collect_valid_tree_ids(cs: ControlStructure) -> dict[str, set[str]]:
+def collect_valid_tree_ids(cs: ControlStructure) -> dict[str, set[str]]:
     """Collect all valid PM, FB, CA, and RESP IDs from the control structure."""
     return {
         "PM": _flatten_nested_ids(cs.responsibilities, "process_model_parts", "pm_id"),
@@ -312,7 +315,7 @@ def _build_traceability_lookups(
     loss_analysis: LossAnalysis,
 ) -> _TraceabilityLookups:
     """Build lookup maps for traceability validation."""
-    cs_ids = _collect_valid_tree_ids(control_structure)
+    cs_ids = collect_valid_tree_ids(control_structure)
     return _TraceabilityLookups(
         hazard_ids={h.hazard_id for h in loss_analysis.hazards},
         constraint_ids={sc.constraint_id for sc in loss_analysis.security_constraints},

@@ -42,7 +42,7 @@ from .bdi_generation import (
 )
 from .coverage import compute_coverage_gaps, write_coverage_gaps
 from .eval_metrics import compute_eval_scorecard, write_eval_scorecard
-from .gherkin import build_gherkin_prompts
+from .gherkin import build_gherkin_prompts, find_security_constraint
 from .narrative import build_narrative_prompts
 from .validators import (
     TraceabilityError,
@@ -130,21 +130,23 @@ def run_sp3(
         scenario_envelopes, scenario_specs, control_structure, validation_errors
     )
 
-    coverage_gaps = compute_coverage_gaps(
-        enriched_threat_set, control_structure, scenario_envelopes, loss_analysis
-    )
-
     trace_errors = validate_traceability(
         scenario_envelopes, enriched_threat_set, control_structure, loss_analysis
     )
     trace_error_msgs = _format_traceability_errors(trace_errors)
     all_validation_errors = validation_errors + trace_error_msgs
 
+    coverage_gaps = compute_coverage_gaps(
+        enriched_threat_set, control_structure, scenario_envelopes, loss_analysis,
+        precomputed_trace_errors=trace_errors,
+    )
+
     eval_scorecard = compute_eval_scorecard(
         scenario_envelopes, enriched_threat_set, control_structure, loss_analysis,
         stage_local_errors=validation_errors,
         traceability_errors=trace_error_msgs,
         coverage_gaps=coverage_gaps,
+        precomputed_trace_errors=trace_errors,
     )
 
     # --- Write output artifacts ---
@@ -283,11 +285,9 @@ def _build_stage6_prompts(
     loader: TemplateLoader,
 ) -> _Stage6Prompts:
     """Build system/user prompt pairs for all three Stage 6 calls."""
-    from .gherkin import _find_security_constraint
-
     nar_prompts = build_narrative_prompts(spec, loader)
     tree_prompts = build_attack_tree_prompts(spec, control_structure, loader)
-    sc = _find_security_constraint(spec, loss_analysis)
+    sc = find_security_constraint(spec, loss_analysis)
     ghk_prompts = build_gherkin_prompts(spec, sc, loader)
 
     return _Stage6Prompts(

@@ -12,6 +12,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.models.control_structure import (
     ControlStructure,
@@ -39,9 +40,6 @@ __all__ = [
     "generate_scenario_id",
     "parse_ica_slot_id",
 ]
-
-# Counter for deterministic scenario IDs
-_scenario_counter = 0
 
 
 class BDIGenerationResult(BaseModel):
@@ -174,8 +172,6 @@ def generate_bdi(
     Returns:
         A tuple of (BDIGenerationResult or None, error_message or None).
     """
-    from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
-
     if loader is None:
         loader = TemplateLoader(PROMPTS_DIR)
 

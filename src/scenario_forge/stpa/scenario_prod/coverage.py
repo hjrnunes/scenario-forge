@@ -16,6 +16,7 @@ from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
 
 from .validators import (
+    TraceabilityError,
     detect_orphan_elements,
     detect_orphan_icas,
     validate_traceability,
@@ -32,6 +33,8 @@ def compute_coverage_gaps(
     control_structure: ControlStructure,
     scenarios: list[ScenarioEnvelope],
     loss_analysis: LossAnalysis,
+    *,
+    precomputed_trace_errors: list[TraceabilityError] | None = None,
 ) -> dict:
     """Compute coverage gap analysis.
 
@@ -44,6 +47,8 @@ def compute_coverage_gaps(
         control_structure: The control structure.
         scenarios: The produced scenario envelopes.
         loss_analysis: The loss analysis.
+        precomputed_trace_errors: If provided, use these traceability
+            errors instead of re-running :func:`validate_traceability`.
 
     Returns:
         A dict with ``structural_coverage``, ``by_ica_type``,
@@ -57,8 +62,12 @@ def compute_coverage_gaps(
     orphan_elements = detect_orphan_elements(control_structure, enriched_threat_set)
     orphan_icas = detect_orphan_icas(enriched_threat_set, scenarios)
 
-    trace_errors = validate_traceability(
-        scenarios, enriched_threat_set, control_structure, loss_analysis
+    trace_errors = (
+        precomputed_trace_errors
+        if precomputed_trace_errors is not None
+        else validate_traceability(
+            scenarios, enriched_threat_set, control_structure, loss_analysis
+        )
     )
     traceability_errors = [
         f"{e.scenario_id}: broken {e.broken_link} link (expected {e.expected}, "
