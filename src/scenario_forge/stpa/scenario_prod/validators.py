@@ -186,34 +186,43 @@ def validate_gherkin_structure(gherkin: GherkinSpec | str) -> ValidationResult:
     return _validate_gherkin_text(gherkin)
 
 
+_PM_ID_RE = re.compile(r"PM-\d+-\d+")
+
+
 def _validate_gherkin_spec(spec: GherkinSpec) -> ValidationResult:
     """Validate a structured :class:`GherkinSpec`."""
     errors: list[str] = []
-
-    if not spec.then_expected:
-        errors.append("Gherkin missing a 'Then ... should ...' step (then_expected is empty).")
-    elif not any("should" in step.lower() for step in spec.then_expected):
-        errors.append("Gherkin then_expected missing a 'should' clause.")
-
-    if not spec.then_actual:
-        errors.append("Gherkin missing a 'But' step (then_actual is empty).")
-    elif not any(
-        step.lower().startswith("but") for step in spec.then_actual
-    ):
-        errors.append("Gherkin then_actual missing a 'But' clause.")
-
-    if not spec.given:
-        errors.append(
-            "Gherkin Given steps do not reference a process model state (PM-*)."
-        )
-    elif not any(
-        re.search(r"PM-\d+-\d+", step) for step in spec.given
-    ):
-        errors.append(
-            "Gherkin Given steps do not reference a process model state (PM-*)."
-        )
-
+    errors.extend(_check_then_expected(spec.then_expected))
+    errors.extend(_check_then_actual(spec.then_actual))
+    errors.extend(_check_given_pm_refs(spec.given))
     return ValidationResult(passed=len(errors) == 0, errors=errors)
+
+
+def _check_then_expected(steps: list[str]) -> list[str]:
+    """Validate that then_expected has a 'should' clause."""
+    if not steps:
+        return ["Gherkin missing a 'Then ... should ...' step (then_expected is empty)."]
+    if not any("should" in step.lower() for step in steps):
+        return ["Gherkin then_expected missing a 'should' clause."]
+    return []
+
+
+def _check_then_actual(steps: list[str]) -> list[str]:
+    """Validate that then_actual has a 'But' clause."""
+    if not steps:
+        return ["Gherkin missing a 'But' step (then_actual is empty)."]
+    if not any(step.lower().startswith("but") for step in steps):
+        return ["Gherkin then_actual missing a 'But' clause."]
+    return []
+
+
+def _check_given_pm_refs(steps: list[str]) -> list[str]:
+    """Validate that given steps reference process model states (PM-*)."""
+    if not steps or not any(_PM_ID_RE.search(step) for step in steps):
+        return [
+            "Gherkin Given steps do not reference a process model state (PM-*)."
+        ]
+    return []
 
 
 def _validate_gherkin_text(gherkin_text: str) -> ValidationResult:
@@ -273,17 +282,25 @@ def validate_loss_hazard_id_references(
     valid_hazard_ids = {hazard.hazard_id for hazard in loss_analysis.hazards}
 
     errors: list[str] = []
-    for match in _LOSS_ID_RE.finditer(text):
-        loss_id = match.group()
-        if loss_id not in valid_loss_ids:
-            errors.append(f"Gherkin references hallucinated Loss ID '{loss_id}'.")
-
-    for match in _HAZARD_ID_RE.finditer(text):
-        hazard_id = match.group()
-        if hazard_id not in valid_hazard_ids:
-            errors.append(f"Gherkin references hallucinated Hazard ID '{hazard_id}'.")
+    errors.extend(_find_hallucinated_ids(text, _LOSS_ID_RE, valid_loss_ids, "Loss"))
+    errors.extend(_find_hallucinated_ids(text, _HAZARD_ID_RE, valid_hazard_ids, "Hazard"))
 
     return ValidationResult(passed=len(errors) == 0, errors=errors)
+
+
+def _find_hallucinated_ids(
+    text: str,
+    id_regex: re.Pattern,
+    valid_ids: set[str],
+    label: str,
+) -> list[str]:
+    """Find IDs in *text* matching *id_regex* that are not in *valid_ids*."""
+    errors: list[str] = []
+    for match in id_regex.finditer(text):
+        id_val = match.group()
+        if id_val not in valid_ids:
+            errors.append(f"Gherkin references hallucinated {label} ID '{id_val}'.")
+    return errors
 
 
 def validate_attack_tree_root_label(
@@ -306,7 +323,7 @@ def validate_attack_tree_root_label(
     Returns:
         A :class:`ValidationResult`.
     """
-    root = attack_tree.get("root", "") if isinstance(attack_tree, dict) else ""
+    root = _extract_root(attack_tree)
     expected = f"Induce ICA {ica_type} on {ca_id}"
 
     if not root or not root.strip():
@@ -333,6 +350,12 @@ def validate_attack_tree_root_label(
 
     return ValidationResult.success()
 
+
+def _extract_root(attack_tree: dict | object) -> str:
+    """Safely extract the root label from *attack_tree*."""
+    if isinstance(attack_tree, dict):
+        return attack_tree.get("root", "")
+    return ""
 
 def validate_tree_id_references(
     attack_tree: dict,
@@ -668,5 +691,5 @@ def detect_orphan_icas(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T10:40:40Z","module_hash":"ab7bcbeecf2446e7429b12d50aa9ca87ec2398eb6f1f8dca4db7f256b6fcb260","functions":[{"id":"func/ValidationResult.success","name":"success","line":59,"end_line":60,"hash":"3a36210a7ab40b638ac1787bb2c2864d7845ea1067e8099a266579c7b582c851"},{"id":"func/ValidationResult.failure","name":"failure","line":63,"end_line":64,"hash":"60f505ac55cbbc1d676a483041caddcdf4a657855220434e64db790a50aed783"},{"id":"func/validate_bdi_grounding","name":"validate_bdi_grounding","line":77,"end_line":102,"hash":"19036765170d7a3d63df49fea53d24a5af5b02c7a7392f55e90c899b70acf6d7"},{"id":"func/validate_vulnerability_completeness","name":"validate_vulnerability_completeness","line":105,"end_line":123,"hash":"1007fba41561cfa487c5264983bfeaf9b92b834551517441610b5056f38c8dea"},{"id":"func/count_branch_categories","name":"count_branch_categories","line":126,"end_line":128,"hash":"ad647c02ff326df1e0c45a363a224a23262d5a27825f7a790d0df836c05ece5b"},{"id":"func/get_branch_categories","name":"get_branch_categories","line":131,"end_line":139,"hash":"5814967ed8907a71023845a8d1295e50e48a83ac679c95a7c831f7ca919cef6b"},{"id":"func/validate_tree_branch_coverage","name":"validate_tree_branch_coverage","line":142,"end_line":157,"hash":"4f98b4fa74974afa6d46ef999d2896bee00594490f40157deaf75b8ed126203c"},{"id":"func/validate_gherkin_structure","name":"validate_gherkin_structure","line":160,"end_line":191,"hash":"5dc5b70394b825ce16c81b63b2f4d8a8a3cbe8db9e0262ffe048b705c09f9cf5"},{"id":"func/validate_tree_id_references","name":"validate_tree_id_references","line":194,"end_line":217,"hash":"ebcd44a47e295f9a9a91102fbc47d9826b33ab553aa85fcbd4a56460e72f464c"},{"id":"func/collect_valid_tree_ids","name":"collect_valid_tree_ids","line":220,"end_line":227,"hash":"c47456ace92e1e6dccb0446300c705ae1a4534b28c0f96070070c2d404bcfd6a"},{"id":"func/_flatten_nested_ids","name":"_flatten_nested_ids","line":230,"end_line":244,"hash":"0db7827f3a6ff4a5d806cda897b17b57ee42b65724b33ba2d6cd85a6f4a16a6c"},{"id":"func/_find_invalid_ids","name":"_find_invalid_ids","line":247,"end_line":259,"hash":"bfe8f2662e0382d2f34e1443be856e7bf8ece1b50ef0db0ad94c6d9bb2ac03ca"},{"id":"func/_flatten_tree_to_text","name":"_flatten_tree_to_text","line":262,"end_line":264,"hash":"1dad91db161fa6d2d88c90494e16b924113f9da3518088e3fd0e7abe6cba828f"},{"id":"func/validate_traceability","name":"validate_traceability","line":267,"end_line":298,"hash":"76c05ee9095e81cf02b066a9d46eb9284e5e14ed2f06d072f1fa1a4a3667331a"},{"id":"func/_build_traceability_lookups","name":"_build_traceability_lookups","line":312,"end_line":329,"hash":"22eb64e4511295ef533581b0497057b488f770cf2e1c933fca03e57124dcc57a"},{"id":"func/_validate_single_scenario_traceability","name":"_validate_single_scenario_traceability","line":332,"end_line":354,"hash":"bfe6845fba17982e8134eb3754b464320a30972cacf2b0605ce75f828edb8b25"},{"id":"func/_check_scenario_links","name":"_check_scenario_links","line":357,"end_line":390,"hash":"2ec1f695c39932d4b1786511eb1365a9831e6e79134e89b47e27bb46e01b9cd1"},{"id":"func/_check_hazard_and_constraint_links","name":"_check_hazard_and_constraint_links","line":393,"end_line":419,"hash":"79671e032e7cb2a178a7527424d3b04d54085cca49d4881b9e89bea7c5b5bfd7"},{"id":"func/detect_orphan_elements","name":"detect_orphan_elements","line":422,"end_line":438,"hash":"dfa990f8c9ce8ab74e9a0eed95702454409aef6b1a672053b4393cd179a0a920"},{"id":"func/_collect_referenced_ids","name":"_collect_referenced_ids","line":441,"end_line":464,"hash":"01b368e8e43e1007d906556a26b01deb6b35938b2757ac92f376b8e0040641b8"},{"id":"func/_find_orphan_elements","name":"_find_orphan_elements","line":467,"end_line":478,"hash":"f0559e49a7893e2c5c86f03b9ad32223d59143a33580ed883993c8a842aa872a"},{"id":"func/_find_orphans_in_resp","name":"_find_orphans_in_resp","line":481,"end_line":499,"hash":"8fe01464546569fb46383d39a7315314090c8dee4a48f7e3352f32b61f4c13bd"},{"id":"func/detect_orphan_icas","name":"detect_orphan_icas","line":502,"end_line":524,"hash":"bd47a7852159d5e33d72771d4c134aba2618878ddaa9f387d092aba575946245"}]}
+# {"version":1,"tested_at":"2026-08-10T14:05:41Z","module_hash":"1459b14730648e4ebd546d26c3ac30889802875c1a9fbf94b4a3747a4b8f8077","functions":[{"id":"func/ValidationResult.success","name":"success","line":61,"end_line":62,"hash":"3a36210a7ab40b638ac1787bb2c2864d7845ea1067e8099a266579c7b582c851"},{"id":"func/ValidationResult.failure","name":"failure","line":65,"end_line":66,"hash":"60f505ac55cbbc1d676a483041caddcdf4a657855220434e64db790a50aed783"},{"id":"func/validate_bdi_grounding","name":"validate_bdi_grounding","line":79,"end_line":104,"hash":"19036765170d7a3d63df49fea53d24a5af5b02c7a7392f55e90c899b70acf6d7"},{"id":"func/validate_vulnerability_completeness","name":"validate_vulnerability_completeness","line":107,"end_line":125,"hash":"1007fba41561cfa487c5264983bfeaf9b92b834551517441610b5056f38c8dea"},{"id":"func/count_branch_categories","name":"count_branch_categories","line":128,"end_line":130,"hash":"ad647c02ff326df1e0c45a363a224a23262d5a27825f7a790d0df836c05ece5b"},{"id":"func/get_branch_categories","name":"get_branch_categories","line":133,"end_line":141,"hash":"5814967ed8907a71023845a8d1295e50e48a83ac679c95a7c831f7ca919cef6b"},{"id":"func/validate_tree_branch_coverage","name":"validate_tree_branch_coverage","line":144,"end_line":159,"hash":"4f98b4fa74974afa6d46ef999d2896bee00594490f40157deaf75b8ed126203c"},{"id":"func/validate_gherkin_structure","name":"validate_gherkin_structure","line":162,"end_line":186,"hash":"f4a3d2f9893ce942f6e3dfbfc650763d43c26426cbd9c595c8c72a3f110153c2"},{"id":"func/_validate_gherkin_spec","name":"_validate_gherkin_spec","line":192,"end_line":198,"hash":"398e9168e9ad4349c1db27317f8d6b6e22347b949967d5aa558644313fe8f9bf"},{"id":"func/_check_then_expected","name":"_check_then_expected","line":201,"end_line":207,"hash":"d436c1f9f0fb2350bbf742aa91417c02cb015167826d21ca8f953126ad936a31"},{"id":"func/_check_then_actual","name":"_check_then_actual","line":210,"end_line":216,"hash":"436d764af35d227cade2b548bc3a13443366fec541cdcd549936edc85b855f47"},{"id":"func/_check_given_pm_refs","name":"_check_given_pm_refs","line":219,"end_line":225,"hash":"26758312520940d2b363211bacfe229a7ad04c2943b0b61f8d4461f24582b075"},{"id":"func/_validate_gherkin_text","name":"_validate_gherkin_text","line":228,"end_line":247,"hash":"4fbdebc838e8fdc42cb1c7147c8079b9b8fe6d836db375a4a8cb55b3e1fa8cab"},{"id":"func/validate_loss_hazard_id_references","name":"validate_loss_hazard_id_references","line":255,"end_line":288,"hash":"687ce2eada1c847fc972fb779adec639ca4ac22b85315841ddd0ab5c5438e85a"},{"id":"func/_find_hallucinated_ids","name":"_find_hallucinated_ids","line":291,"end_line":303,"hash":"bba7e26b375636aced77d3b7be96af00a8ab2fc81d7c4dd22bfd0e31e664c1db"},{"id":"func/validate_attack_tree_root_label","name":"validate_attack_tree_root_label","line":306,"end_line":351,"hash":"b6810cfbe66f0c61e7860cfae608bc7b7423d840171b085134aa0159c676088a"},{"id":"func/_extract_root","name":"_extract_root","line":354,"end_line":358,"hash":"7b09cbea173509a819b558e71dea5f6ce4de8f9a8a9def18bcf9da1b8cfb4b21"},{"id":"func/validate_tree_id_references","name":"validate_tree_id_references","line":360,"end_line":383,"hash":"ebcd44a47e295f9a9a91102fbc47d9826b33ab553aa85fcbd4a56460e72f464c"},{"id":"func/collect_valid_tree_ids","name":"collect_valid_tree_ids","line":386,"end_line":393,"hash":"c47456ace92e1e6dccb0446300c705ae1a4534b28c0f96070070c2d404bcfd6a"},{"id":"func/_flatten_nested_ids","name":"_flatten_nested_ids","line":396,"end_line":410,"hash":"0db7827f3a6ff4a5d806cda897b17b57ee42b65724b33ba2d6cd85a6f4a16a6c"},{"id":"func/_find_invalid_ids","name":"_find_invalid_ids","line":413,"end_line":425,"hash":"bfe8f2662e0382d2f34e1443be856e7bf8ece1b50ef0db0ad94c6d9bb2ac03ca"},{"id":"func/_flatten_tree_to_text","name":"_flatten_tree_to_text","line":428,"end_line":430,"hash":"1dad91db161fa6d2d88c90494e16b924113f9da3518088e3fd0e7abe6cba828f"},{"id":"func/validate_traceability","name":"validate_traceability","line":433,"end_line":464,"hash":"76c05ee9095e81cf02b066a9d46eb9284e5e14ed2f06d072f1fa1a4a3667331a"},{"id":"func/_build_traceability_lookups","name":"_build_traceability_lookups","line":478,"end_line":495,"hash":"22eb64e4511295ef533581b0497057b488f770cf2e1c933fca03e57124dcc57a"},{"id":"func/_validate_single_scenario_traceability","name":"_validate_single_scenario_traceability","line":498,"end_line":520,"hash":"bfe6845fba17982e8134eb3754b464320a30972cacf2b0605ce75f828edb8b25"},{"id":"func/_check_scenario_links","name":"_check_scenario_links","line":523,"end_line":556,"hash":"2ec1f695c39932d4b1786511eb1365a9831e6e79134e89b47e27bb46e01b9cd1"},{"id":"func/_check_hazard_and_constraint_links","name":"_check_hazard_and_constraint_links","line":559,"end_line":585,"hash":"79671e032e7cb2a178a7527424d3b04d54085cca49d4881b9e89bea7c5b5bfd7"},{"id":"func/detect_orphan_elements","name":"detect_orphan_elements","line":588,"end_line":604,"hash":"dfa990f8c9ce8ab74e9a0eed95702454409aef6b1a672053b4393cd179a0a920"},{"id":"func/_collect_referenced_ids","name":"_collect_referenced_ids","line":607,"end_line":630,"hash":"01b368e8e43e1007d906556a26b01deb6b35938b2757ac92f376b8e0040641b8"},{"id":"func/_find_orphan_elements","name":"_find_orphan_elements","line":633,"end_line":644,"hash":"f0559e49a7893e2c5c86f03b9ad32223d59143a33580ed883993c8a842aa872a"},{"id":"func/_find_orphans_in_resp","name":"_find_orphans_in_resp","line":647,"end_line":665,"hash":"8fe01464546569fb46383d39a7315314090c8dee4a48f7e3352f32b61f4c13bd"},{"id":"func/detect_orphan_icas","name":"detect_orphan_icas","line":668,"end_line":690,"hash":"bd47a7852159d5e33d72771d4c134aba2618878ddaa9f387d092aba575946245"}]}
 # mutate4py-manifest-end

@@ -770,3 +770,101 @@ class TestAttackTreeUserPromptIcaType:
         _, user_prompt = build_attack_tree_prompts(spec, cs, loader)
         assert "NOT_PROVIDED" in user_prompt
         assert "CA-1-1" in user_prompt
+
+
+class TestAttackTreeRootLabelNonDict:
+    """V689-08: validator handles non-dict attack_tree gracefully."""
+
+    def test_v689_08_non_dict_tree_treated_as_empty_root(self):
+        result = validate_attack_tree_root_label(None, "NOT_PROVIDED", "CA-1-1")
+        assert not result.passed
+        assert any("root" in e.lower() for e in result.errors)
+
+    def test_v689_08_whitespace_only_root(self):
+        tree = {"root": "   "}
+        result = validate_attack_tree_root_label(tree, "NOT_PROVIDED", "CA-1-1")
+        assert not result.passed
+        assert any("root" in e.lower() for e in result.errors)
+
+
+class TestGenerateGherkinErrorPaths:
+    """JPKW-13: generate_gherkin handles LLM errors and unparseable responses."""
+
+    def test_jpkw_13_llm_error_returns_none_and_error(self):
+        spec = _make_scenario_spec()
+        la = _make_loss_analysis()
+        client = MockLLMClient()
+        client.set_exception_for(None, RuntimeError("LLM unavailable"))
+
+        with TemporaryDirectory() as tmpdir:
+            result, raw, error = generate_gherkin(client, spec, la, Path(tmpdir))
+            assert result is None
+            assert raw is None
+            assert error is not None
+            assert "LLM unavailable" in error
+
+    def test_jpkw_13_unparseable_response_returns_none_and_error(self):
+        spec = _make_scenario_spec()
+        la = _make_loss_analysis()
+        client = MockLLMClient()
+        client.set_response_for(None, "this is not valid yaml: : :")
+
+        with TemporaryDirectory() as tmpdir:
+            result, raw, error = generate_gherkin(client, spec, la, Path(tmpdir))
+            assert result is None
+            assert raw is not None
+            assert error is not None
+            assert "Failed to parse" in error
+
+
+class TestGherkinSpecValidationThenExpectedShould:
+    """JPKW-14: then_expected with no 'should' clause is caught."""
+
+    def test_jpkw_14_then_expected_without_should(self):
+        spec = _make_gherkin_spec(then_expected=["Then the system rejects"])
+        result = validate_gherkin_structure(spec)
+        assert not result.passed
+        assert any("should" in e.lower() for e in result.errors)
+
+
+class TestGherkinSpecValidationThenActualBut:
+    """JPKW-15: then_actual without 'But' prefix is caught."""
+
+    def test_jpkw_15_then_actual_without_but(self):
+        spec = _make_gherkin_spec(then_actual=["And the system approves"])
+        result = validate_gherkin_structure(spec)
+        assert not result.passed
+        assert any("but" in e.lower() for e in result.errors)
+
+
+class TestEnvelopeGherkinTextHelper:
+    """JPKW-16: _envelope_gherkin_text extracts text correctly."""
+
+    def test_jpkw_16_prefers_raw_when_available(self):
+        from scenario_forge.stpa.scenario_prod.run import _envelope_gherkin_text
+
+        envelope = _make_envelope(gherkin_raw="Feature: Raw text\n")
+        assert _envelope_gherkin_text(envelope) == "Feature: Raw text\n"
+
+    def test_jpkw_16_falls_back_to_spec_when_no_raw(self):
+        from scenario_forge.stpa.scenario_prod.run import _envelope_gherkin_text
+
+        envelope = _make_envelope(gherkin_raw="")
+        text = _envelope_gherkin_text(envelope)
+        assert "Feature: Safe orchestration" in text
+
+    def test_jpkw_16_returns_empty_when_neither_available(self):
+        from scenario_forge.stpa.scenario_prod.run import _envelope_gherkin_text
+
+        envelope = ScenarioEnvelope.model_construct(
+            scenario_id="SCN-001",
+            scenario_spec=_make_scenario_spec(),
+            narrative="Narrative",
+            attack_tree={"root": "r", "branches": [], "leaves": []},
+            gherkin_spec="not a GherkinSpec instance",
+            gherkin_raw="",
+            target_responsibility="RESP-1",
+            ica_type=UCAType.not_provided,
+            provenance="structural",
+        )
+        assert _envelope_gherkin_text(envelope) == ""

@@ -46,6 +46,7 @@ from .gherkin import build_gherkin_prompts, find_security_constraint, parse_gher
 from .narrative import build_narrative_prompts
 from .validators import (
     TraceabilityError,
+    ValidationResult,
     validate_attack_tree_root_label,
     validate_bdi_grounding,
     validate_gherkin_structure,
@@ -234,13 +235,13 @@ def _validate_stage5_spec(
     stage_errors: list[str],
 ) -> None:
     """Run stage-local validators for a Stage 5 scenario spec."""
-    grounding = validate_bdi_grounding(spec, control_structure)
-    if not grounding.passed:
-        stage_errors.extend(grounding.errors)
-
-    completeness = validate_vulnerability_completeness(spec)
-    if not completeness.passed:
-        stage_errors.extend(completeness.errors)
+    _extend_validation_errors(
+        (
+            validate_bdi_grounding(spec, control_structure),
+            validate_vulnerability_completeness(spec),
+        ),
+        stage_errors,
+    )
 
 
 def _run_stage6_for_spec(
@@ -351,23 +352,41 @@ def _validate_stage6_artifacts(
     stage_errors: list[str],
 ) -> None:
     """Run stage-local validators for Stage 6 artifacts."""
-    for result in (
-        validate_tree_branch_coverage(attack_tree),
-        validate_tree_id_references(attack_tree, control_structure),
-        validate_attack_tree_root_label(
-            attack_tree, spec.ica_type.value, spec.target_control_action,
-        ),
-    ):
-        if not result.passed:
-            stage_errors.extend(result.errors)
+    _validate_stage6_tree(attack_tree, control_structure, spec, stage_errors)
+    _validate_stage6_gherkin(gherkin_spec, gherkin_raw, loss_analysis, stage_errors)
 
-    # Validate Gherkin structure (use spec if parsed, else raw text)
+
+def _validate_stage6_tree(
+    attack_tree: dict,
+    control_structure: ControlStructure,
+    spec: ScenarioSpec,
+    stage_errors: list[str],
+) -> None:
+    """Run tree-related validators for Stage 6 artifacts."""
+    _extend_validation_errors(
+        (
+            validate_tree_branch_coverage(attack_tree),
+            validate_tree_id_references(attack_tree, control_structure),
+            validate_attack_tree_root_label(
+                attack_tree, spec.ica_type.value, spec.target_control_action,
+            ),
+        ),
+        stage_errors,
+    )
+
+
+def _validate_stage6_gherkin(
+    gherkin_spec: GherkinSpec | None,
+    gherkin_raw: str,
+    loss_analysis: LossAnalysis,
+    stage_errors: list[str],
+) -> None:
+    """Run Gherkin-related validators for Stage 6 artifacts."""
     gherkin_for_validation: GherkinSpec | str = gherkin_spec if gherkin_spec is not None else gherkin_raw
     ghk_result = validate_gherkin_structure(gherkin_for_validation)
     if not ghk_result.passed:
         stage_errors.extend(ghk_result.errors)
 
-    # Validate Loss/Hazard ID references
     if gherkin_raw:
         id_result = validate_loss_hazard_id_references(gherkin_raw, loss_analysis)
         if not id_result.passed:
@@ -441,12 +460,13 @@ def _validate_spec_stage7(
     validation_errors: list[str],
 ) -> None:
     """Run stage-local validators for a single spec in Stage 7."""
-    for result in (
-        validate_bdi_grounding(spec, control_structure),
-        validate_vulnerability_completeness(spec),
-    ):
-        if not result.passed:
-            validation_errors.extend(result.errors)
+    _extend_validation_errors(
+        (
+            validate_bdi_grounding(spec, control_structure),
+            validate_vulnerability_completeness(spec),
+        ),
+        validation_errors,
+    )
 
 
 def _validate_envelope_stage7(
@@ -455,18 +475,18 @@ def _validate_envelope_stage7(
     validation_errors: list[str],
 ) -> None:
     """Run stage-local validators for a single envelope in Stage 7."""
-    for result in (
-        validate_tree_branch_coverage(envelope.attack_tree),
-        validate_attack_tree_root_label(
-            envelope.attack_tree,
-            envelope.ica_type.value,
-            envelope.scenario_spec.target_control_action,
+    _extend_validation_errors(
+        (
+            validate_tree_branch_coverage(envelope.attack_tree),
+            validate_attack_tree_root_label(
+                envelope.attack_tree,
+                envelope.ica_type.value,
+                envelope.scenario_spec.target_control_action,
+            ),
         ),
-    ):
-        if not result.passed:
-            validation_errors.extend(result.errors)
+        validation_errors,
+    )
 
-    # Validate Gherkin structure
     ghk_for_validation: GherkinSpec | str = (
         envelope.gherkin_spec
         if isinstance(envelope.gherkin_spec, GherkinSpec)
@@ -476,16 +496,34 @@ def _validate_envelope_stage7(
     if not ghk_result.passed:
         validation_errors.extend(ghk_result.errors)
 
-    # Validate Loss/Hazard ID references
-    id_text = envelope.gherkin_raw or (
-        envelope.gherkin_spec.to_feature_text()
-        if isinstance(envelope.gherkin_spec, GherkinSpec)
-        else ""
-    )
+    id_text = _envelope_gherkin_text(envelope)
     if id_text:
         id_result = validate_loss_hazard_id_references(id_text, loss_analysis)
         if not id_result.passed:
             validation_errors.extend(id_result.errors)
+
+
+def _extend_validation_errors(
+    results: tuple[ValidationResult, ...],
+    errors: list[str],
+) -> None:
+    """Append errors from each failed ValidationResult to *errors*."""
+    for result in results:
+        if not result.passed:
+            errors.extend(result.errors)
+
+
+def _envelope_gherkin_text(envelope: ScenarioEnvelope) -> str:
+    """Extract Gherkin feature text from an envelope.
+
+    Prefers ``gherkin_raw``; falls back to ``gherkin_spec.to_feature_text()``
+    when the spec is a :class:`GherkinSpec`, or empty string otherwise.
+    """
+    return envelope.gherkin_raw or (
+        envelope.gherkin_spec.to_feature_text()
+        if isinstance(envelope.gherkin_spec, GherkinSpec)
+        else ""
+    )
 
 
 def _write_scenario_artifacts(
@@ -494,11 +532,7 @@ def _write_scenario_artifacts(
 ) -> None:
     """Write scenario YAML and .feature files."""
     write_yaml(envelope, scenarios_dir / f"{envelope.scenario_id}.yaml")
-    feature_text = envelope.gherkin_raw or (
-        envelope.gherkin_spec.to_feature_text()
-        if isinstance(envelope.gherkin_spec, GherkinSpec)
-        else ""
-    )
+    feature_text = _envelope_gherkin_text(envelope)
     (scenarios_dir / f"{envelope.scenario_id}.feature").write_text(
         feature_text, encoding="utf-8"
     )
@@ -552,5 +586,5 @@ def _write_manifest(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T10:45:01Z","module_hash":"2aba7e1a885837e66839e6a8667aff1a08133b48e84b67cc0a16a465a47efe75","functions":[{"id":"func/run_sp3","name":"run_sp3","line":76,"end_line":176,"hash":"e50c6ac29b98ae07a36958f02b0284b695eefea7298c404e1550e02eef6add04"},{"id":"func/_format_traceability_errors","name":"_format_traceability_errors","line":179,"end_line":181,"hash":"d92abc2bf22d0b470d038eab787624373096550a906c2b05839c1975f9fe0058"},{"id":"func/_run_stage5_for_threat","name":"_run_stage5_for_threat","line":184,"end_line":217,"hash":"5aa82122b11f2e1dc936ee519614b3de98bf0951bde5651035f287b0abbb4a84"},{"id":"func/_validate_stage5_spec","name":"_validate_stage5_spec","line":220,"end_line":232,"hash":"efcc8bf5577f0faefcf9067a72402e19e648dd5ff620ca14de5685b41c7ea569"},{"id":"func/_run_stage6_for_spec","name":"_run_stage6_for_spec","line":235,"end_line":269,"hash":"18b9a8eb83014db2eb27e36b976936e7eb33c9846d01374fb98472f03842cb0b"},{"id":"func/_build_stage6_prompts","name":"_build_stage6_prompts","line":281,"end_line":297,"hash":"eb8032ecd593e574eb9165cff9fac7e3e1660e5865c073c694d15b9a626605b9"},{"id":"func/_collect_stage6_errors","name":"_collect_stage6_errors","line":300,"end_line":309,"hash":"09db95ead3f7b029c2c5c203281e27fe70f7cfa7361104d1585748a43ffbe574"},{"id":"func/_parse_stage6_results","name":"_parse_stage6_results","line":312,"end_line":324,"hash":"3ea953ca0ef2e203a4ea23407db5df3bff514aa811fc744337c085eb443461eb"},{"id":"func/_validate_stage6_artifacts","name":"_validate_stage6_artifacts","line":327,"end_line":340,"hash":"bde878d02b327809dfb52dcebc4f4207e8715a8320ea65f6408ff99d8a9c8b02"},{"id":"func/_parallel_stage6_calls","name":"_parallel_stage6_calls","line":343,"end_line":386,"hash":"3d0773dc97069fae22f58eb2f4cc3a4e57da05dde1a7229e7066508d23f09a44"},{"id":"func/_run_stage7_validations","name":"_run_stage7_validations","line":389,"end_line":400,"hash":"f045765e2f8092fa3e7de5b04253a74b250d19543dee56ee6ae3bb24b7d15af3"},{"id":"func/_validate_spec_stage7","name":"_validate_spec_stage7","line":403,"end_line":414,"hash":"d1b94ed5ed7ef0dc56a2bf31346c2efc3be47c5df1a2f93cd2cc5fe6a85db88e"},{"id":"func/_validate_envelope_stage7","name":"_validate_envelope_stage7","line":417,"end_line":427,"hash":"72547f1d1e44081a86d54b857ee9fac9f9b166770b14c16e153d695bad75e5d7"},{"id":"func/_write_scenario_artifacts","name":"_write_scenario_artifacts","line":430,"end_line":438,"hash":"3b1405af425d4b2b8d2614d6a7299495ca425a86b059c5690af5da069f5e7cae"},{"id":"func/_write_manifest","name":"_write_manifest","line":441,"end_line":485,"hash":"70f35d02ff2a8f8daa12c688cd5412bccad3f28e74bc23095a1b09ddb1d36626"}]}
+# {"version":1,"tested_at":"2026-08-10T14:05:41Z","module_hash":"58a2d2c7cd39d5cd43302cfa0c4bdd3e95553b3991ae31ce40982667a6eb0207","functions":[{"id":"func/run_sp3","name":"run_sp3","line":87,"end_line":188,"hash":"d9cc17a51958757aed8af12dccc7896e51b4fc61083d179edea17cc0b7f09086"},{"id":"func/_format_traceability_errors","name":"_format_traceability_errors","line":191,"end_line":193,"hash":"d92abc2bf22d0b470d038eab787624373096550a906c2b05839c1975f9fe0058"},{"id":"func/_run_stage5_for_threat","name":"_run_stage5_for_threat","line":196,"end_line":229,"hash":"5aa82122b11f2e1dc936ee519614b3de98bf0951bde5651035f287b0abbb4a84"},{"id":"func/_validate_stage5_spec","name":"_validate_stage5_spec","line":232,"end_line":244,"hash":"7afa5ce8b0cf509e1f1d27059af63c025a08def4d8cb8ef33951d6f018898146"},{"id":"func/_run_stage6_for_spec","name":"_run_stage6_for_spec","line":247,"end_line":285,"hash":"487a0f02542d33199b172c2af4455cf052f7935384e8675ed82c8ea8a1e47325"},{"id":"func/_build_stage6_prompts","name":"_build_stage6_prompts","line":297,"end_line":313,"hash":"cafb48ceb728193cafec4b30b9786c20a8459e87529f71c95bf495cef8f25b3b"},{"id":"func/_collect_stage6_errors","name":"_collect_stage6_errors","line":316,"end_line":325,"hash":"09db95ead3f7b029c2c5c203281e27fe70f7cfa7361104d1585748a43ffbe574"},{"id":"func/_parse_stage6_results","name":"_parse_stage6_results","line":328,"end_line":342,"hash":"bf3111c3de5ef646cdf440dfdbce7c6691fb1e45b27259049b0f26ec6807ebe8"},{"id":"func/_validate_stage6_artifacts","name":"_validate_stage6_artifacts","line":345,"end_line":356,"hash":"43429a4a8327ddce0781eb8c836ed6599563cf324f12de3ceb318b4933c34673"},{"id":"func/_validate_stage6_tree","name":"_validate_stage6_tree","line":359,"end_line":375,"hash":"711c2ca2d4cdeedf9331b79e13b3107954aee67df4bab7365dca1baaa6dce3cd"},{"id":"func/_validate_stage6_gherkin","name":"_validate_stage6_gherkin","line":378,"end_line":393,"hash":"ba653b5b60a81191d51d7a4c3c2b6012748ef2818af05d8618337aa2174ea3d5"},{"id":"func/_parallel_stage6_calls","name":"_parallel_stage6_calls","line":396,"end_line":439,"hash":"3d0773dc97069fae22f58eb2f4cc3a4e57da05dde1a7229e7066508d23f09a44"},{"id":"func/_run_stage7_validations","name":"_run_stage7_validations","line":442,"end_line":454,"hash":"4dc9a726c1d3351fded9526f82ee983444f416689040ad720ead87cf105c83fe"},{"id":"func/_validate_spec_stage7","name":"_validate_spec_stage7","line":457,"end_line":469,"hash":"8bc376220e835c7abf658e394c76f149c5f83440354ff24812edfe4620208061"},{"id":"func/_validate_envelope_stage7","name":"_validate_envelope_stage7","line":472,"end_line":503,"hash":"594eb3d9b47eb3a515b0dbe0b1d4fbd33f9f19842fe000eec19a1c7fc8fcf07f"},{"id":"func/_extend_validation_errors","name":"_extend_validation_errors","line":506,"end_line":513,"hash":"94feb985e3b2c4070c96068ab39a4ecfa7c03c805b7363b6b22af01630a3b570"},{"id":"func/_envelope_gherkin_text","name":"_envelope_gherkin_text","line":516,"end_line":526,"hash":"26a3bcbb2542c0ca41e4888ef4af2d2cd8280c1c28178538e42583b9643bff20"},{"id":"func/_write_scenario_artifacts","name":"_write_scenario_artifacts","line":529,"end_line":538,"hash":"d6e964176933855357f4a7ac3302d7a4b22d21c64ef7fc989b683b450bb5b68f"},{"id":"func/_write_manifest","name":"_write_manifest","line":541,"end_line":585,"hash":"70f35d02ff2a8f8daa12c688cd5412bccad3f28e74bc23095a1b09ddb1d36626"}]}
 # mutate4py-manifest-end
