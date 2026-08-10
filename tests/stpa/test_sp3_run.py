@@ -386,3 +386,100 @@ class TestCLIScript:
         assert "--loss-analysis" in result.stdout
         assert "--output-dir" in result.stdout
         assert "--max-workers" in result.stdout
+
+
+class TestErrorPaths:
+    """SP3 run error handling — Stage 5 and Stage 6 failures."""
+
+    def test_stage5_invalid_responsibility_skipped(self):
+        """A threat with an invalid responsibility ID is skipped with an error."""
+        from scenario_forge.stpa.models.enriched_threat_set import StructuralThreat
+        cs = _make_cs()
+        la = _make_loss_analysis()
+        ets = EnrichedThreatSet(
+            structural_threats=[
+                StructuralThreat(
+                    ica_slot_id="RESP-99:CA-1-1:NOT_PROVIDED",
+                    ica_id="RESP-99:CA-1-1:NOT_PROVIDED:1",
+                    ica_text="t", hazardous_context="c", loss_scenario="l",
+                    related_hazards=["H-1"], related_constraints=["SC-1"],
+                ),
+            ],
+            coverage_analysis=CoverageAnalysis(
+                structural_coverage={"total_slots": 1, "non_na": 1, "na": 0, "coverage_rate": 1.0},
+            ),
+        )
+        client = MockLLMClient()
+
+        with TemporaryDirectory() as tmpdir:
+            result = run_sp3(
+                llm_client=client,
+                enriched_threat_set=ets,
+                control_structure=cs,
+                loss_analysis=la,
+                run_dir=Path(tmpdir),
+            )
+            assert len(result.scenario_envelopes) == 0
+            assert any("Stage 5" in e for e in result.stage_errors)
+
+    def test_stage5_llm_failure_skipped(self):
+        """A Stage 5 LLM failure is skipped with an error."""
+        cs = _make_cs()
+        la = _make_loss_analysis()
+        ets = _make_ets(num_threats=1)
+        client = MockLLMClient()
+        client.set_exception_for(
+            __import__(
+                "scenario_forge.stpa.scenario_prod.bdi_generation",
+                fromlist=["BDIGenerationResult"],
+            ).BDIGenerationResult,
+            RuntimeError("LLM down"),
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            result = run_sp3(
+                llm_client=client,
+                enriched_threat_set=ets,
+                control_structure=cs,
+                loss_analysis=la,
+                run_dir=Path(tmpdir),
+            )
+            assert len(result.scenario_envelopes) == 0
+            assert any("Stage 5 BDI generation failed" in e for e in result.stage_errors)
+
+    def test_stage6_llm_failure_uses_fallbacks(self):
+        """Stage 6 LLM failures produce envelopes with fallback empty artifacts."""
+        cs = _make_cs()
+        la = _make_loss_analysis()
+        ets = _make_ets(num_threats=1)
+        client = MockLLMClient()
+
+        # Stage 5 BDI response
+        bdi = BDIGenerationResult(
+            defender_vulnerabilities={"PM-1-1": "vuln"},
+            attacker_bdi=__import__(
+                "scenario_forge.stpa.models.scenario_spec",
+                fromlist=["AttackerBDI"],
+            ).AttackerBDI(
+                beliefs=["b"], desires=["d"], intentions=["i"],
+            ),
+        )
+        client.set_response_queue([bdi])
+
+        # Stage 6: all three calls raise
+        client.set_exception_for(None, RuntimeError("LLM down"))
+
+        with TemporaryDirectory() as tmpdir:
+            result = run_sp3(
+                llm_client=client,
+                enriched_threat_set=ets,
+                control_structure=cs,
+                loss_analysis=la,
+                run_dir=Path(tmpdir),
+            )
+            assert len(result.scenario_envelopes) == 1
+            env = result.scenario_envelopes[0]
+            assert env.narrative == ""
+            assert env.attack_tree == {"root": "", "branches": [], "leaves": []}
+            assert env.gherkin_spec == ""
+            assert any("Stage 6" in e for e in result.stage_errors)

@@ -11,7 +11,6 @@ input hashes, and prompt hashes.
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +20,7 @@ import yaml
 
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.manifest_helpers import count_calls_by_stage, hash_model
 from scenario_forge.stpa.infra.templates import TemplateLoader, hash_prompt_templates
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
@@ -151,14 +151,14 @@ def _write_manifest(
 ) -> None:
     """Write the run manifest YAML."""
     input_hashes = {
-        "control_structure": _hash_model(control_structure),
-        "capability_profile": _hash_model(capability_profile),
-        "loss_analysis": _hash_model(loss_analysis),
+        "control_structure": hash_model(control_structure),
+        "capability_profile": hash_model(capability_profile),
+        "loss_analysis": hash_model(loss_analysis),
     }
     prompt_hashes = hash_prompt_templates(PROMPTS_DIR)
 
     # Count calls by stage from calls.jsonl
-    stage_summary = _count_calls_by_stage(run_dir)
+    stage_summary = count_calls_by_stage(run_dir)
 
     na_count = sum(1 for s in ica_enumeration.slots if s.is_na)
     total_slots = len(ica_enumeration.slots)
@@ -196,41 +196,6 @@ def _write_manifest(
     )
 
 
-def _hash_model(model: Any) -> str:
-    """Compute SHA-256 hash of a Pydantic model's YAML representation."""
-    content = yaml.dump(
-        model.model_dump(mode="json", exclude_none=True),
-        default_flow_style=False,
-        sort_keys=True,
-        allow_unicode=True,
-    )
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-def _count_calls_by_stage(run_dir: Path) -> dict[str, dict[str, int]]:
-    """Count calls by stage from calls.jsonl."""
-    import json
-
-    calls_file = run_dir / "calls.jsonl"
-    if not calls_file.exists():
-        return {}
-
-    counts: dict[str, dict[str, int]] = {}
-    for line in calls_file.read_text().splitlines():
-        if not line.strip():
-            continue
-        entry = json.loads(line)
-        stage = entry.get("stage", "unknown")
-        if stage not in counts:
-            counts[stage] = {"call_count": 0, "total_tokens": 0}
-        counts[stage]["call_count"] += 1
-        counts[stage]["total_tokens"] += (
-            entry.get("prompt_tokens", 0) + entry.get("completion_tokens", 0)
-        )
-
-    return counts
-
-
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T00:44:00Z","module_hash":"946c4646245bb7f299945b9148f6613f1f13dd108f8831cefd6400c9797e01eb","functions":[{"id":"func/run_sp2","name":"run_sp2","line":59,"end_line":136,"hash":"7b560f6ff5237937d80854a127e7ecee9c5f87b007f1ae342c9907cbcf687c91"},{"id":"func/_write_manifest","name":"_write_manifest","line":139,"end_line":196,"hash":"82039d629a7a1c766f3394db8996fe3e44bb127b4664961398067e922a198c30"},{"id":"func/_hash_model","name":"_hash_model","line":199,"end_line":207,"hash":"918e007edb775ac6dc747517c3577cbf2d45e2c9c453d434df8242b3fcb73f73"},{"id":"func/_count_calls_by_stage","name":"_count_calls_by_stage","line":210,"end_line":231,"hash":"1baa19ba1f59950b7c4963c6a34324c77c8c226516842e125bbf086fc9d88cf7"}]}
+# {"version":1,"tested_at":"2026-08-10T00:44:00Z","module_hash":"946c4646245bb7f299945b9148f6613f1f13dd108f8831cefd6400c9797e01eb","functions":[{"id":"func/run_sp2","name":"run_sp2","line":59,"end_line":136,"hash":"7b560f6ff5237937d80854a127e7ecee9c5f87b007f1ae342c9907cbcf687c91"},{"id":"func/_write_manifest","name":"_write_manifest","line":139,"end_line":196,"hash":"82039d629a7a1c766f3394db8996fe3e44bb127b4664961398067e922a198c30"}]}
 # mutate4py-manifest-end

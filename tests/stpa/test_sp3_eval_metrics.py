@@ -373,6 +373,41 @@ class TestDiversity:
         result = metric_diversity(envelopes)
         assert result["unique_attack_mechanisms"] == 4
 
+    def test_unique_mechanisms_with_dict_leaves(self):
+        """Dict leaves use 'label' key; fallback uses str()."""
+        envelopes = [
+            _make_envelope(
+                spec=_make_scenario_spec(scenario_id="SCN-001"),
+                attack_tree={"root": "r", "branches": [], "leaves": [
+                    {"label": "dict_mechanism"},
+                ]},
+            ),
+            _make_envelope(
+                spec=_make_scenario_spec(scenario_id="SCN-002"),
+                attack_tree={"root": "r", "branches": [], "leaves": [
+                    {"label": "dict_mechanism"},  # duplicate
+                ]},
+            ),
+        ]
+        result = metric_diversity(envelopes)
+        assert result["unique_attack_mechanisms"] == 1
+
+    def test_unique_mechanisms_with_mixed_leaf_types(self):
+        """Mixed str, dict-with-label, dict-without-label, and int leaves."""
+        envelopes = [
+            _make_envelope(
+                spec=_make_scenario_spec(scenario_id="SCN-001"),
+                attack_tree={"root": "r", "branches": [], "leaves": [
+                    "string_leaf",
+                    {"label": "labeled_leaf"},
+                    {"no_label": "x"},
+                    42,
+                ]},
+            ),
+        ]
+        result = metric_diversity(envelopes)
+        assert result["unique_attack_mechanisms"] == 4
+
 
 class TestEvalScorecard:
     """SP3-EVAL-16, SP3-EVAL-17."""

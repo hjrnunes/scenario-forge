@@ -66,8 +66,7 @@ def generate_attack_tree(
 
     if error is not None:
         return None, error
-    if text is None:
-        return None, "No response text"
+
     tree = parse_attack_tree(text)
     if tree is None:
         return None, "Failed to parse attack tree from LLM response"
@@ -85,21 +84,38 @@ def parse_attack_tree(content) -> dict | None:
     Returns:
         A dict with ``root``, ``branches``, and ``leaves`` keys, or None.
     """
-    if content is None:
-        return None
     if isinstance(content, dict):
         return content
-    if isinstance(content, str):
-        try:
-            return json.loads(content)
-        except (json.JSONDecodeError, ValueError):
-            try:
-                parsed = yaml.safe_load(content)
-                if isinstance(parsed, dict):
-                    return parsed
-            except yaml.YAMLError:
-                pass
+    if not isinstance(content, str):
+        return None
+    return _parse_tree_text(content)
+
+
+def _parse_tree_text(text: str) -> dict | None:
+    """Try parsing text as JSON then YAML, returning a dict or None."""
+    for parser in (_parse_json_dict, _parse_yaml_dict):
+        result = parser(text)
+        if result is not None:
+            return result
     return None
+
+
+def _parse_json_dict(text: str) -> dict | None:
+    """Parse text as JSON, returning a dict or None."""
+    try:
+        result = json.loads(text)
+        return result if isinstance(result, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def _parse_yaml_dict(text: str) -> dict | None:
+    """Parse text as YAML, returning a dict or None."""
+    try:
+        parsed = yaml.safe_load(text)
+        return parsed if isinstance(parsed, dict) else None
+    except yaml.YAMLError:
+        return None
 
 
 def build_attack_tree_prompts(

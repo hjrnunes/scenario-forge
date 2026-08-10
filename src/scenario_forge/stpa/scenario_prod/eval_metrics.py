@@ -25,6 +25,7 @@ from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
 
 from .validators import (
     BRANCH_CATEGORIES,
+    _collect_valid_tree_ids,
     _count_branch_categories,
     _get_branch_categories,
     validate_traceability,
@@ -84,27 +85,50 @@ def metric_bdi_grounding(
         A dict with ``belief_grounding_rate``, ``desire_grounding_rate``,
         and ``intention_grounding_rate``.
     """
-    valid_pm = {pm.pm_id for r in cs.responsibilities for pm in r.process_model_parts}
-    valid_resp = {r.resp_id for r in cs.responsibilities}
-    valid_ca = {ca.ca_id for r in cs.responsibilities for ca in r.control_actions}
+    valid_ids = _collect_valid_tree_ids(cs)
 
-    total_beliefs = total_desires = total_intentions = 0
-    grounded_beliefs = grounded_desires = grounded_intentions = 0
+    total_beliefs = grounded_beliefs = 0
+    total_desires = grounded_desires = 0
+    total_intentions = grounded_intentions = 0
 
     for scenario in scenarios:
         bdi = scenario.scenario_spec.defender_bdi
-        total_beliefs += len(bdi.beliefs)
-        grounded_beliefs += sum(1 for b in bdi.beliefs if b.pm_id in valid_pm)
-        total_desires += len(bdi.desires)
-        grounded_desires += sum(1 for d in bdi.desires if d.resp_id in valid_resp)
-        total_intentions += len(bdi.intentions)
-        grounded_intentions += sum(1 for i in bdi.intentions if i.ca_id in valid_ca)
+        tb, gb = _count_grounded(bdi.beliefs, valid_ids["PM"], "pm_id")
+        total_beliefs += tb
+        grounded_beliefs += gb
+        td, gd = _count_grounded(bdi.desires, valid_ids["RESP"], "resp_id")
+        total_desires += td
+        grounded_desires += gd
+        ti, gi = _count_grounded(bdi.intentions, valid_ids["CA"], "ca_id")
+        total_intentions += ti
+        grounded_intentions += gi
 
     return {
-        "belief_grounding_rate": grounded_beliefs / total_beliefs if total_beliefs else 0,
-        "desire_grounding_rate": grounded_desires / total_desires if total_desires else 0,
-        "intention_grounding_rate": grounded_intentions / total_intentions if total_intentions else 0,
+        "belief_grounding_rate": _safe_rate(grounded_beliefs, total_beliefs),
+        "desire_grounding_rate": _safe_rate(grounded_desires, total_desires),
+        "intention_grounding_rate": _safe_rate(grounded_intentions, total_intentions),
     }
+
+
+def _count_grounded(items: list, valid_ids: set[str], id_attr: str) -> tuple[int, int]:
+    """Count total items and how many have a valid ID attribute.
+
+    Args:
+        items: List of objects with an ID attribute.
+        valid_ids: Set of valid IDs to check against.
+        id_attr: Name of the attribute holding the ID.
+
+    Returns:
+        A tuple of (total_count, grounded_count).
+    """
+    total = len(items)
+    grounded = sum(1 for item in items if getattr(item, id_attr) in valid_ids)
+    return total, grounded
+
+
+def _safe_rate(numerator: int, denominator: int) -> float:
+    """Compute a rate, returning 0 when the denominator is zero."""
+    return numerator / denominator if denominator else 0
 
 
 def metric_tree_branch_coverage(
@@ -127,7 +151,7 @@ def metric_tree_branch_coverage(
     return {
         "total_scenarios": total,
         "scenarios_with_2plus_categories": covered,
-        "coverage_rate": covered / total if total else 0,
+        "coverage_rate": _safe_rate(covered, total),
     }
 
 
@@ -162,7 +186,7 @@ def metric_traceability_depth(
     return {
         "total_scenarios": total,
         "complete_chains": complete,
-        "traceability_rate": complete / total if total else 0,
+        "traceability_rate": _safe_rate(complete, total),
     }
 
 
@@ -208,16 +232,21 @@ def _count_branch_usage(scenarios: list[ScenarioEnvelope]) -> dict[str, int]:
     return counts
 
 
+def _extract_leaf_label(leaf) -> str:
+    """Extract a string label from a leaf entry (str or dict)."""
+    if isinstance(leaf, str):
+        return leaf
+    if isinstance(leaf, dict):
+        return leaf.get("label", str(leaf))
+    return str(leaf)
+
+
 def _count_unique_mechanisms(scenarios: list[ScenarioEnvelope]) -> int:
     """Count unique attack mechanisms across all scenario attack trees."""
     mechanisms: set[str] = set()
     for s in scenarios:
-        leaves = s.attack_tree.get("leaves", [])
-        for leaf in leaves:
-            if isinstance(leaf, str):
-                mechanisms.add(leaf)
-            elif isinstance(leaf, dict):
-                mechanisms.add(leaf.get("label", str(leaf)))
+        for leaf in s.attack_tree.get("leaves", []):
+            mechanisms.add(_extract_leaf_label(leaf))
     return len(mechanisms)
 
 

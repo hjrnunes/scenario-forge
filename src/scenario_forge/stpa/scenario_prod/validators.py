@@ -8,11 +8,12 @@ provenance root → loss → hazard → constraint → responsibility → CA →
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 
-from scenario_forge.stpa.models.control_structure import ControlStructure
-from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
+from scenario_forge.stpa.models.control_structure import ControlStructure, Responsibility
+from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet, StructuralThreat
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
@@ -34,6 +35,14 @@ __all__ = [
 BRANCH_CATEGORIES = ["controller_side", "path_side", "coordination_gap"]
 
 LEGAL_PROVENANCE_ROOTS = {"risk_card", "use_case", "critic_derived"}
+
+# (regex pattern, label) for tree ID validation
+_TREE_ID_SPECS: list[tuple[str, str]] = [
+    (r"PM-\d+-\d+", "PM"),
+    (r"FB-\d+-\d+", "FB"),
+    (r"CA-\d+-\d+", "CA"),
+    (r"RESP-\d+", "RESP"),
+]
 
 
 @dataclass
@@ -113,19 +122,13 @@ def validate_vulnerability_completeness(
 
 def _count_branch_categories(attack_tree: dict) -> int:
     """Count how many of the 3 branch categories are used in the tree."""
-    branches = attack_tree.get("branches", [])
-    categories = set()
-    for branch in branches:
-        cat = branch.get("category", "")
-        if cat in BRANCH_CATEGORIES:
-            categories.add(cat)
-    return len(categories)
+    return len(_get_branch_categories(attack_tree))
 
 
 def _get_branch_categories(attack_tree: dict) -> set[str]:
     """Get the set of branch categories used in the tree."""
     branches = attack_tree.get("branches", [])
-    categories = set()
+    categories: set[str] = set()
     for branch in branches:
         cat = branch.get("category", "")
         if cat in BRANCH_CATEGORIES:
@@ -201,40 +204,60 @@ def validate_tree_id_references(
     Returns:
         A :class:`ValidationResult`.
     """
-    valid_pm = {pm.pm_id for r in control_structure.responsibilities for pm in r.process_model_parts}
-    valid_fb = {fb.fb_id for r in control_structure.responsibilities for fb in r.feedback_channels}
-    valid_ca = {ca.ca_id for r in control_structure.responsibilities for ca in r.control_actions}
-    valid_resp = {r.resp_id for r in control_structure.responsibilities}
-
+    valid_ids = _collect_valid_tree_ids(control_structure)
     tree_text = _flatten_tree_to_text(attack_tree)
+
     errors: list[str] = []
-
-    for pm_match in re.finditer(r"PM-\d+-\d+", tree_text):
-        pm_id = pm_match.group()
-        if pm_id not in valid_pm:
-            errors.append(f"Attack tree references non-existent PM '{pm_id}'.")
-
-    for fb_match in re.finditer(r"FB-\d+-\d+", tree_text):
-        fb_id = fb_match.group()
-        if fb_id not in valid_fb:
-            errors.append(f"Attack tree references non-existent FB '{fb_id}'.")
-
-    for ca_match in re.finditer(r"CA-\d+-\d+", tree_text):
-        ca_id = ca_match.group()
-        if ca_id not in valid_ca:
-            errors.append(f"Attack tree references non-existent CA '{ca_id}'.")
-
-    for resp_match in re.finditer(r"RESP-\d+", tree_text):
-        resp_id = resp_match.group()
-        if resp_id not in valid_resp:
-            errors.append(f"Attack tree references non-existent RESP '{resp_id}'.")
+    for pattern, label in _TREE_ID_SPECS:
+        errors.extend(_find_invalid_ids(tree_text, pattern, valid_ids[label], label))
 
     return ValidationResult(passed=len(errors) == 0, errors=errors)
 
 
+def _collect_valid_tree_ids(cs: ControlStructure) -> dict[str, set[str]]:
+    """Collect all valid PM, FB, CA, and RESP IDs from the control structure."""
+    return {
+        "PM": _flatten_nested_ids(cs.responsibilities, "process_model_parts", "pm_id"),
+        "FB": _flatten_nested_ids(cs.responsibilities, "feedback_channels", "fb_id"),
+        "CA": _flatten_nested_ids(cs.responsibilities, "control_actions", "ca_id"),
+        "RESP": {r.resp_id for r in cs.responsibilities},
+    }
+
+
+def _flatten_nested_ids(
+    responsibilities: list[Responsibility],
+    attr: str,
+    id_attr: str,
+) -> set[str]:
+    """Flatten a nested collection of IDs from responsibilities.
+
+    Each responsibility has a list attribute (e.g. ``process_model_parts``);
+    this collects ``id_attr`` from every item across all responsibilities.
+    """
+    return {
+        getattr(item, id_attr)
+        for r in responsibilities
+        for item in getattr(r, attr)
+    }
+
+
+def _find_invalid_ids(
+    tree_text: str,
+    pattern: str,
+    valid_ids: set[str],
+    label: str,
+) -> list[str]:
+    """Find IDs matching *pattern* in *tree_text* that are not in *valid_ids*."""
+    errors: list[str] = []
+    for match in re.finditer(pattern, tree_text):
+        id_val = match.group()
+        if id_val not in valid_ids:
+            errors.append(f"Attack tree references non-existent {label} '{id_val}'.")
+    return errors
+
+
 def _flatten_tree_to_text(attack_tree: dict) -> str:
     """Flatten an attack tree dict to a single text string for ID scanning."""
-    import json
     return json.dumps(attack_tree, default=str)
 
 
@@ -258,77 +281,137 @@ def validate_traceability(
     Returns:
         A list of :class:`TraceabilityError` for broken links.
     """
+    lookups = _build_traceability_lookups(
+        enriched_threat_set, control_structure, loss_analysis
+    )
+
+    errors: list[TraceabilityError] = []
+    for scenario in scenarios:
+        errors.extend(
+            _validate_single_scenario_traceability(
+                scenario, lookups
+            )
+        )
+    return errors
+
+
+@dataclass
+class _TraceabilityLookups:
+    """Pre-computed lookup sets for traceability validation."""
+
+    hazard_ids: set[str]
+    constraint_ids: set[str]
+    resp_ids: set[str]
+    all_ca_ids: set[str]
+    threat_by_ica_id: dict[str, StructuralThreat]
+
+
+def _build_traceability_lookups(
+    enriched_threat_set: EnrichedThreatSet,
+    control_structure: ControlStructure,
+    loss_analysis: LossAnalysis,
+) -> _TraceabilityLookups:
+    """Build lookup maps for traceability validation."""
+    cs_ids = _collect_valid_tree_ids(control_structure)
+    return _TraceabilityLookups(
+        hazard_ids={h.hazard_id for h in loss_analysis.hazards},
+        constraint_ids={sc.constraint_id for sc in loss_analysis.security_constraints},
+        resp_ids=cs_ids["RESP"],
+        all_ca_ids=cs_ids["CA"],
+        threat_by_ica_id={
+            t.ica_id: t
+            for t in enriched_threat_set.structural_threats
+            if t.ica_id
+        },
+    )
+
+
+def _validate_single_scenario_traceability(
+    scenario: ScenarioEnvelope,
+    lookups: _TraceabilityLookups,
+) -> list[TraceabilityError]:
+    """Validate the provenance chain for a single scenario."""
+    spec = scenario.scenario_spec
+    sid = scenario.scenario_id
     errors: list[TraceabilityError] = []
 
-    # Build lookup maps
-    hazard_ids = {h.hazard_id for h in loss_analysis.hazards}
-    constraint_ids = {sc.constraint_id for sc in loss_analysis.security_constraints}
-    resp_ids = {r.resp_id for r in control_structure.responsibilities}
-    all_ca_ids = {ca.ca_id for r in control_structure.responsibilities for ca in r.control_actions}
-    threat_by_ica_id = {t.ica_id: t for t in enriched_threat_set.structural_threats if t.ica_id}
+    errors.extend(_check_scenario_links(sid, spec, lookups))
 
-    for scenario in scenarios:
-        spec = scenario.scenario_spec
-        sid = scenario.scenario_id
+    threat = lookups.threat_by_ica_id.get(spec.threat_source.ica_id)
+    if threat is None:
+        errors.append(TraceabilityError(
+            scenario_id=sid,
+            broken_link="ica",
+            expected=f"valid ica_id from {sorted(lookups.threat_by_ica_id.keys())}",
+            actual=spec.threat_source.ica_id or "None",
+        ))
+        return errors
 
-        # Check provenance root
-        provenance = spec.threat_source.provenance
-        if provenance not in LEGAL_PROVENANCE_ROOTS and provenance != "structural":
+    errors.extend(_check_hazard_and_constraint_links(sid, threat, lookups))
+    return errors
+
+
+def _check_scenario_links(
+    sid: str,
+    spec: ScenarioSpec,
+    lookups: _TraceabilityLookups,
+) -> list[TraceabilityError]:
+    """Check provenance root, responsibility, and CA links for a scenario."""
+    errors: list[TraceabilityError] = []
+
+    provenance = spec.threat_source.provenance
+    if provenance not in LEGAL_PROVENANCE_ROOTS and provenance != "structural":
+        errors.append(TraceabilityError(
+            scenario_id=sid,
+            broken_link="provenance_root",
+            expected=str(LEGAL_PROVENANCE_ROOTS | {"structural"}),
+            actual=provenance,
+        ))
+
+    if spec.target_controller not in lookups.resp_ids:
+        errors.append(TraceabilityError(
+            scenario_id=sid,
+            broken_link="responsibility",
+            expected=f"valid RESP ID from {sorted(lookups.resp_ids)}",
+            actual=spec.target_controller,
+        ))
+
+    if spec.target_control_action not in lookups.all_ca_ids:
+        errors.append(TraceabilityError(
+            scenario_id=sid,
+            broken_link="control_action",
+            expected=f"valid CA ID from {sorted(lookups.all_ca_ids)}",
+            actual=spec.target_control_action,
+        ))
+
+    return errors
+
+
+def _check_hazard_and_constraint_links(
+    sid: str,
+    threat: StructuralThreat,
+    lookups: _TraceabilityLookups,
+) -> list[TraceabilityError]:
+    """Check hazard and constraint links for a scenario's threat."""
+    errors: list[TraceabilityError] = []
+
+    for hz_id in threat.related_hazards:
+        if hz_id not in lookups.hazard_ids:
             errors.append(TraceabilityError(
                 scenario_id=sid,
-                broken_link="provenance_root",
-                expected=str(LEGAL_PROVENANCE_ROOTS | {"structural"}),
-                actual=provenance,
+                broken_link="hazard",
+                expected=f"valid hazard ID from {sorted(lookups.hazard_ids)}",
+                actual=hz_id,
             ))
 
-        # Check responsibility link
-        if spec.target_controller not in resp_ids:
+    for cs_id in threat.related_constraints:
+        if cs_id not in lookups.constraint_ids and not cs_id.startswith("RC-"):
             errors.append(TraceabilityError(
                 scenario_id=sid,
-                broken_link="responsibility",
-                expected=f"valid RESP ID from {sorted(resp_ids)}",
-                actual=spec.target_controller,
+                broken_link="constraint",
+                expected=f"valid constraint ID from {sorted(lookups.constraint_ids)}",
+                actual=cs_id,
             ))
-
-        # Check CA link
-        if spec.target_control_action not in all_ca_ids:
-            errors.append(TraceabilityError(
-                scenario_id=sid,
-                broken_link="control_action",
-                expected=f"valid CA ID from {sorted(all_ca_ids)}",
-                actual=spec.target_control_action,
-            ))
-
-        # Check ICA link — find the threat for this scenario
-        threat = threat_by_ica_id.get(spec.threat_source.ica_id)
-        if threat is None:
-            errors.append(TraceabilityError(
-                scenario_id=sid,
-                broken_link="ica",
-                expected=f"valid ica_id from {sorted(threat_by_ica_id.keys())}",
-                actual=spec.threat_source.ica_id or "None",
-            ))
-            continue
-
-        # Check hazard links
-        for hz_id in threat.related_hazards:
-            if hz_id not in hazard_ids:
-                errors.append(TraceabilityError(
-                    scenario_id=sid,
-                    broken_link="hazard",
-                    expected=f"valid hazard ID from {sorted(hazard_ids)}",
-                    actual=hz_id,
-                ))
-
-        # Check constraint links
-        for cs_id in threat.related_constraints:
-            if cs_id not in constraint_ids and not cs_id.startswith("RC-"):
-                errors.append(TraceabilityError(
-                    scenario_id=sid,
-                    broken_link="constraint",
-                    expected=f"valid constraint ID from {sorted(constraint_ids)}",
-                    actual=cs_id,
-                ))
 
     return errors
 
@@ -348,31 +431,68 @@ def detect_orphan_elements(
     Returns:
         A list of orphan element IDs.
     """
+    referenced = _collect_referenced_ids(enriched_threat_set.structural_threats)
+    return _find_orphan_elements(control_structure, referenced)
+
+
+def _collect_referenced_ids(
+    threats: list[StructuralThreat],
+) -> tuple[set[str], set[str], set[str]]:
+    """Collect PM, CA, and RESP IDs referenced by any threat.
+
+    Returns:
+        A tuple of (referenced_pms, referenced_cas, referenced_resps).
+    """
     referenced_pms: set[str] = set()
     referenced_cas: set[str] = set()
     referenced_resps: set[str] = set()
 
-    for threat in enriched_threat_set.structural_threats:
+    for threat in threats:
         slot_parts = threat.ica_slot_id.split(":")
         if len(slot_parts) >= 2:
             referenced_resps.add(slot_parts[0])
             referenced_cas.add(slot_parts[1])
 
-        # Scan ICA text for PM references
-        for pm_match in re.finditer(r"PM-\d+-\d+", threat.ica_text + " " + threat.hazardous_context):
+        for pm_match in re.finditer(
+            r"PM-\d+-\d+", threat.ica_text + " " + threat.hazardous_context
+        ):
             referenced_pms.add(pm_match.group())
 
+    return referenced_pms, referenced_cas, referenced_resps
+
+
+def _find_orphan_elements(
+    control_structure: ControlStructure,
+    referenced: tuple[set[str], set[str], set[str]],
+) -> list[str]:
+    """Find control structure elements not in the referenced set."""
+    referenced_pms, referenced_cas, referenced_resps = referenced
     orphans: list[str] = []
     for resp in control_structure.responsibilities:
-        if resp.resp_id not in referenced_resps:
-            orphans.append(resp.resp_id)
-        for pm in resp.process_model_parts:
-            if pm.pm_id not in referenced_pms:
-                orphans.append(pm.pm_id)
-        for ca in resp.control_actions:
-            if ca.ca_id not in referenced_cas:
-                orphans.append(ca.ca_id)
+        orphans.extend(
+            _find_orphans_in_resp(resp, referenced_pms, referenced_cas, referenced_resps)
+        )
+    return orphans
 
+
+def _find_orphans_in_resp(
+    resp: Responsibility,
+    ref_pms: set[str],
+    ref_cas: set[str],
+    ref_resps: set[str],
+) -> list[str]:
+    """Find orphaned elements within a single responsibility."""
+    orphans: list[str] = []
+    if resp.resp_id not in ref_resps:
+        orphans.append(resp.resp_id)
+    orphans.extend(
+        pm.pm_id for pm in resp.process_model_parts
+        if pm.pm_id not in ref_pms
+    )
+    orphans.extend(
+        ca.ca_id for ca in resp.control_actions
+        if ca.ca_id not in ref_cas
+    )
     return orphans
 
 

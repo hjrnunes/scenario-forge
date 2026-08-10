@@ -107,7 +107,7 @@ class MockLLMClient:
         self.calls.append(call)
 
         # Raise exception if configured for this response_format
-        if response_format is not None and response_format in self._exception_response_types:
+        if response_format in self._exception_response_types:
             raise self._exception_response_types[response_format]
 
         # Determine which response to return

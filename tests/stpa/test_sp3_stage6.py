@@ -282,6 +282,48 @@ class TestAttackTree:
     def test_parse_attack_tree_none(self):
         assert parse_attack_tree(None) is None
 
+    def test_parse_attack_tree_from_invalid_string(self):
+        """Non-JSON, non-YAML string returns None."""
+        assert parse_attack_tree("not valid json or yaml: : :") is None
+
+    def test_parse_attack_tree_from_non_string_non_dict(self):
+        """Non-string, non-dict input (e.g. int) returns None."""
+        assert parse_attack_tree(42) is None
+
+    def test_parse_attack_tree_json_list_returns_none(self):
+        """JSON that parses to a list (not dict) returns None."""
+        assert parse_attack_tree("[1, 2, 3]") is None
+
+    def test_parse_attack_tree_yaml_list_returns_none(self):
+        """YAML that parses to a list (not dict) returns None."""
+        assert parse_attack_tree("- a\n- b\n") is None
+
+    def test_generate_attack_tree_llm_error(self):
+        """LLM failure returns (None, error_message)."""
+        spec = _make_scenario_spec()
+        cs = _make_cs()
+        client = MockLLMClient()
+        client.set_exception_for(None, RuntimeError("LLM unavailable"))
+
+        with TemporaryDirectory() as tmpdir:
+            result, error = generate_attack_tree(client, spec, cs, Path(tmpdir))
+            assert result is None
+            assert error is not None
+            assert "LLM unavailable" in error
+
+    def test_generate_attack_tree_unparseable_response(self):
+        """Unparseable LLM response returns (None, error_message)."""
+        spec = _make_scenario_spec()
+        cs = _make_cs()
+        client = MockLLMClient()
+        client.set_response_for(None, "this is not json or yaml: : :")
+
+        with TemporaryDirectory() as tmpdir:
+            result, error = generate_attack_tree(client, spec, cs, Path(tmpdir))
+            assert result is None
+            assert error is not None
+            assert "Failed to parse" in error
+
 
 class TestGherkin:
     """SP3-GHK-01 through SP3-GHK-12."""

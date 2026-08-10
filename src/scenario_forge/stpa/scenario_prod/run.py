@@ -12,15 +12,17 @@ coverage gaps, input hashes, and prompt hashes.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import yaml
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.llm_helpers import safe_llm_call_raw
+from scenario_forge.stpa.infra.manifest_helpers import count_calls_by_stage, hash_model
 from scenario_forge.stpa.infra.templates import TemplateLoader, hash_prompt_templates
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
@@ -31,14 +33,19 @@ from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 
 from ._constants import PROMPTS_DIR
 from .assembly import assemble_envelope
+from .attack_tree import build_attack_tree_prompts, parse_attack_tree
 from .bdi_generation import (
     assemble_scenario_spec,
     generate_bdi,
+    parse_ica_slot_id,
     populate_defender_bdi,
 )
 from .coverage import compute_coverage_gaps, write_coverage_gaps
 from .eval_metrics import compute_eval_scorecard, write_eval_scorecard
+from .gherkin import build_gherkin_prompts
+from .narrative import build_narrative_prompts
 from .validators import (
+    TraceabilityError,
     validate_bdi_grounding,
     validate_gherkin_structure,
     validate_traceability,
@@ -50,6 +57,8 @@ from .validators import (
 DEFAULT_TEMPERATURE = 0.4
 
 __all__ = ["SP3RunResult", "run_sp3"]
+
+_EMPTY_ATTACK_TREE: dict = {"root": "", "branches": [], "leaves": []}
 
 
 @dataclass
@@ -98,10 +107,8 @@ def run_sp3(
     scenario_specs: list[ScenarioSpec] = []
     scenario_envelopes: list[ScenarioEnvelope] = []
 
-    threats = enriched_threat_set.structural_threats
-
     # --- Stage 5: BDI generation (1 LLM call per scenario) ---
-    for idx, threat in enumerate(threats):
+    for idx, threat in enumerate(enriched_threat_set.structural_threats):
         spec = _run_stage5_for_threat(
             llm_client, threat, control_structure, run_dir, idx, loader, temperature, stage_errors
         )
@@ -120,8 +127,7 @@ def run_sp3(
 
     # --- Stage 7: Validation + eval metrics + coverage gaps ---
     _run_stage7_validations(
-        scenario_envelopes, scenario_specs, control_structure,
-        enriched_threat_set, loss_analysis, validation_errors
+        scenario_envelopes, scenario_specs, control_structure, validation_errors
     )
 
     coverage_gaps = compute_coverage_gaps(
@@ -131,9 +137,8 @@ def run_sp3(
     trace_errors = validate_traceability(
         scenario_envelopes, enriched_threat_set, control_structure, loss_analysis
     )
-    trace_error_msgs = [
-        f"{e.scenario_id}: broken {e.broken_link}" for e in trace_errors
-    ]
+    trace_error_msgs = _format_traceability_errors(trace_errors)
+    all_validation_errors = validation_errors + trace_error_msgs
 
     eval_scorecard = compute_eval_scorecard(
         scenario_envelopes, enriched_threat_set, control_structure, loss_analysis,
@@ -154,7 +159,7 @@ def run_sp3(
         control_structure=control_structure,
         loss_analysis=loss_analysis,
         scenario_envelopes=scenario_envelopes,
-        validation_errors=validation_errors + trace_error_msgs,
+        validation_errors=all_validation_errors,
         max_workers=max_workers,
         stage_errors=stage_errors,
     )
@@ -165,8 +170,13 @@ def run_sp3(
         eval_scorecard=eval_scorecard,
         coverage_gaps=coverage_gaps,
         stage_errors=stage_errors,
-        validation_errors=validation_errors + trace_error_msgs,
+        validation_errors=all_validation_errors,
     )
+
+
+def _format_traceability_errors(errors: list[TraceabilityError]) -> list[str]:
+    """Format traceability errors as human-readable messages."""
+    return [f"{e.scenario_id}: broken {e.broken_link}" for e in errors]
 
 
 def _run_stage5_for_threat(
@@ -180,8 +190,6 @@ def _run_stage5_for_threat(
     stage_errors: list[str],
 ) -> ScenarioSpec | None:
     """Run Stage 5 BDI generation for a single threat."""
-    from scenario_forge.stpa.scenario_prod.bdi_generation import parse_ica_slot_id
-
     slot_parts = parse_ica_slot_id(threat.ica_slot_id)
     target_resp_id = slot_parts["controller"]
 
@@ -203,8 +211,16 @@ def _run_stage5_for_threat(
     spec = assemble_scenario_spec(
         defender_bdi, llm_result, threat, control_structure, scenario_index
     )
+    _validate_stage5_spec(spec, control_structure, stage_errors)
+    return spec
 
-    # Validate
+
+def _validate_stage5_spec(
+    spec: ScenarioSpec,
+    control_structure: ControlStructure,
+    stage_errors: list[str],
+) -> None:
+    """Run stage-local validators for a Stage 5 scenario spec."""
     grounding = validate_bdi_grounding(spec, control_structure)
     if not grounding.passed:
         stage_errors.extend(grounding.errors)
@@ -212,8 +228,6 @@ def _run_stage5_for_threat(
     completeness = validate_vulnerability_completeness(spec)
     if not completeness.passed:
         stage_errors.extend(completeness.errors)
-
-    return spec
 
 
 def _run_stage6_for_spec(
@@ -228,70 +242,21 @@ def _run_stage6_for_spec(
     stage_errors: list[str],
 ) -> ScenarioEnvelope | None:
     """Run Stage 6 concretization for a single scenario spec."""
-    from scenario_forge.stpa.scenario_prod.narrative import build_narrative_prompts
-    from scenario_forge.stpa.scenario_prod.attack_tree import build_attack_tree_prompts
-    from scenario_forge.stpa.scenario_prod.gherkin import build_gherkin_prompts, _find_security_constraint
-    from scenario_forge.stpa.scenario_prod.attack_tree import parse_attack_tree
+    prompts = _build_stage6_prompts(spec, control_structure, loss_analysis, loader)
 
-    # Build prompts for all 3 calls
-    nar_sys, nar_user = build_narrative_prompts(spec, loader)
-    tree_sys, tree_user = build_attack_tree_prompts(spec, control_structure, loader)
-    sc = _find_security_constraint(spec, loss_analysis)
-    ghk_sys, ghk_user = build_gherkin_prompts(spec, sc, loader)
-
-    # Execute 3 calls in parallel
-    # For narrative and gherkin, we use None response_format (raw text)
-    # For attack tree, we also use raw text and parse manually
-    # Since parallel_safe_llm_calls expects a response_format (Pydantic model),
-    # we'll call them individually for simplicity, or use a wrapper
-    narrative_text = None
-    attack_tree = None
-    gherkin_text = None
-
-    # Use parallel execution for the 3 calls
     results = _parallel_stage6_calls(
         llm_client=llm_client,
         run_dir=run_dir,
-        nar_sys=nar_sys, nar_user=nar_user,
-        tree_sys=tree_sys, tree_user=tree_user,
-        ghk_sys=ghk_sys, ghk_user=ghk_user,
+        prompts=prompts,
         temperature=temperature,
         max_workers=max_workers,
     )
 
-    narrative_text, narrative_err = results["narrative"]
-    attack_tree_raw, tree_err = results["attack_tree"]
-    gherkin_text, ghk_err = results["gherkin"]
+    _collect_stage6_errors(spec.scenario_id, results, stage_errors)
 
-    if narrative_err:
-        stage_errors.append(f"Stage 6 narrative failed for {spec.scenario_id}: {narrative_err}")
-    if tree_err:
-        stage_errors.append(f"Stage 6 attack tree failed for {spec.scenario_id}: {tree_err}")
-    if ghk_err:
-        stage_errors.append(f"Stage 6 gherkin failed for {spec.scenario_id}: {ghk_err}")
+    narrative_text, attack_tree, gherkin_text = _parse_stage6_results(results)
 
-    if narrative_text is None or attack_tree_raw is None or gherkin_text is None:
-        # Use fallbacks for missing artifacts
-        narrative_text = narrative_text or ""
-        attack_tree = parse_attack_tree(attack_tree_raw) or {"root": "", "branches": [], "leaves": []}
-        gherkin_text = gherkin_text or ""
-    else:
-        attack_tree = parse_attack_tree(attack_tree_raw) or {"root": "", "branches": [], "leaves": []}
-
-    # Validate tree branch coverage
-    branch_result = validate_tree_branch_coverage(attack_tree)
-    if not branch_result.passed:
-        stage_errors.extend(branch_result.errors)
-
-    # Validate Gherkin structure
-    gherkin_result = validate_gherkin_structure(gherkin_text)
-    if not gherkin_result.passed:
-        stage_errors.extend(gherkin_result.errors)
-
-    # Validate tree ID references
-    tree_id_result = validate_tree_id_references(attack_tree, control_structure)
-    if not tree_id_result.passed:
-        stage_errors.extend(tree_id_result.errors)
+    _validate_stage6_artifacts(attack_tree, gherkin_text, control_structure, stage_errors)
 
     return assemble_envelope(
         scenario_id=spec.scenario_id,
@@ -302,61 +267,108 @@ def _run_stage6_for_spec(
     )
 
 
+@dataclass
+class _Stage6Prompts:
+    """Container for the three Stage 6 prompt pairs."""
+
+    narrative: tuple[str, str]
+    attack_tree: tuple[str, str]
+    gherkin: tuple[str, str]
+
+
+def _build_stage6_prompts(
+    spec: ScenarioSpec,
+    control_structure: ControlStructure,
+    loss_analysis: LossAnalysis,
+    loader: TemplateLoader,
+) -> _Stage6Prompts:
+    """Build system/user prompt pairs for all three Stage 6 calls."""
+    from .gherkin import _find_security_constraint
+
+    nar_prompts = build_narrative_prompts(spec, loader)
+    tree_prompts = build_attack_tree_prompts(spec, control_structure, loader)
+    sc = _find_security_constraint(spec, loss_analysis)
+    ghk_prompts = build_gherkin_prompts(spec, sc, loader)
+
+    return _Stage6Prompts(
+        narrative=nar_prompts,
+        attack_tree=tree_prompts,
+        gherkin=ghk_prompts,
+    )
+
+
+def _collect_stage6_errors(
+    scenario_id: str,
+    results: dict[str, tuple[Any | None, str | None]],
+    stage_errors: list[str],
+) -> None:
+    """Append error messages from Stage 6 call results."""
+    for step in ("narrative", "attack_tree", "gherkin"):
+        _text, err = results[step]
+        if err:
+            stage_errors.append(f"Stage 6 {step} failed for {scenario_id}: {err}")
+
+
+def _parse_stage6_results(
+    results: dict[str, tuple[Any | None, str | None]],
+) -> tuple[str, dict, str]:
+    """Parse Stage 6 call results with fallbacks for missing artifacts."""
+    narrative_raw, _ = results["narrative"]
+    attack_tree_raw, _ = results["attack_tree"]
+    gherkin_raw, _ = results["gherkin"]
+
+    narrative_text = narrative_raw or ""
+    gherkin_text = gherkin_raw or ""
+    attack_tree = parse_attack_tree(attack_tree_raw) or dict(_EMPTY_ATTACK_TREE)
+
+    return narrative_text, attack_tree, gherkin_text
+
+
+def _validate_stage6_artifacts(
+    attack_tree: dict,
+    gherkin_text: str,
+    control_structure: ControlStructure,
+    stage_errors: list[str],
+) -> None:
+    """Run stage-local validators for Stage 6 artifacts."""
+    for result in (
+        validate_tree_branch_coverage(attack_tree),
+        validate_gherkin_structure(gherkin_text),
+        validate_tree_id_references(attack_tree, control_structure),
+    ):
+        if not result.passed:
+            stage_errors.extend(result.errors)
+
+
 def _parallel_stage6_calls(
     *,
     llm_client: LLMClient,
     run_dir: Path,
-    nar_sys: str, nar_user: str,
-    tree_sys: str, tree_user: str,
-    ghk_sys: str, ghk_user: str,
+    prompts: _Stage6Prompts,
     temperature: float,
     max_workers: int,
-) -> dict[str, tuple[Any | None, str | None]]:
+) -> dict[str, tuple[str | None, str | None]]:
     """Execute the 3 Stage 6 calls, optionally in parallel.
 
     Uses :func:`safe_llm_call_raw` for each call to ensure proper call
     logging and error handling. The calls are independent and can be
     parallelized via ``ThreadPoolExecutor``.
     """
-    from concurrent.futures import ThreadPoolExecutor
-    from scenario_forge.stpa.infra.llm_helpers import safe_llm_call_raw
+    call_specs = [
+        ("narrative", prompts.narrative),
+        ("attack_tree", prompts.attack_tree),
+        ("gherkin", prompts.gherkin),
+    ]
 
-    def _do_safe_llm_call_raw_narrative():
+    def _run_call(step: str, prompt_pair: tuple[str, str]) -> tuple[str | None, str | None]:
+        sys_prompt, user_prompt = prompt_pair
         text, _result, error = safe_llm_call_raw(
             llm_client=llm_client,
-            system_prompt=nar_sys,
-            user_prompt=nar_user,
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
             run_dir=run_dir,
             stage="stage_6",
-            step="narrative",
-            temperature=temperature,
-        )
-        if error is not None:
-            return None, error
-        return text, None
-
-    def _do_safe_llm_call_raw_tree():
-        text, _result, error = safe_llm_call_raw(
-            llm_client=llm_client,
-            system_prompt=tree_sys,
-            user_prompt=tree_user,
-            run_dir=run_dir,
-            stage="stage_6",
-            step="attack_tree",
-            temperature=temperature,
-        )
-        if error is not None:
-            return None, error
-        return text, None
-
-    def _do_safe_llm_call_raw_gherkin():
-        text, _result, error = safe_llm_call_raw(
-            llm_client=llm_client,
-            system_prompt=ghk_sys,
-            user_prompt=ghk_user,
-            run_dir=run_dir,
-            stage="stage_6",
-            step="gherkin",
+            step=step,
             temperature=temperature,
         )
         if error is not None:
@@ -366,43 +378,53 @@ def _parallel_stage6_calls(
     if max_workers > 1:
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {
-                "narrative": executor.submit(_do_safe_llm_call_raw_narrative),
-                "attack_tree": executor.submit(_do_safe_llm_call_raw_tree),
-                "gherkin": executor.submit(_do_safe_llm_call_raw_gherkin),
+                step: executor.submit(_run_call, step, pair)
+                for step, pair in call_specs
             }
-            return {k: f.result() for k, f in futures.items()}
+            return {step: f.result() for step, f in futures.items()}
     else:
-        return {
-            "narrative": _do_safe_llm_call_raw_narrative(),
-            "attack_tree": _do_safe_llm_call_raw_tree(),
-            "gherkin": _do_safe_llm_call_raw_gherkin(),
-        }
+        return {step: _run_call(step, pair) for step, pair in call_specs}
 
 
 def _run_stage7_validations(
     envelopes: list[ScenarioEnvelope],
     specs: list[ScenarioSpec],
     control_structure: ControlStructure,
-    enriched_threat_set: EnrichedThreatSet,
-    loss_analysis: LossAnalysis,
     validation_errors: list[str],
 ) -> None:
-    """Run Stage 7 validations."""
+    """Run Stage 7 validations on all specs and envelopes."""
     for spec in specs:
-        grounding = validate_bdi_grounding(spec, control_structure)
-        if not grounding.passed:
-            validation_errors.extend(grounding.errors)
-        completeness = validate_vulnerability_completeness(spec)
-        if not completeness.passed:
-            validation_errors.extend(completeness.errors)
+        _validate_spec_stage7(spec, control_structure, validation_errors)
 
     for env in envelopes:
-        branch_result = validate_tree_branch_coverage(env.attack_tree)
-        if not branch_result.passed:
-            validation_errors.extend(branch_result.errors)
-        gherkin_result = validate_gherkin_structure(env.gherkin_spec)
-        if not gherkin_result.passed:
-            validation_errors.extend(gherkin_result.errors)
+        _validate_envelope_stage7(env, validation_errors)
+
+
+def _validate_spec_stage7(
+    spec: ScenarioSpec,
+    control_structure: ControlStructure,
+    validation_errors: list[str],
+) -> None:
+    """Run stage-local validators for a single spec in Stage 7."""
+    for result in (
+        validate_bdi_grounding(spec, control_structure),
+        validate_vulnerability_completeness(spec),
+    ):
+        if not result.passed:
+            validation_errors.extend(result.errors)
+
+
+def _validate_envelope_stage7(
+    envelope: ScenarioEnvelope,
+    validation_errors: list[str],
+) -> None:
+    """Run stage-local validators for a single envelope in Stage 7."""
+    for result in (
+        validate_tree_branch_coverage(envelope.attack_tree),
+        validate_gherkin_structure(envelope.gherkin_spec),
+    ):
+        if not result.passed:
+            validation_errors.extend(result.errors)
 
 
 def _write_scenario_artifacts(
@@ -429,12 +451,12 @@ def _write_manifest(
 ) -> None:
     """Write the run manifest YAML."""
     input_hashes = {
-        "enriched_threat_set": _hash_model(enriched_threat_set),
-        "control_structure": _hash_model(control_structure),
-        "loss_analysis": _hash_model(loss_analysis),
+        "enriched_threat_set": hash_model(enriched_threat_set),
+        "control_structure": hash_model(control_structure),
+        "loss_analysis": hash_model(loss_analysis),
     }
     prompt_hashes = hash_prompt_templates(PROMPTS_DIR)
-    stage_summary = _count_calls_by_stage(run_dir)
+    stage_summary = count_calls_by_stage(run_dir)
 
     manifest = {
         "run_id": f"sp3-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
@@ -461,36 +483,3 @@ def _write_manifest(
         yaml.dump(manifest, default_flow_style=False, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-
-
-def _hash_model(model: Any) -> str:
-    """Compute SHA-256 hash of a Pydantic model's YAML representation."""
-    content = yaml.dump(
-        model.model_dump(mode="json", exclude_none=True),
-        default_flow_style=False,
-        sort_keys=True,
-        allow_unicode=True,
-    )
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-def _count_calls_by_stage(run_dir: Path) -> dict[str, dict[str, int]]:
-    """Count calls by stage from calls.jsonl."""
-    calls_file = run_dir / "calls.jsonl"
-    if not calls_file.exists():
-        return {}
-
-    counts: dict[str, dict[str, int]] = {}
-    for line in calls_file.read_text().splitlines():
-        if not line.strip():
-            continue
-        entry = json.loads(line)
-        stage = entry.get("stage", "unknown")
-        if stage not in counts:
-            counts[stage] = {"call_count": 0, "total_tokens": 0}
-        counts[stage]["call_count"] += 1
-        counts[stage]["total_tokens"] += (
-            entry.get("prompt_tokens", 0) + entry.get("completion_tokens", 0)
-        )
-
-    return counts
