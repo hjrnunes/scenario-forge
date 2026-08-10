@@ -424,7 +424,7 @@ class TestMergeRevisionDeltaProperties:
             _make_new_resp(n_existing + i + 1) for i in range(n_new)
         ]
         delta = RevisionDelta(new_responsibilities=new_resps)
-        merged = _merge_revision_delta(cs, delta)
+        merged, _ = _merge_revision_delta(cs, delta)
         existing_ids = {r.resp_id for r in cs.responsibilities}
         merged_ids = {r.resp_id for r in merged.responsibilities}
         assert existing_ids.issubset(merged_ids)
@@ -437,7 +437,7 @@ class TestMergeRevisionDeltaProperties:
         """Idempotence: merging an empty delta preserves the CS unchanged."""
         cs = _make_cs(n_existing)
         delta = RevisionDelta()
-        merged = _merge_revision_delta(cs, delta)
+        merged, _ = _merge_revision_delta(cs, delta)
         merged_ids = {r.resp_id for r in merged.responsibilities}
         original_ids = {r.resp_id for r in cs.responsibilities}
         assert merged_ids == original_ids
@@ -490,7 +490,7 @@ class TestMergeRevisionDeltaProperties:
             ],
         )
         delta = RevisionDelta(modified_responsibilities=[modified])
-        merged = _merge_revision_delta(cs, delta)
+        merged, _ = _merge_revision_delta(cs, delta)
         resp1 = next(r for r in merged.responsibilities if r.resp_id == "RESP-1")
         assert resp1.description == "Updated controller"
         # Other responsibilities should be unchanged
@@ -514,7 +514,7 @@ class TestMergeRevisionDeltaProperties:
             for i in range(n_new_cps)
         ]
         delta = RevisionDelta(new_controlled_processes=new_cps)
-        merged = _merge_revision_delta(cs, delta)
+        merged, _ = _merge_revision_delta(cs, delta)
         merged_cp_ids = {cp.cp_id for cp in merged.controlled_processes}
         for cp in new_cps:
             assert cp.cp_id in merged_cp_ids
@@ -543,7 +543,7 @@ class TestMergeRevisionDeltaProperties:
             for i in range(n_new_cls)
         ]
         delta = RevisionDelta(new_coordination_links=new_cls)
-        merged = _merge_revision_delta(cs, delta)
+        merged, _ = _merge_revision_delta(cs, delta)
         merged_cl_ids = {cl.link_id for cl in merged.coordination_links}
         for cl in new_cls:
             assert cl.link_id in merged_cl_ids
@@ -558,7 +558,7 @@ class TestMergeRevisionDeltaProperties:
         # Try to add a resp with an existing ID
         dup_resp = _make_new_resp(1)  # RESP-1 already exists
         delta = RevisionDelta(new_responsibilities=[dup_resp])
-        merged = _merge_revision_delta(cs, delta)
+        merged, _ = _merge_revision_delta(cs, delta)
         # Should still have only n_existing responsibilities
         assert len(merged.responsibilities) == n_existing
 

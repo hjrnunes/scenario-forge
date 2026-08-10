@@ -328,7 +328,15 @@ def run_revision(
         return control_structure, ["Revision failed: unexpected None response"]
 
     # Merge the delta into the existing ControlStructure
-    revised_cs = _merge_revision_delta(control_structure, revision_delta)
+    try:
+        revised_cs, merge_warnings = _merge_revision_delta(
+            control_structure, revision_delta
+        )
+    except Exception as exc:
+        warning = (
+            f"Revision delta merge degraded: {type(exc).__name__}: {exc}"
+        )
+        return control_structure, [warning]
 
     # Strip empty responsibilities as a safety net
     revised_cs, strip_warnings = strip_empty_responsibilities(revised_cs)
@@ -337,6 +345,7 @@ def run_revision(
     post_revision = run_heuristics(revised_cs, loss_analysis)
     post_warnings = list(post_revision.errors) + list(post_revision.warnings)
     post_warnings.extend(strip_warnings)
+    post_warnings.extend(merge_warnings)
 
     return revised_cs, post_warnings
 
@@ -412,17 +421,62 @@ def _replace_modified_resps(
     ]
 
 
+def _next_free_cm_id(used_cm_ids: set[str]) -> str:
+    """Return the next ``CM-N`` not already in *used_cm_ids*."""
+    nums = [n for n in (_extract_num(cm_id) for cm_id in used_cm_ids) if n is not None]
+    return f"CM-{max(nums, default=0) + 1}"
+
+
+def _renumber_colliding_cm_ids(
+    existing_links: list[CoordinationLink],
+    merged_links: list[CoordinationLink],
+) -> tuple[list[CoordinationLink], list[str]]:
+    """Renumber cm_id collisions in newly added coordination links.
+
+    Existing links (indices 0..len(existing_links)-1) keep their cm_ids.
+    New links (indices >= len(existing_links)) whose cm_id collides with
+    any already-used cm_id are renumbered to the next free ``CM-N``.
+
+    Returns the merged list (with renumbered cm_ids) and renumber warnings.
+    Each warning mentions both the colliding cm_id and the link_id.
+    """
+    warnings: list[str] = []
+    used_cm_ids = {cl.coordination_mechanism.cm_id for cl in existing_links}
+    existing_count = len(existing_links)
+
+    for i in range(existing_count, len(merged_links)):
+        cl = merged_links[i]
+        cm_id = cl.coordination_mechanism.cm_id
+        if cm_id in used_cm_ids:
+            new_cm_id = _next_free_cm_id(used_cm_ids)
+            cl.coordination_mechanism = cl.coordination_mechanism.model_copy(
+                update={"cm_id": new_cm_id}
+            )
+            used_cm_ids.add(new_cm_id)
+            warnings.append(
+                f"Renumber cm_id: collision on {cm_id} from link {cl.link_id}, "
+                f"renumbered to {new_cm_id}."
+            )
+        else:
+            used_cm_ids.add(cm_id)
+
+    return merged_links, warnings
+
+
 def _merge_revision_delta(
     cs: ControlStructure,
     delta: RevisionDelta,
-) -> ControlStructure:
+) -> tuple[ControlStructure, list[str]]:
     """Merge a RevisionDelta into an existing ControlStructure.
 
     - Replaces ``modified_responsibilities`` by resp_id.
     - Adds ``new_responsibilities`` (skipping duplicate resp_ids).
     - Adds ``new_controlled_processes`` (skipping duplicate cp_ids).
     - Adds ``new_coordination_links`` (skipping duplicate link_ids).
+    - Renumbers any new link whose ``cm_id`` collides with an existing one.
     - Validates the merged ControlStructure.
+
+    Returns a tuple of (merged ControlStructure, renumber warnings).
     """
     existing_resp_ids = {r.resp_id for r in cs.responsibilities}
     existing_cp_ids = {cp.cp_id for cp in cs.controlled_processes}
@@ -446,11 +500,15 @@ def _merge_revision_delta(
         existing_cl_ids, lambda cl: cl.link_id,
     )
 
+    merged_cls, cm_warnings = _renumber_colliding_cm_ids(
+        cs.coordination_links, merged_cls
+    )
+
     return ControlStructure(
         responsibilities=merged_resps,
         controlled_processes=merged_cps,
         coordination_links=merged_cls,
-    )
+    ), cm_warnings
 
 
 # ---------------------------------------------------------------------------

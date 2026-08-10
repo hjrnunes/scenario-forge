@@ -857,3 +857,781 @@ class TestIsResponsibilityEmpty:
             feedback_channels=[],
         )
         assert _is_responsibility_empty(resp) is True
+
+
+# ---------------------------------------------------------------------------
+# CmDedup-01..14: Duplicate cm_id handling in revision delta merge
+# ---------------------------------------------------------------------------
+
+import re as _re  # noqa: E402
+
+
+def _make_cs_with_two_cls() -> ControlStructure:
+    """Build a CS with RESP-1/RESP-2 and two coordination links CL-1/CM-1, CL-2/CM-2."""
+    return ControlStructure(
+        responsibilities=[
+            Responsibility(
+                resp_id="RESP-1",
+                description="Controller 1",
+                process_model_parts=[
+                    ProcessModelPart(pm_id="PM-1-1", description="State 1")
+                ],
+                control_actions=[
+                    ControlAction(ca_id="CA-1-1", description="Action 1")
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id="FB-1-1",
+                        description="FB 1",
+                        updates="PM-1-1",
+                        source=ElementRef(
+                            type=ReferenceType.responsibility, id="RESP-1"
+                        ),
+                    )
+                ],
+            ),
+            Responsibility(
+                resp_id="RESP-2",
+                description="Controller 2",
+                process_model_parts=[
+                    ProcessModelPart(pm_id="PM-2-1", description="State 2")
+                ],
+                control_actions=[
+                    ControlAction(ca_id="CA-2-1", description="Action 2")
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id="FB-2-1",
+                        description="FB 2",
+                        updates="PM-2-1",
+                        source=ElementRef(
+                            type=ReferenceType.responsibility, id="RESP-2"
+                        ),
+                    )
+                ],
+            ),
+        ],
+        coordination_links=[
+            CoordinationLink(
+                link_id="CL-1",
+                source="RESP-1",
+                target="RESP-2",
+                shared_pm="PM-2-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id="CM-1",
+                    description="Shared state",
+                    payload="Payload",
+                ),
+                description="Coordination link 1",
+            ),
+            CoordinationLink(
+                link_id="CL-2",
+                source="RESP-2",
+                target="RESP-1",
+                shared_pm="PM-1-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id="CM-2",
+                    description="Shared state 2",
+                    payload="Payload 2",
+                ),
+                description="Coordination link 2",
+            ),
+        ],
+    )
+
+
+def _cl_dict(
+    link_id: str,
+    cm_id: str,
+    *,
+    source: str = "RESP-1",
+    target: str = "RESP-2",
+    shared_pm: str = "PM-1-1",
+    description: str = "shared validation",
+    payload: str = "sync",
+    mech_desc: str = "Shared state",
+) -> dict:
+    """Build a coordination link dict for RevisionDelta."""
+    return {
+        "link_id": link_id,
+        "source": source,
+        "target": target,
+        "shared_pm": shared_pm,
+        "coordination_mechanism": {
+            "cm_id": cm_id,
+            "description": mech_desc,
+            "payload": payload,
+        },
+        "description": description,
+    }
+
+
+def _run_rev(tmp_path, delta_dict):
+    """Helper: run revision with two-CL fixture and return (cs, warnings)."""
+    client = MockLLMClient()
+    client.set_response_for(RevisionDelta, delta_dict)
+    return run_revision(
+        llm_client=client,
+        control_structure=_make_cs_with_two_cls(),
+        critic_findings=_make_critic_findings(),
+        use_case_text="Test",
+        run_dir=tmp_path,
+    )
+
+
+class TestCmDedup01RenumberedToNextFree:
+    """CmDedup-01: new link with duplicate cm_id is renumbered to next free CM-N."""
+
+    def test_cl3_present_and_renumbered(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl_ids = {cl.link_id for cl in cs.coordination_links}
+        assert "CL-3" in cl_ids
+
+    def test_cl3_cm_id_not_cm1(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.coordination_mechanism.cm_id != "CM-1"
+
+    def test_cl3_cm_id_matches_format(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert _re.match(r"^CM-\d+$", cl3.coordination_mechanism.cm_id)
+
+    def test_final_cs_passes_validation(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        # If ControlStructure was constructed, it passed validation
+        assert isinstance(cs, ControlStructure)
+
+
+class TestCmDedup02NoDuplicateCmIds:
+    """CmDedup-02: renumbered cm_id does not collide with any existing cm_id."""
+
+    def test_no_duplicate_cm_ids(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cm_ids = [cl.coordination_mechanism.cm_id for cl in cs.coordination_links]
+        assert len(cm_ids) == len(set(cm_ids))
+
+    def test_final_cs_passes_validation(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        assert isinstance(cs, ControlStructure)
+
+
+class TestCmDedup03PreservesLinkContent:
+    """CmDedup-03: renumbering preserves the link content."""
+
+    def test_source_preserved(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[
+                _cl_dict("CL-3", "CM-1", source="RESP-1", target="RESP-2",
+                         shared_pm="PM-1-1", description="shared validation",
+                         payload="sync")
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.source == "RESP-1"
+
+    def test_target_preserved(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1", target="RESP-2")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.target == "RESP-2"
+
+    def test_shared_pm_preserved(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1", shared_pm="PM-1-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.shared_pm == "PM-1-1"
+
+    def test_description_preserved(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[
+                _cl_dict("CL-3", "CM-1", description="shared validation")
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.description == "shared validation"
+
+    def test_payload_preserved(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1", payload="sync")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.coordination_mechanism.payload == "sync"
+
+
+class TestCmDedup04RenumberWarning:
+    """CmDedup-04: renumbering emits a warning naming the colliding cm_id and link_id."""
+
+    def test_warning_mentions_cm1(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        _, warnings = _run_rev(tmp_path, delta)
+        wtext = " ".join(warnings)
+        assert "CM-1" in wtext
+
+    def test_warning_mentions_cl3(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        _, warnings = _run_rev(tmp_path, delta)
+        wtext = " ".join(warnings)
+        assert "CL-3" in wtext
+
+
+class TestCmDedup05NextFreeNumber:
+    """CmDedup-05: renumbered cm_id is the next free number (CM-3)."""
+
+    def test_cl3_gets_cm3(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.coordination_mechanism.cm_id == "CM-3"
+
+
+class TestCmDedup06MultipleCollisions:
+    """CmDedup-06: multiple new links with duplicate cm_ids are each renumbered."""
+
+    def test_both_links_present(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[
+                _cl_dict("CL-3", "CM-1"),
+                _cl_dict("CL-4", "CM-2", source="RESP-2", target="RESP-1",
+                         shared_pm="PM-2-1"),
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl_ids = {cl.link_id for cl in cs.coordination_links}
+        assert "CL-3" in cl_ids
+        assert "CL-4" in cl_ids
+
+    def test_cl3_cm_id_not_cm1(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[
+                _cl_dict("CL-3", "CM-1"),
+                _cl_dict("CL-4", "CM-2", source="RESP-2", target="RESP-1",
+                         shared_pm="PM-2-1"),
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.coordination_mechanism.cm_id != "CM-1"
+
+    def test_cl4_cm_id_not_cm2(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[
+                _cl_dict("CL-3", "CM-1"),
+                _cl_dict("CL-4", "CM-2", source="RESP-2", target="RESP-1",
+                         shared_pm="PM-2-1"),
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl4 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-4")
+        assert cl4.coordination_mechanism.cm_id != "CM-2"
+
+    def test_cl3_and_cl4_cm_ids_differ(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[
+                _cl_dict("CL-3", "CM-1"),
+                _cl_dict("CL-4", "CM-2", source="RESP-2", target="RESP-1",
+                         shared_pm="PM-2-1"),
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        cl4 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-4")
+        assert cl3.coordination_mechanism.cm_id != cl4.coordination_mechanism.cm_id
+
+    def test_no_duplicate_cm_ids(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[
+                _cl_dict("CL-3", "CM-1"),
+                _cl_dict("CL-4", "CM-2", source="RESP-2", target="RESP-1",
+                         shared_pm="PM-2-1"),
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cm_ids = [cl.coordination_mechanism.cm_id for cl in cs.coordination_links]
+        assert len(cm_ids) == len(set(cm_ids))
+
+
+class TestCmDedup07UniqueCmIdNotRenumbered:
+    """CmDedup-07: new link with unique cm_id is not renumbered."""
+
+    def test_cl3_keeps_cm3(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-3")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.coordination_mechanism.cm_id == "CM-3"
+
+    def test_no_renumber_warning_for_cm3(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-3")]
+        )
+        _, warnings = _run_rev(tmp_path, delta)
+        renumber_warnings = [w for w in warnings if "Renumber" in w]
+        assert not any("CM-3" in w for w in renumber_warnings)
+
+
+class TestCmDedup08CmIdFormatRegex:
+    """CmDedup-08: renumbered cm_id conforms to the CM-N format regex."""
+
+    def test_cm_id_matches_pattern(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert _re.match(r"^CM-\d+$", cl3.coordination_mechanism.cm_id)
+
+
+class TestCmDedup09DegradationFallback:
+    """CmDedup-09: degradation guard falls back to pre-revision CS on merge failure."""
+
+    def test_returns_pre_revision_cs(self, tmp_path):
+        # A new responsibility with duplicate pm_id causes ValidationError
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        resp_ids = {r.resp_id for r in cs.responsibilities}
+        assert "RESP-3" not in resp_ids
+
+    def test_pipeline_does_not_crash(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        # Should not raise
+        cs, warnings = _run_rev(tmp_path, delta)
+        assert isinstance(cs, ControlStructure)
+
+    def test_degradation_warning_present(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        _, warnings = _run_rev(tmp_path, delta)
+        assert any("degrad" in w.lower() for w in warnings)
+
+
+class TestCmDedup10DegradationWarningContent:
+    """CmDedup-10: degradation warning names the failing step and includes the error type."""
+
+    def test_warning_mentions_revision_delta_merge(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        _, warnings = _run_rev(tmp_path, delta)
+        wtext = " ".join(warnings)
+        assert "revision delta merge" in wtext.lower()
+
+    def test_warning_mentions_error_type(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        _, warnings = _run_rev(tmp_path, delta)
+        wtext = " ".join(warnings)
+        # ValidationError or ValueError are the expected error types
+        assert "ValidationError" in wtext or "ValueError" in wtext
+
+
+class TestCmDedup11DegradationPreservesExisting:
+    """CmDedup-11: degradation guard preserves existing responsibilities after fallback."""
+
+    def test_preserves_resp1(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        resp_ids = {r.resp_id for r in cs.responsibilities}
+        assert "RESP-1" in resp_ids
+
+    def test_preserves_resp2(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        resp_ids = {r.resp_id for r in cs.responsibilities}
+        assert "RESP-2" in resp_ids
+
+    def test_preserves_cl1(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl_ids = {cl.link_id for cl in cs.coordination_links}
+        assert "CL-1" in cl_ids
+
+    def test_preserves_cl2(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl_ids = {cl.link_id for cl in cs.coordination_links}
+        assert "CL-2" in cl_ids
+
+
+class TestCmDedup12AirbnbRegression:
+    """CmDedup-12: Airbnb regression shape — CL-1/CM-1, CL-2/CM-2, revision adds CL-3 with CM-1."""
+
+    def test_does_not_crash(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        assert isinstance(cs, ControlStructure)
+
+    def test_cl1_keeps_cm1(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl1 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-1")
+        assert cl1.coordination_mechanism.cm_id == "CM-1"
+
+    def test_cl2_keeps_cm2(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl2 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-2")
+        assert cl2.coordination_mechanism.cm_id == "CM-2"
+
+    def test_cl3_present(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl_ids = {cl.link_id for cl in cs.coordination_links}
+        assert "CL-3" in cl_ids
+
+    def test_cl3_cm_id_not_cm1(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.coordination_mechanism.cm_id != "CM-1"
+
+    def test_no_duplicate_cm_ids(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cm_ids = [cl.coordination_mechanism.cm_id for cl in cs.coordination_links]
+        assert len(cm_ids) == len(set(cm_ids))
+
+    def test_final_cs_passes_validation(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-1")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        assert isinstance(cs, ControlStructure)
+
+
+class TestCmDedup13NestedPmIdCollision:
+    """CmDedup-13: degradation guard catches nested pm_id collision from new responsibility."""
+
+    def test_does_not_crash(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        assert isinstance(cs, ControlStructure)
+
+    def test_returns_pre_revision_cs(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        resp_ids = {r.resp_id for r in cs.responsibilities}
+        assert "RESP-3" not in resp_ids
+
+    def test_degradation_warning_present(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "RESP-3",
+                    "description": "Dup PM",
+                    "process_model_parts": [
+                        {"pm_id": "PM-1-1", "description": "Dup"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "CA-3-1", "description": "Act"}
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "FB-3-1",
+                            "description": "FB",
+                            "updates": "PM-1-1",
+                            "source": {"type": "responsibility", "id": "RESP-3"},
+                        }
+                    ],
+                }
+            ]
+        )
+        _, warnings = _run_rev(tmp_path, delta)
+        assert any("degrad" in w.lower() for w in warnings)
+
+
+class TestCmDedup14NoCollisionsNoWarnings:
+    """CmDedup-14: successful merge with no collisions produces no renumber or degradation warnings."""
+
+    def test_no_renumber_warning(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-3")]
+        )
+        _, warnings = _run_rev(tmp_path, delta)
+        assert not any("Renumber" in w for w in warnings)
+
+    def test_no_degradation_warning(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-3")]
+        )
+        _, warnings = _run_rev(tmp_path, delta)
+        assert not any("degrad" in w.lower() for w in warnings)
+
+    def test_cl3_has_cm3(self, tmp_path):
+        delta = _make_revision_delta_dict(
+            new_coordination_links=[_cl_dict("CL-3", "CM-3")]
+        )
+        cs, _ = _run_rev(tmp_path, delta)
+        cl3 = next(cl for cl in cs.coordination_links if cl.link_id == "CL-3")
+        assert cl3.coordination_mechanism.cm_id == "CM-3"
