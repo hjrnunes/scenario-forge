@@ -20,13 +20,13 @@ from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
 from scenario_forge.stpa.models.ica_enumeration import ICAEnumeration
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.report.template import (
-    _build_llm_call_inspector,
-    _build_run_manifest,
-    _build_sp1_card,
-    _build_sp2_card,
-    _build_sp3_card,
     build_html,
-    _extract_metric_rate,
+    build_llm_call_inspector,
+    build_run_manifest,
+    build_sp1_card,
+    build_sp2_card,
+    build_sp3_card,
+    extract_metric_rate,
 )
 
 logger = logging.getLogger(__name__)
@@ -181,7 +181,7 @@ def _extract_eval_metrics(eval_data: dict | None) -> dict[str, float] | None:
         return None
     result: dict[str, float] = {}
     for name, data in metrics.items():
-        rate = _extract_metric_rate(data)
+        rate = extract_metric_rate(data)
         if rate is not None:
             result[name] = rate
     return result if result else None
@@ -217,7 +217,7 @@ def _build_sp3_html(
     """Build SP3 section HTML, or empty string if no SP3 data."""
     if not scenarios and not eval_data:
         return ""
-    return _build_sp3_card(scenarios, eval_data, sp3_raw)
+    return build_sp3_card(scenarios, eval_data, sp3_raw)
 
 
 def _compute_has_sp2(
@@ -281,13 +281,13 @@ def generate_report(output_dir: Path, output_path: Path | None = None) -> Path:
     )
 
     # --- Build section HTML ---
-    sp1_html = _build_sp1_card(
+    sp1_html = build_sp1_card(
         loss_analysis, capability_profile, control_structure, sp1_raw,
     )
-    sp2_html = _build_sp2_card(ica_enumeration, enriched_threats, sp2_raw)
+    sp2_html = build_sp2_card(ica_enumeration, enriched_threats, sp2_raw)
     sp3_html = _build_sp3_html(scenarios, eval_data, sp3_raw)
-    calls_html = _build_llm_call_inspector(calls) if calls else ""
-    manifest_html = _build_run_manifest(manifest_data, manifest_raw)
+    calls_html = build_llm_call_inspector(calls) if calls else ""
+    manifest_html = build_run_manifest(manifest_data, manifest_raw)
 
     has_sp2 = _compute_has_sp2(sp2_html, ica_enumeration, enriched_threats)
     has_sp3 = bool(sp3_html)

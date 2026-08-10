@@ -3,6 +3,16 @@
 Self-contained HTML with inline CSS/JS — no external dependencies.
 Section builders return HTML strings.  ``build_html`` assembles the
 final document.
+
+Public API (used by :mod:`scenario_forge.stpa.report.generator`):
+
+- ``build_html`` — top-level assembler.
+- ``build_sp1_card`` — SP1 flow card.
+- ``build_sp2_card`` — SP2 flow card.
+- ``build_sp3_card`` — SP3 flow card.
+- ``build_llm_call_inspector`` — LLM call inspector section.
+- ``build_run_manifest`` — run manifest section.
+- ``extract_metric_rate`` — rate extraction helper.
 """
 
 from __future__ import annotations
@@ -10,6 +20,16 @@ from __future__ import annotations
 import html
 import re
 from typing import Any
+
+__all__ = [
+    "build_html",
+    "build_sp1_card",
+    "build_sp2_card",
+    "build_sp3_card",
+    "build_llm_call_inspector",
+    "build_run_manifest",
+    "extract_metric_rate",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +669,7 @@ def _build_sp1_control_section(control_structure: Any) -> str:
     return "\n".join(parts)
 
 
-def _build_sp1_card(
+def build_sp1_card(
     loss_analysis: Any | None,
     capability_profile: Any | None,
     control_structure: Any | None,
@@ -753,7 +773,7 @@ def _build_sp2_coverage_section(enriched_threats: Any) -> str:
     return "\n".join(parts)
 
 
-def _build_sp2_card(
+def build_sp2_card(
     ica_enumeration: Any | None,
     enriched_threats: Any | None,
     raw_texts: dict[str, str] | None,
@@ -1005,7 +1025,7 @@ def _average_rate_fields(metric_data: dict) -> float | None:
     return sum(floats) / len(floats)
 
 
-def _extract_metric_rate(metric_data: dict) -> float | None:
+def extract_metric_rate(metric_data: dict) -> float | None:
     """Extract a single rate from a metric dict.
 
     Looks for 'rate' first, then averages all '*_rate' fields.
@@ -1060,14 +1080,14 @@ def _build_eval_scorecard(eval_data: dict | None) -> str:
     parts: list[str] = ['<div class="subsection">']
     parts.append('  <div class="subsection-title">Eval Scorecard</div>')
     for name, data in metrics.items():
-        rate = _extract_metric_rate(data)
+        rate = extract_metric_rate(data)
         if rate is not None:
             parts.append(_build_eval_gauge(name, rate))
     parts.append('</div>')
     return "\n".join(parts)
 
 
-def _build_sp3_card(
+def build_sp3_card(
     scenarios: list[tuple[str, Any, str | None]],
     eval_data: dict | None,
     raw_texts: dict[str, str] | None,
@@ -1104,7 +1124,7 @@ def _build_sp3_card(
     )
 
 
-def _build_llm_call_inspector(calls: list[dict]) -> str:
+def build_llm_call_inspector(calls: list[dict]) -> str:
     """Build the LLM call inspector section.
 
     Collapsible list of calls, no search. Each call expandable to show
@@ -1221,7 +1241,7 @@ def _is_valid_hashes(input_hashes: Any) -> bool:
     return bool(input_hashes and isinstance(input_hashes, dict))
 
 
-def _build_run_manifest(
+def build_run_manifest(
     manifest: dict | None,
     raw_texts: dict[str, str] | None,
 ) -> str:

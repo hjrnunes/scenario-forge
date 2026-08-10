@@ -39,29 +39,23 @@ from scenario_forge.stpa.report.template import (
     _build_eval_scorecard,
     _build_hazards_table,
     _build_hero_summary,
-    _build_llm_call_inspector,
     _build_losses_table,
     _build_manifest_grid,
     _build_manifest_hashes_table,
     _build_produces_arrow,
     _build_raw_yaml_section,
     _build_raw_yaml_sections,
-    _build_run_manifest,
     _build_scenario_card,
-    _build_sp1_card,
     _build_sp1_capability_section,
     _build_sp1_control_section,
     _build_sp1_losses_section,
-    _build_sp2_card,
     _build_sp2_coverage_section,
     _build_sp2_enrichment_section,
     _build_sp2_ica_section,
-    _build_sp3_card,
     _build_sticky_nav,
     _build_table_rows,
     _build_tree_branch_node,
     _esc,
-    _extract_metric_rate,
     _gauge_color,
     _gherkin_keyword_class,
     _has_tree_content,
@@ -80,6 +74,12 @@ from scenario_forge.stpa.report.template import (
     _safe_floats,
     _yaml_value_class,
     build_html,
+    build_llm_call_inspector,
+    build_run_manifest,
+    build_sp1_card,
+    build_sp2_card,
+    build_sp3_card,
+    extract_metric_rate,
 )
 
 FIXTURES_DIR = (
@@ -451,23 +451,23 @@ class TestAverageRateFields:
 
 class TestExtractMetricRate:
     def test_none_input(self):
-        assert _extract_metric_rate(None) is None
+        assert extract_metric_rate(None) is None
 
     def test_non_dict_input(self):
-        assert _extract_metric_rate("string") is None
+        assert extract_metric_rate("string") is None
 
     def test_with_rate_key(self):
-        assert _extract_metric_rate({"rate": 0.9}) == 0.9
+        assert extract_metric_rate({"rate": 0.9}) == 0.9
 
     def test_with_rate_fields(self):
         data = {"a_rate": 0.8, "b_rate": 0.6}
-        assert _extract_metric_rate(data) == 0.7
+        assert extract_metric_rate(data) == 0.7
 
     def test_no_rate(self):
-        assert _extract_metric_rate({"name": "test"}) is None
+        assert extract_metric_rate({"name": "test"}) is None
 
     def test_invalid_rate_value(self):
-        assert _extract_metric_rate({"rate": "abc"}) is None
+        assert extract_metric_rate({"rate": "abc"}) is None
 
 
 class TestBuildEvalScorecard:
@@ -766,17 +766,17 @@ class TestBuildSp1ControlSection:
 
 class TestBuildSp1Card:
     def test_all_none(self):
-        html = _build_sp1_card(None, None, None, None)
+        html = build_sp1_card(None, None, None, None)
         assert "flow-card" in html
         assert "SP1" in html
 
     def test_with_loss_analysis(self):
         la = _make_loss_analysis(use_case_losses=[_make_loss()])
-        html = _build_sp1_card(la, None, None, None)
+        html = build_sp1_card(la, None, None, None)
         assert "L-1" in html
 
     def test_with_raw_yaml(self):
-        html = _build_sp1_card(
+        html = build_sp1_card(
             None, None, None,
             {"loss-analysis.yaml": "key: value"},
         )
@@ -788,7 +788,7 @@ class TestBuildSp1Card:
         cs = _make_control_structure(responsibilities=[
             SimpleNamespace(resp_id="R-1", description="Resp"),
         ])
-        html = _build_sp1_card(la, cp, cs, {"loss-analysis.yaml": "key: val"})
+        html = build_sp1_card(la, cp, cs, {"loss-analysis.yaml": "key: val"})
         assert "SP1" in html
         assert "L-1" in html
         assert "input" in html
@@ -858,13 +858,13 @@ class TestBuildSp2CoverageSection:
 
 class TestBuildSp2Card:
     def test_all_none(self):
-        html = _build_sp2_card(None, None, None)
+        html = build_sp2_card(None, None, None)
         assert "flow-card" in html
         assert "SP2" in html
 
     def test_with_ica(self):
         ica = _make_ica_enumeration(slots=[_make_ica_slot()])
-        html = _build_sp2_card(ica, None, None)
+        html = build_sp2_card(ica, None, None)
         assert "S-1" in html
 
     def test_with_enriched_threats(self):
@@ -872,11 +872,11 @@ class TestBuildSp2Card:
             structural_threats=[_make_structural_threat()],
             coverage_analysis=_make_coverage_analysis(0.8),
         )
-        html = _build_sp2_card(None, et, None)
+        html = build_sp2_card(None, et, None)
         assert "80.0%" in html
 
     def test_with_raw_yaml(self):
-        html = _build_sp2_card(None, None, {"ica-enumeration.yaml": "key: val"})
+        html = build_sp2_card(None, None, {"ica-enumeration.yaml": "key: val"})
         assert "raw-yaml" in html
 
 
@@ -1024,21 +1024,21 @@ class TestBuildScenarioCard:
 
 class TestBuildSp3Card:
     def test_empty_scenarios_no_eval(self):
-        html = _build_sp3_card([], None, None)
+        html = build_sp3_card([], None, None)
         assert "SP3" in html
         assert "Scenarios (0)" in html
 
     def test_with_scenarios(self):
         scenarios = [("scen-1", None, None)]
-        html = _build_sp3_card(scenarios, None, None)
+        html = build_sp3_card(scenarios, None, None)
         assert "scen-1" in html
 
     def test_with_eval_data(self):
-        html = _build_sp3_card([], {"metrics": {"test": {"rate": 0.9}}}, None)
+        html = build_sp3_card([], {"metrics": {"test": {"rate": 0.9}}}, None)
         assert "test" in html
 
     def test_with_raw_yaml(self):
-        html = _build_sp3_card([], None, {"eval-scorecard.yaml": "key: val"})
+        html = build_sp3_card([], None, {"eval-scorecard.yaml": "key: val"})
         assert "raw-yaml" in html
 
 
@@ -1085,7 +1085,7 @@ class TestBuildCallEntryHtml:
 
 class TestBuildLlmCallInspector:
     def test_empty(self):
-        html = _build_llm_call_inspector([])
+        html = build_llm_call_inspector([])
         assert "<strong>0</strong>" in html
         assert "Total" in html
 
@@ -1094,7 +1094,7 @@ class TestBuildLlmCallInspector:
             {"stage": "sp1", "step": "s1", "success": True},
             {"stage": "sp2", "step": "s2", "success": False},
         ]
-        html = _build_llm_call_inspector(calls)
+        html = build_llm_call_inspector(calls)
         assert "<strong>2</strong>" in html
         assert "<strong>1</strong>" in html
 
@@ -1126,34 +1126,34 @@ class TestBuildManifestHashesTable:
 
 class TestBuildRunManifest:
     def test_none_manifest(self):
-        html = _build_run_manifest(None, None)
+        html = build_run_manifest(None, None)
         assert "No run manifest" in html
 
     def test_with_manifest(self):
         manifest = {"run_id": "test", "created_at": "2026-01-01"}
-        html = _build_run_manifest(manifest, None)
+        html = build_run_manifest(manifest, None)
         assert "test" in html
         assert "2026-01-01" in html
 
     def test_with_model_config(self):
         manifest = {"run_id": "r", "model_config": {"model": "gpt-4"}}
-        html = _build_run_manifest(manifest, None)
+        html = build_run_manifest(manifest, None)
         assert "gpt-4" in html
 
     def test_with_model_config_not_dict(self):
         manifest = {"run_id": "r", "model_config": "bad"}
-        html = _build_run_manifest(manifest, None)
+        html = build_run_manifest(manifest, None)
         assert "N/A" in html
 
     def test_with_input_hashes(self):
         manifest = {"run_id": "r", "input_hashes": {"file.yaml": "hash123"}}
-        html = _build_run_manifest(manifest, None)
+        html = build_run_manifest(manifest, None)
         assert "file.yaml" in html
         assert "hash123" in html
 
     def test_with_raw_yaml(self):
         manifest = {"run_id": "r"}
-        html = _build_run_manifest(manifest, {"run-manifest.yaml": "key: val"})
+        html = build_run_manifest(manifest, {"run-manifest.yaml": "key: val"})
         assert "raw-yaml" in html
 
 
