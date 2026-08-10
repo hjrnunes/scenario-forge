@@ -1349,14 +1349,36 @@ def _h_heuristic_warns_orphan(world: World, text: str, examples: dict) -> tuple[
 # Patterns are checked in order; first match wins.
 # Each pattern is (regex, handler).
 
-STEP_PATTERNS: list[tuple[re.Pattern, Any]] = []
+STEP_PATTERNS: list[tuple[re.Pattern, Any, str | None]] = []
+
+# Feature tag for subsequent _register_first calls. Set via _set_feature().
+_CURRENT_REGISTRATION_FEATURE: str | None = None
+
+# Feature tag for the currently executing IR file. Set in execute_ir().
+_CURRENT_EXECUTION_FEATURE: str | None = None
+
+
+def _set_feature(tag: str | None) -> None:
+    """Set the feature tag for subsequent _register_first calls."""
+    global _CURRENT_REGISTRATION_FEATURE
+    _CURRENT_REGISTRATION_FEATURE = tag
+
 
 def _register(pattern: str, handler: Any) -> None:
-    STEP_PATTERNS.append((re.compile(pattern, re.IGNORECASE), handler))
+    STEP_PATTERNS.append((re.compile(pattern, re.IGNORECASE), handler, None))
+
 
 def _register_first(pattern: str, handler: Any) -> None:
-    """Register a pattern at the front of the list (higher priority)."""
-    STEP_PATTERNS.insert(0, (re.compile(pattern, re.IGNORECASE), handler))
+    """Register a pattern at the front of the list (higher priority).
+
+    The pattern is tagged with the current registration feature (set via
+    _set_feature). During execution, tagged patterns only match when the
+    current IR file's feature matches, preventing cross-feature hijacking.
+    """
+    STEP_PATTERNS.insert(
+        0,
+        (re.compile(pattern, re.IGNORECASE), handler, _CURRENT_REGISTRATION_FEATURE),
+    )
 
 
 # Background / setup
@@ -14654,6 +14676,8 @@ def _h_sp2_fill_loss_scenario(world: World, text: str, examples: dict) -> tuple[
 
 
 # Register SP2 handlers (all use _register_first so they match before generic patterns)
+# Tag with feature "sp2" so they only match when executing SP2 IR files.
+_set_feature("sp2")
 _register(r"the SP2 slot creation module is importable", _h_sp2_slot_module_importable)
 _register(r"the SP2 technology context module is importable", _h_sp2_tech_module_importable)
 _register(r"the SP2 slot filling module is importable", _h_sp2_fill_module)
@@ -14873,6 +14897,7 @@ _register_first(r"the run manifest prompt_hashes contains SHA-256 hashes for (?:
 _register(r"the ICA enumeration has \d+ total slots", _h_sp2_slot_count_40)
 _register(r"no new failures are introduced", _h_sp2_existing_tests_unaffected)
 _register(r"the SP2 threat enumeration module is implemented", _h_sp2_module_implemented)
+_set_feature(None)
 
 
 def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
@@ -14890,7 +14915,12 @@ def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
     world.current_data_table = step.get("data_table")
 
     try:
-        for pattern, handler in STEP_PATTERNS:
+        for pattern, handler, feature_tag in STEP_PATTERNS:
+            # Skip patterns tagged for a different feature than the one
+            # currently executing. Untagged patterns (feature_tag is None)
+            # are global and always match.
+            if feature_tag is not None and feature_tag != _CURRENT_EXECUTION_FEATURE:
+                continue
             if pattern.search(text):
                 return handler(world, text, examples)
 
@@ -14900,11 +14930,29 @@ def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
         return True, ""
 
 
+def _derive_feature_tag(ir_path: str) -> str | None:
+    """Derive a feature tag from the IR filename.
+
+    Returns a feature tag for sub-project-specific IR files, or None for
+    foundation/boundary/SP1 features whose handlers should remain global.
+
+    Currently only SP2 is feature-tagged. Add future sub-projects here:
+        if stem.startswith("sp3_"): return "sp3"
+    """
+    stem = Path(ir_path).stem
+    if stem.startswith("sp2_"):
+        return "sp2"
+    return None
+
+
 def execute_ir(ir_path: str) -> tuple[bool, str]:
     """Execute all scenarios in a JSON IR file.
 
     Returns (all_passed, output).
     """
+    global _CURRENT_EXECUTION_FEATURE
+    _CURRENT_EXECUTION_FEATURE = _derive_feature_tag(ir_path)
+
     with open(ir_path) as f:
         ir = json.load(f)
 
