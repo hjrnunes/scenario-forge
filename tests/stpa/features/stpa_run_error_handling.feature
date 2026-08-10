@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=2ec4a930c702772d2a4ac86ea72dbbfa9471f88c6b0cdb6e2858e11ac257e71c
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T17:29:30.034037Z","feature_name":"STPA Run — Error handling","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/stpa_run_error_handling.feature","background_hash":"3ec383cb5b011d3dfa4dc96ae8b4debd8d8b7b2860ac7b26042d04ac72be8698","implementation_hash":"unknown","scenarios":[{"index":0,"name":"STPA-RUN-ERR-01 hard failure in <failing_stage> stops with exit code 1","scenario_hash":"cd72eb51fba9af6c131bd96c2edb0877af5058a8137f52c6b54029e1703b37d4","mutation_count":3,"result":{"Total":3,"Killed":3,"Survived":0,"Errors":0},"tested_at":"2026-08-10T17:29:30.034037Z"},{"index":1,"name":"STPA-RUN-ERR-02 degraded <stage> results continue to next stage","scenario_hash":"8c2ff3eebbac1378330a3dc4deec77a4c975937709b675e49a726c8da478036c","mutation_count":2,"result":{"Total":2,"Killed":2,"Survived":0,"Errors":0},"tested_at":"2026-08-10T17:29:30.034037Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: STPA Run — Error handling
   The stpa-run command distinguishes hard failures (exceptions/crashes)
   from degraded results (stage_errors populated but artifacts produced).

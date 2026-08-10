@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=ab3ff52ae79785505a7c495486ff9dba02b1e4b498855460f74f05116d4721e8
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T17:29:30.143773Z","feature_name":"STPA Run — Resume behavior","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/stpa_run_resume.feature","background_hash":"933bace9c37b273e0b2f551f430ec3920233d0f481497dbe992cad4ae2dc7d9a","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: STPA Run — Resume behavior
   With the --resume flag, the stpa-run command checks for existing artifacts
   in the output directory before each stage and skips completed stages.

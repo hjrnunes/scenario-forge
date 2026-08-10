@@ -151,3 +151,8 @@ def read_use_case(path: str) -> str:
         content = resolved_path.read_text(encoding="utf-8")
     logger.info("Loaded use-case text: %s", content[:100])
     return content
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T17:26:00Z","module_hash":"4be2fe5edad8155a547da53ae30c3f09c9a789001853002182054924a0252115","functions":[{"id":"func/resolve_llm_client_from_profile","name":"resolve_llm_client_from_profile","line":22,"end_line":47,"hash":"934d2bfb618888994141f4c02699037a0f48ab8792ca33ba736dd5b3c21a8a98"},{"id":"func/resolve_llm_client_from_env","name":"resolve_llm_client_from_env","line":50,"end_line":60,"hash":"8df7a0ca3da15ab5e856da48e30d0bc9a99a5dd8fb75734afb5d91f6a54331b4"},{"id":"func/resolve_llm_client","name":"resolve_llm_client","line":63,"end_line":82,"hash":"e093d239a4207901f7c50a08408c177b94885d287a39d70dac702a8c57a0e5a5"},{"id":"func/_looks_like_path_reference","name":"_looks_like_path_reference","line":90,"end_line":104,"hash":"18819db98b3b27efef57f81adea6af6045fee56cd6f6c3dc813e0d13fdaf26e7"},{"id":"func/_resolve_reference_path","name":"_resolve_reference_path","line":107,"end_line":131,"hash":"c97159a13dfa2dfbc0865d6e04b1ec067ab8353245c240636423908dc4709ea5"},{"id":"func/read_use_case","name":"read_use_case","line":134,"end_line":153,"hash":"819d118043e1e716dc3eeac6f278a22beff63e7351a7f3306a9b3f8565450280"}]}
+# mutate4py-manifest-end

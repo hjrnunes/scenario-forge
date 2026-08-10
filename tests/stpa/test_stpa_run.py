@@ -19,6 +19,7 @@ import json
 import yaml
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -38,6 +39,7 @@ from scenario_forge.stpa.pipeline.llm_config import (
     resolve_llm_client_from_env,
     resolve_llm_client_from_profile,
 )
+import scenario_forge.stpa.pipeline.runner as runner_module
 
 
 def _make_capability_profile() -> CapabilityProfile:
@@ -534,6 +536,18 @@ class TestInputValidation:
                     profiles_file="nonexistent-profiles.yaml",
                     profile="some-profile",
                 )
+
+    @pytest.mark.parametrize("profile_flag", ["profile", "sp1_profile", "sp2_profile", "sp3_profile"])
+    def test_val_05_each_profile_flag_requires_profiles_file(self, profile_flag):
+        """Every profile selector must validate the profiles file independently."""
+        with pytest.raises(FileNotFoundError, match="Model profiles file"):
+            runner_module._validate_profiles_file(
+                "missing-profiles.yaml",
+                profile="selected" if profile_flag == "profile" else None,
+                sp1_profile="selected" if profile_flag == "sp1_profile" else None,
+                sp2_profile="selected" if profile_flag == "sp2_profile" else None,
+                sp3_profile="selected" if profile_flag == "sp3_profile" else None,
+            )
 
     def test_val_08_validation_before_stages(self):
         """STPA-RUN-VAL-08: input validation runs before any pipeline stage."""
@@ -2276,3 +2290,81 @@ class TestResumeEdgeCases:
                 assert "SP3 degraded" in result.stage_errors
             finally:
                 _stop_patches(mocks)
+
+    def test_pipeline_allows_existing_output_directory(self, monkeypatch):
+        """A rerun can use an output directory that already exists."""
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            output_dir = tmp / "output"
+            output_dir.mkdir()
+            monkeypatch.setattr(runner_module, "_validate_inputs", lambda **_: None)
+            monkeypatch.setattr(runner_module, "_sp1_artifacts_exist", lambda _: False)
+            monkeypatch.setattr(runner_module, "_run_sp1_stage", lambda **_: None)
+            monkeypatch.setattr(
+                runner_module,
+                "_load_sp1_artifact",
+                lambda *_args: MagicMock(),
+            )
+            monkeypatch.setattr(runner_module, "_sp2_artifacts_exist", lambda _: False)
+            monkeypatch.setattr(runner_module, "_run_sp2_stage", lambda **_: None)
+            monkeypatch.setattr(runner_module, "_sp3_artifacts_exist", lambda _: False)
+            monkeypatch.setattr(runner_module, "_run_sp3_stage", lambda **_: None)
+            monkeypatch.setattr(runner_module, "_generate_report", lambda _: None)
+            monkeypatch.setattr(runner_module, "_print_summary", lambda **_: None)
+
+            result = run_stpa_pipeline(
+                use_case_path="unused",
+                risk_extraction_path="unused",
+                output_dir=output_dir,
+            )
+
+            assert result.report_path is None
+            nested_output = tmp / "new-parent" / "output"
+            run_stpa_pipeline(
+                use_case_path="unused",
+                risk_extraction_path="unused",
+                output_dir=nested_output,
+            )
+            assert nested_output.is_dir()
+
+    def test_validation_strips_at_prefix_before_path_check(self):
+        """The use-case path validator accepts the CLI's optional @ prefix."""
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            use_case = tmp / "use-case.txt"
+            risk = tmp / "risk.json"
+            use_case.write_text("use case", encoding="utf-8")
+            risk.write_text("[]", encoding="utf-8")
+            runner_module._validate_inputs(
+                use_case_path=f"@{use_case}",
+                risk_extraction_path=str(risk),
+                capability_profile_path=None,
+                profiles_file="unused-profiles.yaml",
+                profile=None,
+                sp1_profile=None,
+                sp2_profile=None,
+                sp3_profile=None,
+            )
+
+    def test_env_resolution_uses_legacy_base_url_fallback(self, monkeypatch):
+        """FG_BASE_URL remains a supported fallback when the new name is absent."""
+        monkeypatch.delenv("SCENARIO_FORGE_MODEL_BASE_URL", raising=False)
+        monkeypatch.setenv("FG_BASE_URL", "https://legacy.example.com/v1")
+        client = resolve_llm_client_from_env()
+        assert client.base_url == "https://legacy.example.com/v1"
+
+    def test_summary_reports_ica_fill_rate_and_threat_mapping(self, capsys):
+        """Summary metrics distinguish filled ICA slots and mapped threats."""
+        slots = [SimpleNamespace(is_na=False), SimpleNamespace(is_na=True)]
+        threats = [
+            SimpleNamespace(catalog_mappings=["T1"]),
+            SimpleNamespace(catalog_mappings=[]),
+        ]
+        runner_module._print_ica_summary(SimpleNamespace(slots=slots))
+        runner_module._print_enriched_threats_summary(
+            SimpleNamespace(structural_threats=threats),
+        )
+        output = capsys.readouterr().out
+        assert "Fill rate:          50.0%" in output
+        assert "Mapped:             1" in output
+        assert "Unmapped:           1" in output
