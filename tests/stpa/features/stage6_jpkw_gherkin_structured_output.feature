@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=bec9be5a911feb898ed16ca0953aeca2fb22e1db8df6e349ef87ed84012f779c
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T14:37:44.421593Z","feature_name":"Stage 6 Gherkin structured output (jpkw)","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/stage6_jpkw_gherkin_structured_output.feature","background_hash":"129b1d790458ad365674cab88d35d5c7a126ab63b4c4004c7f5a42132ce2fc8c","implementation_hash":"unknown","scenarios":[{"index":0,"name":"JPKW-01 GherkinSpec model has structured fields","scenario_hash":"721569ee06938a4f6775f186645c3ac40a986f2f24fec2024d98605f47112e53","mutation_count":12,"result":{"Total":12,"Killed":12,"Survived":0,"Errors":0},"tested_at":"2026-08-10T14:37:44.421593Z"},{"index":7,"name":"JPKW-08 structured validation catches missing required GherkinSpec content","scenario_hash":"1e0fcf76e1c5cc563e9f609c6978745d620c73324f3020157f1710d4660c2f79","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-10T14:37:44.421593Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: Stage 6 Gherkin structured output (jpkw)
   The Gherkin spec on ScenarioEnvelope changes from a raw string to a
   structured GherkinSpec model with parsed components. A gherkin_raw field

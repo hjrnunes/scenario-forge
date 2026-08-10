@@ -2649,7 +2649,7 @@ def _h_manifest_no_coupling(world: World, text: str, examples: dict) -> tuple[bo
 # ScenarioEnvelope handlers
 # ---------------------------------------------------------------------------
 
-from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
+from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope, GherkinSpec
 
 
 def _h_envelope_given(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -2661,7 +2661,14 @@ def _h_envelope_given(world: World, text: str, examples: dict) -> tuple[bool, st
         scenario_spec=spec,
         narrative="Narrative text",
         attack_tree={"root": {"children": []}},
-        gherkin_spec="Feature: Test\n  Scenario: Test\n",
+        gherkin_spec=GherkinSpec(
+            feature="Test", scenario="Test",
+            given=["Given PM-1-1 is valid"],
+            when=["When x"],
+            then_expected=["Then should reject"],
+            then_actual=["But approves"],
+        ),
+        gherkin_raw="Feature: Test\n  Scenario: Test\n",
         target_responsibility="RESP-1",
         ica_type=UCAType.not_provided,
         provenance="structural",
@@ -2683,7 +2690,14 @@ def _h_envelope_faceting(world: World, text: str, examples: dict) -> tuple[bool,
         scenario_spec=spec,
         narrative="Narrative",
         attack_tree={"root": {}},
-        gherkin_spec="Feature: T\n",
+        gherkin_spec=GherkinSpec(
+            feature="T", scenario="T",
+            given=["Given PM-1-1 is valid"],
+            when=["When x"],
+            then_expected=["Then should reject"],
+            then_actual=["But approves"],
+        ),
+        gherkin_raw="Feature: T\n",
         target_responsibility="RESP-1",
         ica_type=UCAType.not_provided,
         provenance="structural",
@@ -2700,7 +2714,14 @@ def _h_envelope_catalog(world: World, text: str, examples: dict) -> tuple[bool, 
         scenario_spec=spec,
         narrative="Narrative",
         attack_tree={"root": {}},
-        gherkin_spec="Feature: T\n",
+        gherkin_spec=GherkinSpec(
+            feature="T", scenario="T",
+            given=["Given PM-1-1 is valid"],
+            when=["When x"],
+            then_expected=["Then should reject"],
+            then_actual=["But approves"],
+        ),
+        gherkin_raw="Feature: T\n",
         target_responsibility="RESP-1",
         ica_type=UCAType.not_provided,
         provenance="structural",
@@ -15035,15 +15056,33 @@ def _make_sp3_scenario_spec(
 def _make_sp3_envelope(
     spec: ScenarioSpec | None = None,
     attack_tree: dict | None = None,
-    gherkin_spec: str | None = None,
+    gherkin_spec: GherkinSpec | str | None = None,
 ) -> ScenarioEnvelope:
     """Build a scenario envelope for SP3 acceptance tests."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec as _GS
     s = spec or _make_sp3_scenario_spec()
     tree = attack_tree or {"root": "r", "branches": [
         {"category": "controller_side", "label": "l", "children": []},
         {"category": "path_side", "label": "l", "children": []},
     ], "leaves": ["mechanism1"]}
-    ghw = gherkin_spec or "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n"
+    if gherkin_spec is None:
+        ghw = _GS(
+            feature="Test", scenario="SCN-001",
+            given=["Given PM-1-1 is valid"],
+            when=["When x"],
+            then_expected=["Then should reject"],
+            then_actual=["But approves"],
+        )
+    elif isinstance(gherkin_spec, str):
+        ghw = _GS(
+            feature="Test", scenario="SCN-001",
+            given=["Given PM-1-1 is valid"],
+            when=["When x"],
+            then_expected=["Then should reject"],
+            then_actual=["But approves"],
+        )
+    else:
+        ghw = gherkin_spec
     return ScenarioEnvelope(
         scenario_id=s.scenario_id,
         scenario_spec=s,
@@ -15802,7 +15841,18 @@ def _h_sp3_llm_narrative(world: World, text: str, examples: dict) -> tuple[bool,
         elif "no Given step referencing" in text:
             client.set_response_for(None, "Scenario: Test\n  Given something\n  When x\n  Then should reject\n  But approves\n")
         else:
-            client.set_response_for(None, "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves (ICA NOT_PROVIDED on CA-1-1)\n")
+            client.set_response_for(None, (
+                "feature: Test\n"
+                "scenario: SCN-001\n"
+                "given:\n"
+                "  - Given PM-1-1 is valid\n"
+                "when:\n"
+                "  - When x\n"
+                "then_expected:\n"
+                "  - Then should reject\n"
+                "then_actual:\n"
+                "  - But approves (ICA NOT_PROVIDED on CA-1-1)\n"
+            ))
     world.sp3_llm_client = client
     return True, ""
 
@@ -15857,11 +15907,11 @@ def _h_sp3_gherkin_call(world: World, text: str, examples: dict) -> tuple[bool, 
     # Otherwise set a default Gherkin response.
     world.sp3_llm_client._response_queue.clear()
     existing = world.sp3_llm_client._response_map.get(None)
-    if existing is None or (isinstance(existing, str) and "Scenario:" not in existing):
+    if existing is None or (isinstance(existing, str) and "Scenario:" not in existing and "feature:" not in existing.lower()):
         world.sp3_llm_client.set_response_for(None,
             "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves (ICA NOT_PROVIDED on CA-1-1)\n")
     run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
-    world.sp3_gherkin, _ = generate_gherkin(world.sp3_llm_client, world.scenario_spec, world.loss_analysis, run_dir)
+    world.sp3_gherkin, world.sp3_gherkin_raw, _ = generate_gherkin(world.sp3_llm_client, world.scenario_spec, world.loss_analysis, run_dir)
     return True, ""
 
 def _h_sp3_tree_branch_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -15932,9 +15982,12 @@ def _h_sp3_gherkin_validation(world: World, text: str, examples: dict) -> tuple[
         world.sp3_llm_client._response_queue.clear()
         # If the mock client already has a response for None, use it
         run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
-        ghw, error = generate_gherkin(world.sp3_llm_client, world.scenario_spec, world.loss_analysis, run_dir)
+        ghw, ghw_raw, error = generate_gherkin(world.sp3_llm_client, world.scenario_spec, world.loss_analysis, run_dir)
         if ghw is not None:
             world.sp3_gherkin = ghw
+        elif ghw_raw is not None:
+            # Spec parsing failed (e.g., old text format); use raw text for validation
+            ghw = ghw_raw
     if ghw is None:
         ghw = "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n"
     result = validate_gherkin_structure(ghw)
@@ -16122,12 +16175,18 @@ def _h_sp3_3_calls(world: World, text: str, examples: dict) -> tuple[bool, str]:
 
 def _h_sp3_gherkin_should_but(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the Gherkin text contains a Then line with should / a But line."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
     ghw = getattr(world, "sp3_gherkin", None)
     if ghw is None:
         return False, "No Gherkin text"
-    if "should" in text.lower() and "should" not in ghw.lower():
+    # Convert GherkinSpec to text for string checks
+    if isinstance(ghw, GherkinSpec):
+        ghw_text = ghw.to_feature_text()
+    else:
+        ghw_text = str(ghw)
+    if "should" in text.lower() and "should" not in ghw_text.lower():
         return False, "Gherkin missing 'should'"
-    if "But" in text and "but" not in ghw.lower():
+    if "But" in text and "but" not in ghw_text.lower():
         return False, "Gherkin missing 'But'"
     return True, ""
 
@@ -16137,22 +16196,26 @@ def _h_sp3_should_reflects_constraint(world: World, text: str, examples: dict) -
 
 def _h_sp3_but_refs_ica(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the But clause references ICA type / control action."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
     ghw = getattr(world, "sp3_gherkin", None)
     if ghw is None:
         return True, ""
-    if "NOT_PROVIDED" in text and "NOT_PROVIDED" not in ghw:
+    ghw_text = ghw.to_feature_text() if isinstance(ghw, GherkinSpec) else str(ghw)
+    if "NOT_PROVIDED" in text and "NOT_PROVIDED" not in ghw_text:
         return False, "Gherkin But clause missing NOT_PROVIDED"
-    if "CA-1-1" in text and "CA-1-1" not in ghw:
+    if "CA-1-1" in text and "CA-1-1" not in ghw_text:
         return False, "Gherkin But clause missing CA-1-1"
     return True, ""
 
 def _h_sp3_given_pm(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: at least one Given step references a process model state."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
     ghw = getattr(world, "sp3_gherkin", None)
     if ghw is None:
         return True, ""
     import re
-    if not re.search(r"PM-\d+-\d+", ghw):
+    ghw_text = ghw.to_feature_text() if isinstance(ghw, GherkinSpec) else str(ghw)
+    if not re.search(r"PM-\d+-\d+", ghw_text):
         return False, "Gherkin Given steps do not reference PM"
     return True, ""
 
@@ -17899,6 +17962,904 @@ _register(r"no new failures are introduced", _h_sp3_existing_tests)
 _register(r"the run manifest records the total scenario count", _h_sp3_manifest_scenario_count)
 _register(r"the run manifest records the number of validation errors", _h_sp3_manifest_scenario_count)
 
+# ---------------------------------------------------------------------------
+# Stage 6 output quality step handlers (jpkw, gddi, v689)
+# ---------------------------------------------------------------------------
+
+_VALID_GHERKIN_YAML = (
+    "feature: Safe orchestration\n"
+    "scenario: SCN-001\n"
+    "given:\n"
+    "  - Given PM-1-1 is active\n"
+    "  - And the system is online\n"
+    "when:\n"
+    "  - When a revoked user requests access\n"
+    "then_expected:\n"
+    "  - Then the system should reject the request\n"
+    "then_actual:\n"
+    "  - But the system approves the request\n"
+    "  - And loss L-1 is realized\n"
+)
+
+
+def _h_stage6_gherkin_spec_model_defined(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the GherkinSpec model is defined."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
+    world.sp3_gherkin_spec_model = GherkinSpec
+    return True, ""
+
+
+def _h_stage6_gherkin_spec_has_field(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: it has a <field> field of type <type>."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
+    field_name = examples.get("field", "")
+    type_str = examples.get("type", "")
+    if not field_name:
+        return False, "Missing field name in examples"
+    if field_name not in GherkinSpec.model_fields:
+        return False, f"GherkinSpec has no field '{field_name}'"
+    return True, ""
+
+
+def _h_stage6_envelope_model_defined(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ScenarioEnvelope model is defined."""
+    world.sp3_envelope_model = ScenarioEnvelope
+    return True, ""
+
+
+def _h_stage6_gherkin_spec_field_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the gherkin_spec field is of type GherkinSpec."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
+    if "gherkin_spec" not in ScenarioEnvelope.model_fields:
+        return False, "ScenarioEnvelope has no gherkin_spec field"
+    # Check the annotation references GherkinSpec
+    field_info = ScenarioEnvelope.model_fields["gherkin_spec"]
+    annotation_str = str(field_info.annotation)
+    if "GherkinSpec" not in annotation_str:
+        return False, f"gherkin_spec annotation does not reference GherkinSpec: {annotation_str}"
+    return True, ""
+
+
+def _h_stage6_gherkin_raw_field_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the gherkin_raw field is of type str."""
+    if "gherkin_raw" not in ScenarioEnvelope.model_fields:
+        return False, "ScenarioEnvelope has no gherkin_raw field"
+    field_info = ScenarioEnvelope.model_fields["gherkin_raw"]
+    annotation_str = str(field_info.annotation)
+    if "str" not in annotation_str:
+        return False, f"gherkin_raw annotation is not str: {annotation_str}"
+    return True, ""
+
+
+def _h_stage6_gherkin_system_prompt_rendered(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Gherkin system prompt is rendered."""
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+    loader = TemplateLoader(PROMPTS_DIR)
+    world.sp3_system_prompt = loader.render_prompt("stage6c_gherkin_system.j2")
+    return True, ""
+
+
+def _h_stage6_system_prompt_instructs_yaml(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt instructs the LLM to return a YAML object."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    if "yaml" not in prompt.lower():
+        return False, "System prompt does not instruct YAML output"
+    return True, ""
+
+
+def _h_stage6_system_prompt_defines_fields(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt defines the fields feature, scenario, given, when, then_expected, then_actual."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    for field in ["feature", "scenario", "given", "when", "then_expected", "then_actual"]:
+        if field not in prompt:
+            return False, f"System prompt missing field '{field}'"
+    return True, ""
+
+
+def _h_stage6_system_prompt_uses_only_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt instructs the LLM to use only provided L-* and H-* IDs."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    if "only" not in prompt.lower():
+        return False, "System prompt does not say 'only'"
+    if "L-" not in prompt or "H-" not in prompt:
+        return False, "System prompt does not mention L-* and H-* IDs"
+    return True, ""
+
+
+def _h_stage6_llm_returns_structured_yaml_fields(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns structured YAML with fields feature, scenario, given, when, then_expected, then_actual."""
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+        world.sp3_run_dir = Path(tempfile.mkdtemp())
+    world.sp3_llm_client._response_queue.clear()
+    world.sp3_llm_client.set_response_for(None, _VALID_GHERKIN_YAML)
+    return True, ""
+
+
+def _h_stage6_llm_returns_structured_yaml_feature(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns structured YAML with feature "Safe orchestration" and scenario "SCN-001"."""
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+        world.sp3_run_dir = Path(tempfile.mkdtemp())
+    world.sp3_llm_client._response_queue.clear()
+    world.sp3_llm_client.set_response_for(None, _VALID_GHERKIN_YAML)
+    return True, ""
+
+
+def _h_stage6_llm_returns_yaml_given_steps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns YAML with given steps "Given PM-1-1 is active" and "And the system is online"."""
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+        world.sp3_run_dir = Path(tempfile.mkdtemp())
+    world.sp3_llm_client._response_queue.clear()
+    world.sp3_llm_client.set_response_for(None, _VALID_GHERKIN_YAML)
+    return True, ""
+
+
+def _h_stage6_result_includes_gherkin_spec(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the result includes a GherkinSpec object."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
+    ghw = getattr(world, "sp3_gherkin", None)
+    if ghw is None:
+        return False, "No GherkinSpec result available"
+    if not isinstance(ghw, GherkinSpec):
+        return False, f"Result is not a GherkinSpec, got {type(ghw)}"
+    return True, ""
+
+
+def _h_stage6_result_includes_raw_text(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the result includes a raw text string."""
+    raw = getattr(world, "sp3_gherkin_raw", None)
+    if raw is None:
+        return False, "No raw text result available"
+    if not isinstance(raw, str):
+        return False, f"Raw text is not a str, got {type(raw)}"
+    if len(raw) == 0:
+        return False, "Raw text is empty"
+    return True, ""
+
+
+def _h_stage6_gherkin_spec_given_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the GherkinSpec.given list contains "..."."""
+    import re
+    ghw = getattr(world, "sp3_gherkin", None)
+    if ghw is None:
+        return False, "No GherkinSpec result available"
+    m = re.search(r'contains "([^"]+)"', text)
+    if not m:
+        return False, f"Could not extract expected value from step: {text}"
+    expected = m.group(1)
+    if expected not in ghw.given:
+        return False, f"GherkinSpec.given does not contain '{expected}': {ghw.given}"
+    return True, ""
+
+
+def _h_stage6_gherkin_spec_with_feature_scenario(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a GherkinSpec with feature "..." and scenario "..."."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
+    import re
+    feature_m = re.search(r'feature "([^"]+)"', text)
+    scenario_m = re.search(r'scenario "([^"]+)"', text)
+    feature = feature_m.group(1) if feature_m else "Safe orchestration"
+    scenario = scenario_m.group(1) if scenario_m else "SCN-001"
+
+    # Check for extended form: "and given "..." and when "..." and then_expected "...""
+    given_m = re.search(r'given "([^"]+)"', text)
+    when_m = re.search(r'when "([^"]+)"', text)
+    then_exp_m = re.search(r'then_expected "([^"]+)"', text)
+
+    spec = GherkinSpec(
+        feature=feature,
+        scenario=scenario,
+        given=[given_m.group(1)] if given_m else ["Given PM-1-1 is active"],
+        when=[when_m.group(1)] if when_m else ["When a revoked user requests access"],
+        then_expected=[then_exp_m.group(1)] if then_exp_m else ["Then the system should reject the request"],
+        then_actual=["But the system approves"],
+    )
+    world.sp3_gherkin_spec = spec
+    return True, ""
+
+
+def _h_stage6_gherkin_spec_with_deficiency(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a GherkinSpec with <deficiency> (from examples)."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
+    deficiency = examples.get("deficiency", "")
+    if "empty then_expected" in deficiency:
+        spec = GherkinSpec(feature="F", scenario="S", given=["Given PM-1-1 is active"],
+                           when=["When x"], then_expected=[], then_actual=["But approves"])
+    elif "empty then_actual" in deficiency:
+        spec = GherkinSpec(feature="F", scenario="S", given=["Given PM-1-1 is active"],
+                           when=["When x"], then_expected=["Then should reject"], then_actual=[])
+    elif "no PM reference" in deficiency:
+        spec = GherkinSpec(feature="F", scenario="S", given=["Given the system is running"],
+                           when=["When x"], then_expected=["Then should reject"], then_actual=["But approves"])
+    else:
+        return False, f"Unknown deficiency: {deficiency}"
+    world.sp3_gherkin_spec = spec
+    return True, ""
+
+
+def _h_stage6_gherkin_spec_valid(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a GherkinSpec with then_expected containing should, then_actual containing but, and given referencing PM-1-1."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
+    spec = GherkinSpec(
+        feature="Safe orchestration", scenario="SCN-001",
+        given=["Given PM-1-1 is active"],
+        when=["When x"],
+        then_expected=["Then the system should reject"],
+        then_actual=["But the system approves"],
+    )
+    world.sp3_gherkin_spec = spec
+    return True, ""
+
+
+def _h_stage6_gherkin_raw_string(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a gherkin_raw string containing the full Feature block."""
+    world.sp3_gherkin_raw_text = "Feature: Safe orchestration\nScenario: SCN-001\n"
+    return True, ""
+
+
+def _h_stage6_assemble_envelope(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: assemble_envelope is called with the GherkinSpec and gherkin_raw."""
+    from scenario_forge.stpa.scenario_prod.assembly import assemble_envelope
+    spec = world.scenario_spec or _make_sp3_scenario_spec()
+    ghw = getattr(world, "sp3_gherkin_spec", None)
+    raw = getattr(world, "sp3_gherkin_raw_text", "")
+    if ghw is None:
+        return False, "No GherkinSpec available to assemble"
+    world.sp3_assembled_envelope = assemble_envelope(
+        scenario_id=spec.scenario_id,
+        scenario_spec=spec,
+        narrative="Narrative",
+        attack_tree={"root": "r", "branches": [], "leaves": []},
+        gherkin_spec=ghw,
+        gherkin_raw=raw,
+    )
+    return True, ""
+
+
+def _h_stage6_envelope_gherkin_spec_equals(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the resulting ScenarioEnvelope.gherkin_spec equals the GherkinSpec."""
+    env = getattr(world, "sp3_assembled_envelope", None)
+    ghw = getattr(world, "sp3_gherkin_spec", None)
+    if env is None or ghw is None:
+        return False, "Missing envelope or GherkinSpec"
+    if env.gherkin_spec != ghw:
+        return False, f"gherkin_spec mismatch: {env.gherkin_spec} != {ghw}"
+    return True, ""
+
+
+def _h_stage6_envelope_gherkin_raw_equals(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the resulting ScenarioEnvelope.gherkin_raw equals the gherkin_raw string."""
+    env = getattr(world, "sp3_assembled_envelope", None)
+    raw = getattr(world, "sp3_gherkin_raw_text", "")
+    if env is None:
+        return False, "Missing envelope"
+    if env.gherkin_raw != raw:
+        return False, f"gherkin_raw mismatch: '{env.gherkin_raw}' != '{raw}'"
+    return True, ""
+
+
+def _h_stage6_envelope_with_gherkin_raw(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ScenarioEnvelope with gherkin_raw "..."."""
+    import re
+    m = re.search(r'gherkin_raw "([^"]+)"', text)
+    raw = m.group(1) if m else ""
+    # Unescape \n
+    raw = raw.replace("\\n", "\n")
+    env = _make_sp3_envelope()
+    env.gherkin_raw = raw
+    world.sp3_envelope = env
+    return True, ""
+
+
+def _h_stage6_scenario_artifacts_written(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: scenario artifacts are written."""
+    from scenario_forge.stpa.scenario_prod.run import _write_scenario_artifacts
+    env = getattr(world, "sp3_envelope", None)
+    if env is None:
+        env = _make_sp3_envelope()
+        env.gherkin_raw = "Feature: Safe orchestration\nScenario: SCN-001\n"
+    world.sp3_artifacts_dir = Path(tempfile.mkdtemp())
+    _write_scenario_artifacts(env, world.sp3_artifacts_dir)
+    return True, ""
+
+
+def _h_stage6_feature_file_created(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a .feature file is created containing the gherkin_raw text."""
+    env = getattr(world, "sp3_envelope", None)
+    artifacts_dir = getattr(world, "sp3_artifacts_dir", None)
+    if env is None or artifacts_dir is None:
+        return False, "Missing envelope or artifacts dir"
+    feature_path = artifacts_dir / f"{env.scenario_id}.feature"
+    if not feature_path.exists():
+        return False, f".feature file not found at {feature_path}"
+    content = feature_path.read_text(encoding="utf-8")
+    if env.gherkin_raw and env.gherkin_raw not in content:
+        return False, f".feature file does not contain gherkin_raw text"
+    return True, ""
+
+
+def _h_stage6_gherkin_spec_validation_on_spec(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Gherkin structure validation is performed on the GherkinSpec."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_gherkin_structure
+    spec = getattr(world, "sp3_gherkin_spec", None)
+    if spec is None:
+        spec = getattr(world, "sp3_gherkin", None)
+    if spec is None:
+        return False, "No GherkinSpec to validate"
+    result = validate_gherkin_structure(spec)
+    world.validation_succeeded = result.passed
+    if not result.passed:
+        world.validation_error = ValueError(result.errors[0] if result.errors else "Validation failed")
+    return True, ""
+
+
+def _h_stage6_gherkin_spec_rendered(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the GherkinSpec is rendered to feature text."""
+    spec = getattr(world, "sp3_gherkin_spec", None)
+    if spec is None:
+        return False, "No GherkinSpec to render"
+    world.sp3_rendered_text = spec.to_feature_text()
+    return True, ""
+
+
+def _h_stage6_rendered_text_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the rendered text contains the Feature/Scenario/Given/When/Then line."""
+    rendered = getattr(world, "sp3_rendered_text", None)
+    if rendered is None:
+        return False, "No rendered text available"
+    text_lower = text.lower()
+    if "feature line" in text_lower:
+        if "Feature:" not in rendered:
+            return False, f"Rendered text missing Feature line: {rendered}"
+    elif "scenario line" in text_lower:
+        if "Scenario:" not in rendered:
+            return False, f"Rendered text missing Scenario line: {rendered}"
+    elif "given step" in text_lower:
+        if "Given" not in rendered:
+            return False, f"Rendered text missing Given step: {rendered}"
+    elif "when step" in text_lower:
+        if "When" not in rendered:
+            return False, f"Rendered text missing When step: {rendered}"
+    elif "then step" in text_lower:
+        if "Then" not in rendered:
+            return False, f"Rendered text missing Then step: {rendered}"
+    return True, ""
+
+
+def _h_stage6_envelope_with_empty_then_expected(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ScenarioEnvelope with a GherkinSpec that has empty then_expected."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
+    spec = _make_sp3_scenario_spec()
+    env = _make_sp3_envelope(spec=spec, attack_tree={
+        "root": "Induce ICA NOT_PROVIDED on CA-1-1",
+        "branches": [
+            {"category": "controller_side", "label": "l", "children": []},
+            {"category": "path_side", "label": "l", "children": []},
+        ],
+        "leaves": [],
+    })
+    env.gherkin_spec = GherkinSpec(
+        feature="F", scenario="S",
+        given=["Given PM-1-1 is active"],
+        when=["When x"],
+        then_expected=[],
+        then_actual=["But approves"],
+    )
+    world.sp3_envelope = env
+    return True, ""
+
+
+def _h_stage7_envelope_validation_performed(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 7 envelope validation is performed."""
+    from scenario_forge.stpa.scenario_prod.run import _validate_envelope_stage7
+    env = getattr(world, "sp3_envelope", None)
+    if env is None:
+        env = _make_sp3_envelope()
+    la = world.loss_analysis or _make_sp3_loss_analysis()
+    errors: list[str] = []
+    _validate_envelope_stage7(env, la, errors)
+    world.sp3_stage7_errors = errors
+    world.validation_succeeded = len(errors) == 0
+    if errors:
+        world.validation_error = ValueError(errors[0])
+    return True, ""
+
+
+def _h_stage6_gherkin_raw_contains_feature(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the gherkin_raw contains the Feature line."""
+    raw = getattr(world, "sp3_gherkin_raw", None)
+    if raw is None:
+        return False, "No gherkin_raw available"
+    if "feature" not in raw.lower():
+        return False, f"gherkin_raw does not contain Feature line: {raw}"
+    return True, ""
+
+
+def _h_stage6_gherkin_raw_contains_scenario(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the gherkin_raw contains the Scenario line."""
+    raw = getattr(world, "sp3_gherkin_raw", None)
+    if raw is None:
+        return False, "No gherkin_raw available"
+    if "scenario" not in raw.lower():
+        return False, f"gherkin_raw does not contain Scenario line: {raw}"
+    return True, ""
+
+
+# --- GDDI handlers ---
+
+def _h_stage6_loss_analysis_with_specific_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis with losses L-1, L-2, L-3 and hazards H-1, H-2."""
+    world.loss_analysis = LossAnalysis(
+        risk_card_losses=[
+            Loss(loss_id="L-1", description="Loss 1", provenance=LossProvenance.risk_card, source_risk_cards=["r1"]),
+            Loss(loss_id="L-2", description="Loss 2", provenance=LossProvenance.risk_card, source_risk_cards=["r2"]),
+            Loss(loss_id="L-3", description="Loss 3", provenance=LossProvenance.risk_card, source_risk_cards=["r3"]),
+        ],
+        use_case_losses=[],
+        hazards=[
+            Hazard(hazard_id="H-1", description="Hazard 1", related_losses=["L-1"]),
+            Hazard(hazard_id="H-2", description="Hazard 2", related_losses=["L-2"]),
+        ],
+        security_constraints=[
+            SecurityConstraint(constraint_id="SC-1", description="The system must validate before action", related_hazards=["H-1"]),
+        ],
+    )
+    return True, ""
+
+
+def _h_stage6_gherkin_user_prompt_built(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Gherkin user prompt is built with the loss analysis."""
+    from scenario_forge.stpa.scenario_prod.gherkin import build_gherkin_prompts, find_security_constraint
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    loader = TemplateLoader(PROMPTS_DIR)
+    sc = find_security_constraint(world.scenario_spec, world.loss_analysis)
+    _, user_prompt = build_gherkin_prompts(world.scenario_spec, sc, world.loss_analysis, loader)
+    world.sp3_user_prompt = user_prompt
+    return True, ""
+
+
+def _h_stage6_user_prompt_contains_valid_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains the valid <id_type> ID <valid_id>."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt available"
+    valid_id = examples.get("valid_id", "")
+    if not valid_id:
+        return False, "Missing valid_id in examples"
+    if valid_id not in prompt:
+        return False, f"User prompt does not contain '{valid_id}'"
+    return True, ""
+
+
+def _h_stage6_user_prompt_instructs_reference_only(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains an instruction to reference only the provided IDs."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt available"
+    if "only" not in prompt.lower() or "provided" not in prompt.lower():
+        return False, "User prompt does not instruct to reference only provided IDs"
+    return True, ""
+
+
+def _h_stage6_user_prompt_instructs_not_invent(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains an instruction not to invent new IDs."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt available"
+    if "invent" not in prompt.lower():
+        return False, "User prompt does not instruct not to invent new IDs"
+    return True, ""
+
+
+def _h_stage6_build_gherkin_prompts_called(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: build_gherkin_prompts is called with the scenario spec and loss analysis."""
+    from scenario_forge.stpa.scenario_prod.gherkin import build_gherkin_prompts, find_security_constraint
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    loader = TemplateLoader(PROMPTS_DIR)
+    sc = find_security_constraint(world.scenario_spec, world.loss_analysis)
+    _, user_prompt = build_gherkin_prompts(world.scenario_spec, sc, world.loss_analysis, loader)
+    world.sp3_user_prompt = user_prompt
+    return True, ""
+
+
+def _h_stage6_user_prompt_contains_valid_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains valid Loss and Hazard IDs from the loss analysis."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt available"
+    if "L-1" not in prompt or "H-1" not in prompt:
+        return False, "User prompt missing L-1 or H-1"
+    return True, ""
+
+
+def _h_stage6_gherkin_text_hallucinated_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a Gherkin text referencing <hallucinated_id> which is not in the loss analysis."""
+    hallucinated_id = examples.get("hallucinated_id", "")
+    if not hallucinated_id:
+        return False, "Missing hallucinated_id in examples"
+    world.sp3_gherkin_text = f"Scenario: Test\n  But loss {hallucinated_id} is realized\n"
+    return True, ""
+
+
+def _h_stage6_gherkin_text_multiple_hallucinated(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a Gherkin text referencing L-99 and H-88 which are not in the loss analysis."""
+    world.sp3_gherkin_text = "Scenario: Test\n  But loss L-99 is realized\n  And hazard H-88 occurs\n"
+    return True, ""
+
+
+def _h_stage6_gherkin_text_valid_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a Gherkin text referencing L-1 and H-1 which are in the loss analysis."""
+    world.sp3_gherkin_text = "Scenario: Test\n  But loss L-1 is realized\n  And hazard H-1 occurs\n"
+    return True, ""
+
+
+def _h_stage6_gherkin_text_no_refs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a Gherkin text with no L-* or H-* references."""
+    world.sp3_gherkin_text = "Scenario: Test\n  Given PM-1-1 is active\n  When x\n  Then should reject\n  But approves\n"
+    return True, ""
+
+
+def _h_stage6_loss_hazard_id_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Loss/Hazard ID validation is performed against the loss analysis."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_loss_hazard_id_references
+    gherkin_text = getattr(world, "sp3_gherkin_text", None)
+    if gherkin_text is None:
+        return False, "No Gherkin text to validate"
+    la = world.loss_analysis or _make_sp3_loss_analysis()
+    result = validate_loss_hazard_id_references(gherkin_text, la)
+    world.validation_succeeded = result.passed
+    if not result.passed:
+        world.validation_error = ValueError("; ".join(result.errors))
+    world.sp3_validation_errors = result.errors
+    return True, ""
+
+
+def _h_stage6_validation_fails_with_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: validation fails with error containing <id>."""
+    if world.validation_error is None:
+        return False, "Expected validation to fail but it succeeded"
+    hallucinated_id = examples.get("hallucinated_id", "")
+    if hallucinated_id:
+        if hallucinated_id not in str(world.validation_error):
+            return False, f"Error does not contain '{hallucinated_id}': {world.validation_error}"
+        return True, ""
+    # For non-example steps, extract from text
+    import re
+    m = re.search(r"containing (\S+)", text)
+    if m:
+        expected = m.group(1)
+        if expected not in str(world.validation_error):
+            return False, f"Error does not contain '{expected}': {world.validation_error}"
+    return True, ""
+
+
+def _h_stage6_llm_returns_gherkin_hallucinated(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns Gherkin referencing hallucinated Loss ID L-99."""
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+        world.sp3_run_dir = Path(tempfile.mkdtemp())
+    world.sp3_llm_client._response_queue.clear()
+    yaml = (
+        "feature: Test\n"
+        "scenario: SCN-001\n"
+        "given:\n  - Given PM-1-1 is active\n"
+        "when:\n  - When x\n"
+        "then_expected:\n  - Then should reject\n"
+        "then_actual:\n  - But approves\n  - And loss L-99 is realized\n"
+    )
+    world.sp3_llm_client.set_response_for(None, yaml)
+    return True, ""
+
+
+def _h_stage6_pipeline_runs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6 pipeline runs for the scenario."""
+    from scenario_forge.stpa.scenario_prod.gherkin import generate_gherkin
+    from scenario_forge.stpa.scenario_prod.attack_tree import generate_attack_tree
+    from scenario_forge.stpa.scenario_prod.run import _validate_stage6_artifacts
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+        world.sp3_run_dir = Path(tempfile.mkdtemp())
+    run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+    tree, tree_err = generate_attack_tree(world.sp3_llm_client, world.scenario_spec, world.control_structure, run_dir)
+    ghw, ghw_raw, ghw_err = generate_gherkin(world.sp3_llm_client, world.scenario_spec, world.loss_analysis, run_dir)
+    errors: list[str] = []
+    _validate_stage6_artifacts(
+        tree or {"root": "r", "branches": [], "leaves": []},
+        ghw, ghw_raw or "", world.control_structure, world.loss_analysis, world.scenario_spec, errors,
+    )
+    world.sp3_stage6_errors = errors
+    world.validation_succeeded = len(errors) == 0
+    if errors:
+        world.validation_error = ValueError(errors[0])
+    return True, ""
+
+
+def _h_stage6_validation_error_reported(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a validation error is reported containing <keyword>."""
+    import re
+    errors = getattr(world, "sp3_stage6_errors", None) or getattr(world, "sp3_stage7_errors", None)
+    if not errors:
+        if world.validation_error is not None:
+            errors = [str(world.validation_error)]
+        else:
+            return False, "No validation errors reported"
+    m = re.search(r"containing (\S+)", text)
+    if m:
+        expected = m.group(1)
+        if not any(expected in e for e in errors):
+            return False, f"No error contains '{expected}': {errors}"
+    return True, ""
+
+
+def _h_stage6_envelope_with_hallucinated_hazard(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ScenarioEnvelope with Gherkin referencing hallucinated Hazard ID H-99."""
+    from scenario_forge.stpa.models.scenario_envelope import GherkinSpec
+    spec = _make_sp3_scenario_spec()
+    env = _make_sp3_envelope(spec=spec, attack_tree={
+        "root": "Induce ICA NOT_PROVIDED on CA-1-1",
+        "branches": [
+            {"category": "controller_side", "label": "l", "children": []},
+            {"category": "path_side", "label": "l", "children": []},
+        ],
+        "leaves": [],
+    })
+    env.gherkin_spec = GherkinSpec(
+        feature="F", scenario="S",
+        given=["Given PM-1-1 is active"],
+        when=["When x"],
+        then_expected=["Then should reject"],
+        then_actual=["But approves", "And hazard H-99 occurs"],
+    )
+    env.gherkin_raw = "Scenario: Test\n  But hazard H-99 occurs\n"
+    world.sp3_envelope = env
+    return True, ""
+
+
+# --- V689 handlers ---
+
+def _h_stage6_attack_tree_system_prompt_rendered(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the attack tree system prompt is rendered."""
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+    loader = TemplateLoader(PROMPTS_DIR)
+    world.sp3_system_prompt = loader.render_prompt("stage6b_tree_system.j2")
+    return True, ""
+
+
+def _h_stage6_system_prompt_exact_ica_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt instructs the LLM to use the exact ICA type enum value."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    if "exact ica type" not in prompt.lower() and "exact ICA type" not in prompt.lower():
+        return False, "System prompt does not instruct exact ICA type"
+    return True, ""
+
+
+def _h_stage6_system_prompt_root_format(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt defines the root format as Induce ICA followed by the ICA type and control action."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    if "Induce ICA" not in prompt:
+        return False, "System prompt does not define 'Induce ICA' root format"
+    return True, ""
+
+
+def _h_stage6_system_prompt_no_substitute(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt instructs the LLM not to substitute or paraphrase the ICA type."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    if "substitute" not in prompt.lower() and "paraphrase" not in prompt.lower():
+        return False, "System prompt does not instruct not to substitute/paraphrase"
+    return True, ""
+
+
+def _h_stage6_scenario_spec_with_ica_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ScenarioSpec with ica_type <ica_type> and target_control_action CA-1-1."""
+    ica_type_str = examples.get("ica_type", "") or examples.get("expected_type", "")
+    if not ica_type_str:
+        import re
+        m = re.search(r"ica_type (\S+)", text)
+        ica_type_str = m.group(1) if m else "NOT_PROVIDED"
+    # Map string to UCAType enum
+    ica_type_map = {
+        "NOT_PROVIDED": UCAType.not_provided,
+        "INCORRECT": UCAType.incorrect,
+        "WRONG_TIMING": UCAType.wrong_timing,
+        "WRONG_DURATION": UCAType.wrong_duration,
+    }
+    ica_type = ica_type_map.get(ica_type_str, UCAType.not_provided)
+    world.scenario_spec = _make_sp3_scenario_spec(ica_type=ica_type)
+    return True, ""
+
+
+def _h_stage6_attack_tree_with_root(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an attack tree with root "..."."""
+    import re
+    # Check if root_label is in examples (even if empty string)
+    if "root_label" in examples:
+        root_label = examples["root_label"]
+    else:
+        m = re.search(r'root "([^"]*)"', text)
+        root_label = m.group(1) if m else "Induce ICA NOT_PROVIDED on CA-1-1"
+    # Substitute example values for ica_type/drifted_type patterns
+    if "<ica_type>" in root_label:
+        root_label = root_label.replace("<ica_type>", examples.get("ica_type", "NOT_PROVIDED"))
+    if "<drifted_type>" in root_label:
+        root_label = root_label.replace("<drifted_type>", examples.get("drifted_type", "NOT_TRIGGERED"))
+    world.sp3_attack_tree = {"root": root_label, "branches": [
+        {"category": "controller_side", "label": "l", "children": []},
+        {"category": "path_side", "label": "l", "children": []},
+    ], "leaves": []}
+    return True, ""
+
+
+def _h_stage6_attack_tree_root_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: attack tree root label validation is performed."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_attack_tree_root_label
+    tree = getattr(world, "sp3_attack_tree", None)
+    if tree is None:
+        return False, "No attack tree available"
+    spec = world.scenario_spec or _make_sp3_scenario_spec()
+    ica_type = spec.ica_type.value if hasattr(spec, 'ica_type') else "NOT_PROVIDED"
+    ca_id = spec.target_control_action
+    result = validate_attack_tree_root_label(tree, ica_type, ca_id)
+    world.validation_succeeded = result.passed
+    if not result.passed:
+        world.validation_error = ValueError(result.errors[0] if result.errors else "Validation failed")
+    return True, ""
+
+
+def _h_stage6_llm_returns_attack_tree_drifted(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns an attack tree with root "Induce ICA NOT_TRIGGERED on CA-1-1"."""
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+        world.sp3_run_dir = Path(tempfile.mkdtemp())
+    world.sp3_llm_client._response_queue.clear()
+    import json
+    world.sp3_llm_client.set_response_for(None, json.dumps({
+        "root": "Induce ICA NOT_TRIGGERED on CA-1-1",
+        "branches": [
+            {"category": "controller_side", "label": "l", "children": []},
+            {"category": "path_side", "label": "l", "children": []},
+        ],
+        "leaves": [],
+    }))
+    return True, ""
+
+
+def _h_stage6_envelope_with_ica_type_attack_tree(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ScenarioEnvelope with ica_type NOT_PROVIDED and attack_tree root "..."."""
+    import re
+    spec = _make_sp3_scenario_spec(ica_type=UCAType.not_provided)
+    env = _make_sp3_envelope(spec=spec)
+    m = re.search(r'root "([^"]+)"', text)
+    root_label = m.group(1) if m else "Induce ICA NOT_TRIGGERED on CA-1-1"
+    env.attack_tree = {"root": root_label, "branches": [
+        {"category": "controller_side", "label": "l", "children": []},
+        {"category": "path_side", "label": "l", "children": []},
+    ], "leaves": []}
+    world.sp3_envelope = env
+    return True, ""
+
+
+def _h_stage6_attack_tree_user_prompt_built(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the attack tree user prompt is built."""
+    from scenario_forge.stpa.scenario_prod.attack_tree import build_attack_tree_prompts
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    loader = TemplateLoader(PROMPTS_DIR)
+    _, user_prompt = build_attack_tree_prompts(world.scenario_spec, world.control_structure, loader)
+    world.sp3_user_prompt = user_prompt
+    return True, ""
+
+
+def _h_stage6_user_prompt_contains_ica_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains the scenario spec with ica_type NOT_PROVIDED."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt available"
+    if "NOT_PROVIDED" not in prompt:
+        return False, f"User prompt does not contain ica_type NOT_PROVIDED: {prompt[:200]}"
+    return True, ""
+
+
+# --- Stage 6 step registrations ---
+
+# JPKW steps
+_set_feature("sp3")
+_register_first(r"the GherkinSpec model is defined", _h_stage6_gherkin_spec_model_defined)
+_register_first(r"it has a .* field of type .*", _h_stage6_gherkin_spec_has_field)
+_register_first(r"the ScenarioEnvelope model is defined", _h_stage6_envelope_model_defined)
+_register_first(r"the gherkin_spec field is of type GherkinSpec", _h_stage6_gherkin_spec_field_type)
+_register_first(r"the gherkin_raw field is of type str", _h_stage6_gherkin_raw_field_type)
+_register_first(r"the Gherkin system prompt is rendered", _h_stage6_gherkin_system_prompt_rendered)
+_register_first(r"the system prompt instructs the LLM to return a YAML object", _h_stage6_system_prompt_instructs_yaml)
+_register_first(r"the system prompt defines the fields feature, scenario, given, when, then_expected, then_actual", _h_stage6_system_prompt_defines_fields)
+_register_first(r"the system prompt instructs the LLM to use only provided L-\* and H-\* IDs", _h_stage6_system_prompt_uses_only_ids)
+_register_first(r"an LLM that returns structured YAML with fields feature, scenario, given, when, then_expected, then_actual", _h_stage6_llm_returns_structured_yaml_fields)
+_register_first(r"an LLM that returns structured YAML with feature .* and scenario .*", _h_stage6_llm_returns_structured_yaml_feature)
+_register_first(r"an LLM that returns YAML with given steps .*", _h_stage6_llm_returns_yaml_given_steps)
+_register_first(r"the result includes a GherkinSpec object", _h_stage6_result_includes_gherkin_spec)
+_register_first(r"the result includes a raw text string", _h_stage6_result_includes_raw_text)
+_register_first(r"the GherkinSpec\.given list contains .*", _h_stage6_gherkin_spec_given_contains)
+# Specific GherkinSpec patterns must come BEFORE the generic "a GherkinSpec with .*"
+_register_first(r"a GherkinSpec with then_expected containing should, then_actual containing but, and given referencing PM-1-1", _h_stage6_gherkin_spec_valid)
+_register_first(r"a GherkinSpec with feature .* and scenario .*", _h_stage6_gherkin_spec_with_feature_scenario)
+_register_first(r"a GherkinSpec with empty then_expected list|a GherkinSpec with empty then_actual list|a GherkinSpec with given list with no PM reference", _h_stage6_gherkin_spec_with_deficiency)
+_register_first(r"a gherkin_raw string containing the full Feature block", _h_stage6_gherkin_raw_string)
+_register_first(r"assemble_envelope is called with the GherkinSpec and gherkin_raw", _h_stage6_assemble_envelope)
+_register_first(r"the resulting ScenarioEnvelope\.gherkin_spec equals the GherkinSpec", _h_stage6_envelope_gherkin_spec_equals)
+_register_first(r"the resulting ScenarioEnvelope\.gherkin_raw equals the gherkin_raw string", _h_stage6_envelope_gherkin_raw_equals)
+_register_first(r"a ScenarioEnvelope with gherkin_raw .*", _h_stage6_envelope_with_gherkin_raw)
+_register_first(r"a ScenarioEnvelope with a GherkinSpec that has empty then_expected", _h_stage6_envelope_with_empty_then_expected)
+_register_first(r"scenario artifacts are written", _h_stage6_scenario_artifacts_written)
+_register_first(r"a \.feature file is created containing the gherkin_raw text", _h_stage6_feature_file_created)
+_register_first(r"Gherkin structure validation is performed on the GherkinSpec", _h_stage6_gherkin_spec_validation_on_spec)
+_register_first(r"the GherkinSpec is rendered to feature text", _h_stage6_gherkin_spec_rendered)
+_register_first(r"the rendered text contains the (?:Feature|Scenario|Given|When|Then) (?:line|step)", _h_stage6_rendered_text_contains)
+_register_first(r"Stage 7 envelope validation is performed", _h_stage7_envelope_validation_performed)
+_register_first(r"the gherkin_raw contains the Feature line", _h_stage6_gherkin_raw_contains_feature)
+_register_first(r"the gherkin_raw contains the Scenario line", _h_stage6_gherkin_raw_contains_scenario)
+
+# GDDI steps
+_register_first(r"a loss analysis with losses L-1, L-2, L-3 and hazards H-1, H-2", _h_stage6_loss_analysis_with_specific_ids)
+_register_first(r"the Gherkin user prompt is built with the loss analysis", _h_stage6_gherkin_user_prompt_built)
+_register_first(r"the user prompt contains the valid .* ID .*", _h_stage6_user_prompt_contains_valid_id)
+_register_first(r"the user prompt contains an instruction to reference only the provided IDs", _h_stage6_user_prompt_instructs_reference_only)
+_register_first(r"the user prompt contains an instruction not to invent new IDs", _h_stage6_user_prompt_instructs_not_invent)
+_register_first(r"build_gherkin_prompts is called with the scenario spec and loss analysis", _h_stage6_build_gherkin_prompts_called)
+_register_first(r"the user prompt contains valid Loss and Hazard IDs from the loss analysis", _h_stage6_user_prompt_contains_valid_ids)
+_register_first(r"a Gherkin text referencing .* which is not in the loss analysis", _h_stage6_gherkin_text_hallucinated_id)
+_register_first(r"a Gherkin text referencing L-99 and H-88 which are not in the loss analysis", _h_stage6_gherkin_text_multiple_hallucinated)
+_register_first(r"a Gherkin text referencing L-1 and H-1 which are in the loss analysis", _h_stage6_gherkin_text_valid_ids)
+_register_first(r"a Gherkin text with no L-\* or H-\* references", _h_stage6_gherkin_text_no_refs)
+_register_first(r"Loss/Hazard ID validation is performed against the loss analysis", _h_stage6_loss_hazard_id_validation)
+_register_first(r"an LLM that returns Gherkin referencing hallucinated Loss ID L-99", _h_stage6_llm_returns_gherkin_hallucinated)
+_register_first(r"the Stage 6 pipeline runs for the scenario", _h_stage6_pipeline_runs)
+_register_first(r"a validation error is reported containing .*", _h_stage6_validation_error_reported)
+_register_first(r"a ScenarioEnvelope with Gherkin referencing hallucinated Hazard ID H-99", _h_stage6_envelope_with_hallucinated_hazard)
+
+# V689 steps
+_register_first(r"the attack tree system prompt is rendered", _h_stage6_attack_tree_system_prompt_rendered)
+_register_first(r"the system prompt instructs the LLM to use the exact ICA type enum value", _h_stage6_system_prompt_exact_ica_type)
+_register_first(r"the system prompt defines the root format as Induce ICA followed by the ICA type and control action", _h_stage6_system_prompt_root_format)
+_register_first(r"the system prompt instructs the LLM not to substitute or paraphrase the ICA type", _h_stage6_system_prompt_no_substitute)
+_register_first(r"a ScenarioSpec with ica_type .* and target_control_action CA-1-1", _h_stage6_scenario_spec_with_ica_type)
+_register_first(r"an attack tree with root .*", _h_stage6_attack_tree_with_root)
+_register_first(r"attack tree root label validation is performed", _h_stage6_attack_tree_root_validation)
+_register_first(r"an LLM that returns an attack tree with root .*", _h_stage6_llm_returns_attack_tree_drifted)
+_register_first(r"a ScenarioEnvelope with ica_type .* and attack_tree root .*", _h_stage6_envelope_with_ica_type_attack_tree)
+_register_first(r"the attack tree user prompt is built", _h_stage6_attack_tree_user_prompt_built)
+_register_first(r"the user prompt contains the scenario spec with ica_type NOT_PROVIDED", _h_stage6_user_prompt_contains_ica_type)
+
+
 _set_feature(None)
 
 # ---------------------------------------------------------------------------
@@ -18052,6 +19013,8 @@ def _derive_feature_tag(ir_path: str) -> str | None:
         return "sp3"
     if stem.startswith("stpa_report"):
         return "stpa_report"
+    if stem.startswith("stage6_"):
+        return "sp3"
     return None
 
 

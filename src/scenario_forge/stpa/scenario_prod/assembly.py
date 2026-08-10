@@ -45,3 +45,8 @@ def assemble_envelope(
         catalog_mappings=scenario_spec.catalog_context,
         provenance=scenario_spec.threat_source.provenance,
     )
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T14:20:09Z","module_hash":"d8e76de06d1345632e26d6399fc19b7dbf275d3591022628a9699f73a1083f17","functions":[{"id":"func/assemble_envelope","name":"assemble_envelope","line":15,"end_line":47,"hash":"1fde56b2fa7bb139523b67322735564bac123fbaa7cb2892bb855017194e2faf"}]}
+# mutate4py-manifest-end

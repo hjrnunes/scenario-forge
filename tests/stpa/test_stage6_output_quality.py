@@ -784,7 +784,7 @@ class TestAttackTreeRootLabelNonDict:
         tree = {"root": "   "}
         result = validate_attack_tree_root_label(tree, "NOT_PROVIDED", "CA-1-1")
         assert not result.passed
-        assert any("root" in e.lower() for e in result.errors)
+        assert any("empty" in e.lower() for e in result.errors)
 
 
 class TestGenerateGherkinErrorPaths:
@@ -868,3 +868,170 @@ class TestEnvelopeGherkinTextHelper:
             provenance="structural",
         )
         assert _envelope_gherkin_text(envelope) == ""
+
+
+# ===========================================================================
+# Hardening tests — kill surviving mutants from mutation testing
+# ===========================================================================
+
+
+class TestHardeningTreeBranchCoverage:
+    """Hardening: validate_tree_branch_coverage and get_branch_categories.
+
+    Kills mutants:
+      - line 139: cat in BRANCH_CATEGORIES -> cat not in BRANCH_CATEGORIES
+      - line 154: count < 2 -> count <= 2
+    """
+
+    def test_two_valid_categories_passes(self):
+        """A tree with exactly 2 valid branch categories must pass."""
+        from scenario_forge.stpa.scenario_prod.validators import (
+            validate_tree_branch_coverage,
+        )
+
+        tree = {
+            "root": "r",
+            "branches": [
+                {"category": "controller_side", "label": "l1", "children": []},
+                {"category": "path_side", "label": "l2", "children": []},
+            ],
+            "leaves": [],
+        }
+        result = validate_tree_branch_coverage(tree)
+        assert result.passed
+
+    def test_three_valid_categories_passes(self):
+        """A tree with all 3 valid branch categories must pass."""
+        from scenario_forge.stpa.scenario_prod.validators import (
+            validate_tree_branch_coverage,
+        )
+
+        tree = {
+            "root": "r",
+            "branches": [
+                {"category": "controller_side", "label": "l1", "children": []},
+                {"category": "path_side", "label": "l2", "children": []},
+                {"category": "coordination_gap", "label": "l3", "children": []},
+            ],
+            "leaves": [],
+        }
+        result = validate_tree_branch_coverage(tree)
+        assert result.passed
+
+    def test_get_branch_categories_returns_valid_only(self):
+        """get_branch_categories only returns categories in BRANCH_CATEGORIES."""
+        from scenario_forge.stpa.scenario_prod.validators import (
+            get_branch_categories,
+            BRANCH_CATEGORIES,
+        )
+
+        tree = {
+            "root": "r",
+            "branches": [
+                {"category": "controller_side", "label": "l1", "children": []},
+                {"category": "invalid_category", "label": "l2", "children": []},
+            ],
+            "leaves": [],
+        }
+        cats = get_branch_categories(tree)
+        assert cats == {"controller_side"}
+        assert cats.issubset(set(BRANCH_CATEGORIES))
+
+
+class TestHardeningGherkinTextValidation:
+    """Hardening: _validate_gherkin_text with valid input returns success.
+
+    Kills mutants:
+      - line 247: len(errors) == 0 -> len(errors) != 0
+      - line 247: 0 -> 1
+    """
+
+    def test_valid_raw_text_passes(self):
+        """A valid raw Gherkin text string must pass validation."""
+        text = (
+            "Scenario: Test\n"
+            "  Given PM-1-1 is valid\n"
+            "  When x\n"
+            "  Then should reject\n"
+            "  But approves\n"
+        )
+        result = validate_gherkin_structure(text)
+        assert result.passed
+        assert len(result.errors) == 0
+
+
+class TestHardeningTreeIdReferences:
+    """Hardening: validate_tree_id_references with valid and invalid IDs.
+
+    Kills mutants:
+      - line 383: len(errors) == 0 -> len(errors) != 0
+      - line 383: 0 -> 1
+      - line 423: id_val not in valid_ids -> id_val in valid_ids
+    """
+
+    def test_valid_refs_passes(self):
+        """A tree with only valid IDs must pass validation."""
+        from scenario_forge.stpa.scenario_prod.validators import (
+            validate_tree_id_references,
+        )
+
+        cs = _make_cs()
+        tree = {
+            "root": "r",
+            "branches": [
+                {
+                    "category": "controller_side",
+                    "label": "PM-1-1 via FB-1-1",
+                    "children": [{"label": "CA-1-1"}],
+                },
+            ],
+            "leaves": [],
+        }
+        result = validate_tree_id_references(tree, cs)
+        assert result.passed
+        assert len(result.errors) == 0
+
+    def test_invalid_ids_produce_errors(self):
+        """A tree with invalid IDs must fail with specific ID in errors."""
+        from scenario_forge.stpa.scenario_prod.validators import (
+            validate_tree_id_references,
+        )
+
+        cs = _make_cs()
+        tree = {
+            "root": "r",
+            "branches": [
+                {"category": "controller_side", "label": "PM-99-1", "children": []},
+            ],
+            "leaves": [],
+        }
+        result = validate_tree_id_references(tree, cs)
+        assert not result.passed
+        assert any("PM-99-1" in e for e in result.errors)
+
+    def test_mixed_valid_invalid_only_reports_invalid(self):
+        """With a mix of valid and invalid IDs, only invalid ones are reported."""
+        from scenario_forge.stpa.scenario_prod.validators import (
+            validate_tree_id_references,
+        )
+
+        cs = _make_cs()
+        tree = {
+            "root": "r",
+            "branches": [
+                {
+                    "category": "controller_side",
+                    "label": "PM-1-1 and PM-99-1",
+                    "children": [{"label": "CA-1-1 via CA-99-1"}],
+                },
+            ],
+            "leaves": [],
+        }
+        result = validate_tree_id_references(tree, cs)
+        assert not result.passed
+        # Invalid IDs must appear in errors
+        assert any("PM-99-1" in e for e in result.errors)
+        assert any("CA-99-1" in e for e in result.errors)
+        # Valid IDs must NOT appear as errors
+        assert not any("PM-1-1" in e for e in result.errors)
+        assert not any("CA-1-1" in e for e in result.errors)

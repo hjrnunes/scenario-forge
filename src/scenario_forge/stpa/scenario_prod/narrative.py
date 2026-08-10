@@ -97,5 +97,5 @@ def build_narrative_prompts(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T10:20:34Z","module_hash":"70c4ba82b36e8586d94bbe584446b5b31e57f76e54d61a21b81a9b45766727f3","functions":[{"id":"func/generate_narrative","name":"generate_narrative","line":22,"end_line":62,"hash":"82ad0f941aa9a38951b16a184ce8359aa9a41e754bb5e18b387e1b36c6c9b3aa"},{"id":"func/build_narrative_prompts","name":"build_narrative_prompts","line":65,"end_line":96,"hash":"a95f46301d8d6d2d06dd6663120c84a1c8dfbd5387f55ef1c7cd06eeee570297"}]}
+# {"version":1,"tested_at":"2026-08-10T14:16:27Z","module_hash":"70c4ba82b36e8586d94bbe584446b5b31e57f76e54d61a21b81a9b45766727f3","functions":[{"id":"func/generate_narrative","name":"generate_narrative","line":22,"end_line":62,"hash":"82ad0f941aa9a38951b16a184ce8359aa9a41e754bb5e18b387e1b36c6c9b3aa"},{"id":"func/build_narrative_prompts","name":"build_narrative_prompts","line":65,"end_line":96,"hash":"a95f46301d8d6d2d06dd6663120c84a1c8dfbd5387f55ef1c7cd06eeee570297"}]}
 # mutate4py-manifest-end
