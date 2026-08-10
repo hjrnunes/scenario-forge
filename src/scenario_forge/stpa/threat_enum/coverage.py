@@ -144,7 +144,9 @@ def _collect_covered_owasp_ids(
 
 def _is_slot_considered(slot: ICASlot) -> bool:
     """Return True if a slot has ICAs or a justified N/A."""
-    return slot.is_na or bool(slot.icas)
+    return bool(slot.icas) or (
+        slot.is_na and check_structural_keywords(slot.na_justification)
+    )
 
 
 def metric_structural_consideration(slots: list[ICASlot]) -> dict:

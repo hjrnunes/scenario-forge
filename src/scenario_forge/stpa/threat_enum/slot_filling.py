@@ -282,6 +282,25 @@ def _collect_filled_slots(
     return filled_by_id
 
 
+def _is_expected_slot(
+    filled_slot: ICASlot, placeholder: SlotPlaceholder
+) -> bool:
+    """Check that an LLM result preserves the slot identity contract.
+
+    The slot ID is the primary key, but checking the other identity fields
+    prevents a model from moving a filled result to a different controller,
+    action, or UCA type while still producing a syntactically valid
+    ``ICASlot``.
+    """
+    return (
+        filled_slot.slot_id == placeholder.slot_id
+        and filled_slot.responsibility == placeholder.responsibility
+        and filled_slot.coordination_link == placeholder.coordination_link
+        and filled_slot.control_action == placeholder.control_action
+        and filled_slot.uca_type == placeholder.uca_type
+    )
+
+
 def _merge_filled_slots(
     slots: list[SlotPlaceholder],
     filled_by_id: dict[str, ICASlot],
@@ -293,8 +312,9 @@ def _merge_filled_slots(
     """
     merged: list[ICASlot] = []
     for slot in slots:
-        if slot.slot_id in filled_by_id:
-            merged.append(filled_by_id[slot.slot_id])
+        filled_slot = filled_by_id.get(slot.slot_id)
+        if filled_slot is not None and _is_expected_slot(filled_slot, slot):
+            merged.append(filled_slot)
         else:
             merged.append(
                 ICASlot(

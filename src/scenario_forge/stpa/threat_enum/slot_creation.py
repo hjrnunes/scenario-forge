@@ -24,7 +24,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from scenario_forge.stpa.models.control_structure import ControlStructure
-from scenario_forge.stpa.models.ica_enumeration import UCAType
+from scenario_forge.stpa.models.ica_enumeration import ICA, UCAType
 
 __all__ = ["SlotPlaceholder", "create_slots"]
 
@@ -45,7 +45,7 @@ class SlotPlaceholder(BaseModel):
     control_action: str
     uca_type: UCAType
     is_na: bool = False
-    icas: list = Field(default_factory=list)
+    icas: list[ICA] = Field(default_factory=list)
     na_justification: str | None = None
 
 

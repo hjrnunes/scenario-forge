@@ -125,7 +125,7 @@ def _emit_entry_point_failure_modes(
 ) -> None:
     """Emit failure modes for entry points with special properties."""
     for ep in profile.entry_points:
-        if ep.controllability == "indirect":
+        if ep.effective_controllability == "indirect":
             lines.append(
                 f"- Has indirect entry point '{ep.name}' → susceptible "
                 f"to supply chain content manipulation"
