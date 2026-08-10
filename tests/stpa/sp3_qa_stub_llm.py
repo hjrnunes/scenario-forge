@@ -21,7 +21,10 @@ Responses are crafted to pass all stage-local validators:
 - Attack trees use at least 2 of 3 branch categories and reference only
   valid PM/FB/CA/RESP IDs extracted from the prompt.
 - Gherkin text has ``Then ... should``, a ``But`` line, and a ``PM-*``
-  reference.
+  reference. Returns a structured YAML object (not raw Gherkin) matching
+  the :class:`GherkinSpec` model.
+- Attack tree root uses ``Induce ICA {ica_type} on {ca_id}`` format with
+  the exact ICA type enum value extracted from the prompt.
 
 Usage::
 
@@ -182,6 +185,9 @@ def _build_attack_tree_response(user_prompt: str) -> str:
     ca_ids = _extract_ca_ids(user_prompt)
     resp_ids = _extract_resp_ids(user_prompt)
 
+    ica_match = _ICA_TYPE_RE.search(user_prompt)
+    ica_type = ica_match.group(1) if ica_match else "NOT_PROVIDED"
+
     pm_ref = pm_ids[0] if pm_ids else "the process model"
     fb_ref = fb_ids[0] if fb_ids else "the feedback channel"
     ca_ref = ca_ids[0] if ca_ids else "the control action"
@@ -192,7 +198,7 @@ def _build_attack_tree_response(user_prompt: str) -> str:
     m_coord = f"Desynchronize shared PM between {resp_ref} and peer controller"
 
     tree = {
-        "root": f"Induce ICA on {ca_ref}",
+        "root": f"Induce ICA {ica_type} on {ca_ref}",
         "branches": [
             {
                 "category": "controller_side",
@@ -242,15 +248,21 @@ def _build_attack_tree_response(user_prompt: str) -> str:
 
 
 def _build_gherkin_response(user_prompt: str) -> str:
-    """Build Gherkin .feature text for Stage 6 Call C.
+    """Build structured YAML Gherkin response for Stage 6 Call C.
 
-    Includes ``Then ... should``, a ``But`` line, and a ``PM-*``
-    reference so it passes :func:`validate_gherkin_structure`.
+    Returns a YAML object with fields ``feature``, ``scenario``,
+    ``given``, ``when``, ``then_expected``, ``then_actual`` matching the
+    :class:`GherkinSpec` model. The content includes ``Then ... should``,
+    a ``But`` line, and a ``PM-*`` reference so it passes
+    :func:`validate_gherkin_structure`.
+
+    Also extracts valid Loss and Hazard IDs from the prompt so that
+    :func:`validate_loss_hazard_id_references` passes.
     """
     pm_ids = _extract_pm_ids(user_prompt)
     ca_ids = _extract_ca_ids(user_prompt)
     pm_ref = pm_ids[0] if pm_ids else "PM-1-1"
-    ca_ref = ca_ids[0] if ca_ids else "the control action"
+    ca_ref = ca_ids[0] if ca_ids else "CA-1-1"
 
     scenario_match = _SCENARIO_ID_RE.search(user_prompt)
     scenario_id = scenario_match.group(1) if scenario_match else "SCN-001"
@@ -258,20 +270,67 @@ def _build_gherkin_response(user_prompt: str) -> str:
     ica_match = _ICA_TYPE_RE.search(user_prompt)
     ica_type = ica_match.group(1) if ica_match else "NOT_PROVIDED"
 
-    return (
-        f"Scenario: {scenario_id} — ICA {ica_type} on {ca_ref}\n"
-        f"  Given the process model state {pm_ref} holds the correct "
-        f"system state\n"
-        f"    And the controller is monitoring feedback channels\n"
-        f"  When an attacker injects crafted input into the feedback path\n"
-        f"  Then the system should validate all inputs against the "
-        f"security constraint before executing {ca_ref}\n"
-        f"    But the controller issues {ica_type} for {ca_ref} based on "
-        f"the corrupted {pm_ref}\n"
-        f"    And the unsafe control action leads to an unintended system "
-        f"state transition\n"
-        f"    And the loss L-3 is realized"
+    # Extract valid loss IDs from the prompt (passed by build_gherkin_prompts).
+    loss_ids = _extract_loss_ids(user_prompt)
+    loss_ref = loss_ids[0] if loss_ids else "L-3"
+
+    return yaml_dump_gherkin(
+        feature=f"Safe orchestration for {ca_ref}",
+        scenario=scenario_id,
+        given=[
+            f"Given the process model state {pm_ref} holds the correct system state",
+            "And the controller is monitoring feedback channels",
+        ],
+        when=[
+            "When an attacker injects crafted input into the feedback path",
+        ],
+        then_expected=[
+            f"Then the system should validate all inputs against the security constraint before executing {ca_ref}",
+        ],
+        then_actual=[
+            f"But the controller issues {ica_type} for {ca_ref} based on the corrupted {pm_ref}",
+            "And the unsafe control action leads to an unintended system state transition",
+            f"And the loss {loss_ref} is realized",
+        ],
     )
+
+
+def _extract_loss_ids(text: str) -> list[str]:
+    """Extract unique L-* IDs from text, preserving order."""
+    loss_re = re.compile(r"L-\d+")
+    seen: list[str] = []
+    for m in loss_re.findall(text):
+        if m not in seen:
+            seen.append(m)
+    return seen
+
+
+def yaml_dump_gherkin(
+    *,
+    feature: str,
+    scenario: str,
+    given: list[str],
+    when: list[str],
+    then_expected: list[str],
+    then_actual: list[str],
+) -> str:
+    """Serialize a GherkinSpec-shaped dict to YAML.
+
+    Uses ``json.dumps`` then reformats — avoids importing yaml in the
+    stub server. The output is valid YAML that
+    :func:`parse_gherkin_spec` can parse into a :class:`GherkinSpec`.
+    """
+    import json as _json
+
+    obj = {
+        "feature": feature,
+        "scenario": scenario,
+        "given": given,
+        "when": when,
+        "then_expected": then_expected,
+        "then_actual": then_actual,
+    }
+    return _json.dumps(obj, indent=2)
 
 
 def _is_structured_request(request: dict) -> bool:
