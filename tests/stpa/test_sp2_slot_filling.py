@@ -43,6 +43,7 @@ from scenario_forge.stpa.threat_enum.slot_filling import (
     ICASlotFillResult,
     build_slot_filling_prompts,
     fill_all_slots,
+    fill_slots_for_responsibility,
     _collect_filled_slots,
 )
 
@@ -702,6 +703,60 @@ class TestCollectFilledSlotsTypeCheck:
         ]
         filled = _collect_filled_slots(results)
         assert "RESP-1:CA-1-1:NOT_PROVIDED" in filled
+
+
+# ---------------------------------------------------------------------------
+# Single-responsibility fill entry point
+# ---------------------------------------------------------------------------
+
+
+class TestFillSlotsForResponsibility:
+    """fill_slots_for_responsibility fills one responsibility per call."""
+
+    def _slots_for(self, resp_id: str) -> list:
+        cs = _make_test_control_structure()
+        return [s for s in create_slots(cs) if s.responsibility == resp_id]
+
+    def test_returns_filled_slots_for_the_responsibility(self):
+        client = MockLLMClient()
+        client.set_response_for(
+            ICASlotFillResult,
+            _make_valid_slot_fill_result("RESP-1", ["CA-1-1", "CA-1-2"]),
+        )
+        with TemporaryDirectory() as tmp:
+            result = fill_slots_for_responsibility(
+                llm_client=client,
+                control_structure=_make_test_control_structure(),
+                loss_analysis=_make_test_loss_analysis(),
+                technology_context="- Has user-facing input",
+                slots=self._slots_for("RESP-1"),
+                resp_id="RESP-1",
+                run_dir=Path(tmp),
+                loader=TemplateLoader(PROMPTS_DIR),
+            )
+
+        assert result is not None
+        assert len(client.calls) == 1
+        assert {s.slot_id for s in result.filled_slots} == {
+            s.slot_id for s in self._slots_for("RESP-1")
+        }
+
+    def test_returns_none_when_the_call_fails(self):
+        client = MockLLMClient()
+        client.set_invalid_response_for(ICASlotFillResult)
+        with TemporaryDirectory() as tmp:
+            result = fill_slots_for_responsibility(
+                llm_client=client,
+                control_structure=_make_test_control_structure(),
+                loss_analysis=_make_test_loss_analysis(),
+                technology_context="- Has user-facing input",
+                slots=self._slots_for("RESP-1"),
+                resp_id="RESP-1",
+                run_dir=Path(tmp),
+                loader=TemplateLoader(PROMPTS_DIR),
+            )
+
+        assert result is None
 
 
 def _make_ica() -> ICA:

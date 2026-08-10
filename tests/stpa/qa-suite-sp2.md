@@ -6,6 +6,28 @@ verification is done through the CLI (`scripts/run_sp2.py`), Python import
 checks, pytest execution, and filesystem inspection — no project-internal
 APIs are used.
 
+## Running this suite
+
+The executable form of every check below lives in
+`tests/stpa/run_sp2_qa_suite.sh`:
+
+```bash
+bash tests/stpa/run_sp2_qa_suite.sh
+```
+
+The end-to-end run checks (`QA-SP2-RUN-*`) drive the real `run_sp2.py`
+command line against a local stub LLM endpoint
+(`tests/stpa/sp2_qa_stub_llm.py`) rather than a live model, so the suite is
+deterministic, offline, and free of API cost while still exercising the real
+orchestration, artifact writing, and manifest code paths. The stub speaks the
+OpenAI chat-completions protocol and is supplied through the CLI's own
+`--profiles-file` / `--profile` flags, so nothing about the invocation path is
+bypassed. Substitute a real profile name to run the same checks against a live
+model.
+
+Keep the script and this document in step: when a check here changes, update
+the corresponding check in the script in the same change.
+
 ## 1. Module Structure Verification
 
 ### QA-SP2-STRUCT-01: Module layout matches spec
@@ -190,7 +212,8 @@ print('Catalog enrichment verified')
 ### QA-SP2-RUN-01: Full SP2 run with LLM produces output artifacts
 
 **Prerequisites:**
-- LLM endpoint configured (via `--profile` or environment variables).
+- LLM endpoint configured (via `--profile` or environment variables). The
+  executable suite supplies the stub endpoint described above.
 - SP1 fixtures available for Klarna use case.
 
 **Steps:**

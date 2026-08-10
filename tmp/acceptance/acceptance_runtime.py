@@ -12939,28 +12939,36 @@ def _h_sp2_profile_with_kc(world: World, text: str, examples: dict) -> tuple[boo
 def _h_sp2_profile_with_entry_point(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a capability profile with entry point X having controllability/direction Y."""
     from unittest.mock import MagicMock
-    mock_ep = MagicMock()
+
+    from scenario_forge.models.capability_profile import EntryPoint
     # Parse from text
     import re
     name_match = re.search(r"entry point (\S+)", text)
-    mock_ep.name = name_match.group(1) if name_match else "test"
+    name = name_match.group(1) if name_match else "test"
     if "controllability indirect" in text.lower():
-        mock_ep.controllability = "indirect"
+        controllability = "indirect"
     elif "controllability direct" in text.lower():
-        mock_ep.controllability = "direct"
+        controllability = "direct"
     else:
-        mock_ep.controllability = None
+        controllability = None
     if "direction bidirectional" in text.lower():
-        mock_ep.direction = "bidirectional"
+        direction = "bidirectional"
     elif "direction input" in text.lower():
-        mock_ep.direction = "input"
+        direction = "input"
     else:
-        mock_ep.direction = "input"
+        direction = "input"
+
+    # A real EntryPoint is required: consumers read the derived
+    # ``effective_controllability`` property, which a MagicMock would
+    # shadow with an auto-created attribute.
+    entry_point = EntryPoint(
+        name=name, direction=direction, controllability=controllability
+    )
 
     mock = MagicMock()
     mock.zones_active = []
     mock.kc_subcodes = []
-    mock.entry_points = [mock_ep]
+    mock.entry_points = [entry_point]
     mock.tool_inventory = None
     world.sp2_profile = mock
     return True, ""
@@ -14175,9 +14183,16 @@ def _h_sp2_module_exists(world: World, text: str, examples: dict) -> tuple[bool,
 
 
 def _h_sp2_ica_validated(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the ICA enumeration is validated against the loss analysis and control structure."""
-    if world.sp2_run_result.ica_enumeration:
-        world.sp2_run_result.ica_enumeration.validate_against(
+    """Handle: the ICA enumeration is validated against the loss analysis and control structure.
+
+    The boundary-schema feature uses the same wording without an SP2 run,
+    so fall back to the schema-level handler when no SP2 run is in the world.
+    """
+    run_result = getattr(world, "sp2_run_result", None)
+    if run_result is None:
+        return _h_ica_validate_against(world, text, examples)
+    if run_result.ica_enumeration:
+        run_result.ica_enumeration.validate_against(
             world.loss_analysis or _make_minimal_loss_analysis(),
             world.control_structure or _make_sp2_control_structure(),
         )
@@ -14558,9 +14573,17 @@ def _h_sp2_fill_validates(world: World, text: str, examples: dict) -> tuple[bool
 
 
 def _h_sp2_fill_validation_fails(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: validation fails with error containing related_hazards."""
+    """Handle: validation fails with error containing related_hazards.
+
+    The boundary-schema features use the same wording without SP2 slot
+    filling, so fall back to the generic assertion when no filled slots
+    are in the world.
+    """
     from scenario_forge.stpa.models.ica_enumeration import ICAEnumeration
-    ica_enum = ICAEnumeration(slots=world.sp2_filled_slots)
+    filled_slots = getattr(world, "sp2_filled_slots", None)
+    if filled_slots is None:
+        return _h_validation_fails_with(world, text, examples)
+    ica_enum = ICAEnumeration(slots=filled_slots)
     try:
         ica_enum.validate_against(
             world.loss_analysis or _make_minimal_loss_analysis(),
