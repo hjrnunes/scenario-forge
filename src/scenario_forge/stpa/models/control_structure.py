@@ -132,6 +132,10 @@ class Responsibility(BaseModel):
     responsibility_constraints: list[ResponsibilityConstraint] = Field(
         default_factory=list
     )
+    security_constraint_refs: list[str] = Field(
+        default_factory=list,
+        description="SC-N IDs from LossAnalysis that this responsibility implements.",
+    )
     process_model_parts: list[ProcessModelPart] = Field(default_factory=list)
     control_actions: list[ControlAction] = Field(default_factory=list)
     feedback_channels: list[FeedbackChannel] = Field(default_factory=list)
@@ -617,11 +621,11 @@ def _check_hazard_tracing(
 def _build_constraints_by_resp(
     responsibilities: list[Responsibility],
 ) -> dict[str, set[str]]:
-    """Map rc_id -> set of resp_ids that reference it."""
+    """Map security_constraint_id -> set of resp_ids that reference it."""
     mapping: dict[str, set[str]] = {}
     for resp in responsibilities:
-        for rc in resp.responsibility_constraints:
-            mapping.setdefault(rc.rc_id, set()).add(resp.resp_id)
+        for sc_id in resp.security_constraint_refs:
+            mapping.setdefault(sc_id, set()).add(resp.resp_id)
     return mapping
 
 

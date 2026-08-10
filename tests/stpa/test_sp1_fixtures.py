@@ -140,11 +140,6 @@ class TestSP1FixtureIntegration:
         loss_analysis = read_yaml(la_path, LossAnalysis)
         assert isinstance(loss_analysis, LossAnalysis)
 
-        # Update security constraint IDs to match the mock CS rc_ids
-        # (RC-1-1, RC-1-2, RC-1-3) so hazard tracing can link them.
-        for i, sc in enumerate(loss_analysis.security_constraints):
-            sc.constraint_id = f"RC-1-{i + 1}"
-
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_req_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_resp_set_dict())
@@ -157,6 +152,11 @@ class TestSP1FixtureIntegration:
             run_dir=tmp_path,
         )
         assert isinstance(control_structure, ControlStructure)
+
+        # Set security_constraint_refs so hazard tracing can link
+        # SC-N IDs from the loss analysis to RESP-1.
+        sc_ids = [sc.constraint_id for sc in loss_analysis.security_constraints]
+        control_structure.responsibilities[0].security_constraint_refs = sc_ids
 
         # Verify the control structure passes structural heuristics
         # when checked with the loss analysis

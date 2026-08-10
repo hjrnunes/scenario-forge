@@ -72,6 +72,7 @@ def _make_resp(
     cas: list[ControlAction] | None = None,
     fbs: list[FeedbackChannel] | None = None,
     constraints: list[ResponsibilityConstraint] | None = None,
+    security_constraint_refs: list[str] | None = None,
 ) -> Responsibility:
     return Responsibility(
         resp_id=resp_id,
@@ -80,6 +81,7 @@ def _make_resp(
         control_actions=cas if cas is not None else [_make_ca()],
         feedback_channels=fbs if fbs is not None else [_make_fb()],
         responsibility_constraints=constraints or [],
+        security_constraint_refs=security_constraint_refs or [],
     )
 
 
@@ -511,22 +513,19 @@ class TestControlStructureHeuristics:
             hazards=[Hazard(hazard_id="H-1", description="Hazard", related_losses=["L-1"])],
             security_constraints=[
                 SecurityConstraint(
-                    constraint_id="RC-1-1",
+                    constraint_id="SC-1",
                     description="Constraint",
                     related_hazards=["H-1"],
                 )
             ],
         )
-        # The hazard is traced via RC-1-1 -> a responsibility_constraint whose
-        # rc_id matches RC-1-1 -> RESP-1.
+        # The hazard is traced via SC-1 -> responsibility.security_constraint_refs
+        # containing SC-1 -> RESP-1.
         cs = _make_cs(
             responsibilities=[
                 _make_resp(
-                    constraints=[
-                        ResponsibilityConstraint(
-                            rc_id="RC-1-1", description="Constraint"
-                        )
-                    ]
+                    constraints=[],
+                    security_constraint_refs=["SC-1"],
                 )
             ]
         )

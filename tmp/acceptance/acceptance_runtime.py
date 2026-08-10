@@ -1278,15 +1278,12 @@ def _h_cs_no_constraint_ref(world: World, text: str, examples: dict) -> tuple[bo
 
 def _h_cs_with_constraint_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a control structure where responsibility RESP-1 references constraint SC-1."""
-    from scenario_forge.stpa.models.control_structure import ResponsibilityConstraint
     world.control_structure = ControlStructure(
         responsibilities=[
             Responsibility(
                 resp_id="RESP-1",
                 description="Controller",
-                responsibility_constraints=[
-                    ResponsibilityConstraint(rc_id="SC-1", description="Covers H-1"),
-                ],
+                security_constraint_refs=["SC-1"],
                 process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
                 control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
                 feedback_channels=[
@@ -5371,17 +5368,7 @@ def _h_sp1_heur_cs_no_constraint(world: World, text: str, examples: dict) -> tup
 def _h_sp1_heur_cs_with_constraint(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a control structure where responsibility RESP-1 references constraint SC-1."""
     cs = _sp1_make_control_structure_with_resp()
-    resp = cs.responsibilities[0]
-    resp.responsibility_constraints = [
-        type(resp.responsibility_constraints[0] if resp.responsibility_constraints else None)(
-            rc_id="SC-1", description="Must confirm"
-        ) if resp.responsibility_constraints else None
-    ] if resp.responsibility_constraints else []
-    # Simpler: just set the constraints directly
-    from scenario_forge.stpa.models.control_structure import ResponsibilityConstraint
-    cs.responsibilities[0].responsibility_constraints = [
-        ResponsibilityConstraint(rc_id="SC-1", description="Must confirm")
-    ]
+    cs.responsibilities[0].security_constraint_refs = ["SC-1"]
     world.control_structure = cs
     return True, ""
 
@@ -8787,10 +8774,15 @@ def _h_pll_empty_results(world: World, text: str, examples: dict) -> tuple[bool,
 
 
 def _h_pll_no_calls_jsonl(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: no calls.jsonl file is created."""
-    if world.parallel_run_dir is None:
-        return False, "No run directory"
-    if (world.parallel_run_dir / "calls.jsonl").exists():
+    """Handle: no calls.jsonl file is created (PLL context).
+
+    Falls back to the call-log handler when no PLL run directory is set,
+    since the step wording is shared with InfraCallLog-04.
+    """
+    parallel_run_dir = getattr(world, "parallel_run_dir", None)
+    if parallel_run_dir is None:
+        return _h_call_log_no_file(world, text, examples)
+    if (parallel_run_dir / "calls.jsonl").exists():
         return False, "calls.jsonl was created unexpectedly"
     return True, ""
 
