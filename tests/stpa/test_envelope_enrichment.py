@@ -807,3 +807,159 @@ class TestReportDisplaysEnrichment:
         assert "Consumer Hints" in html_text
         assert "garak_testability" in html_text or "Garak" in html_text
         assert "midojo_testability" in html_text or "Midojo" in html_text
+
+
+# ---------------------------------------------------------------------------
+# Edge-case and error-path tests for internal helpers
+# ---------------------------------------------------------------------------
+
+
+class TestExtractLeafText:
+    """Cover all branches of _extract_leaf_text and _extract_text_from_dict."""
+
+    def test_string_leaf_returns_raw_text(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text("Call Tool") == "Call Tool"
+
+    def test_dict_leaf_with_label_key(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text({"label": "Execute API"}) == "Execute API"
+
+    def test_dict_leaf_with_text_key(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text({"text": "Invoke function"}) == "Invoke function"
+
+    def test_dict_leaf_with_description_key(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text({"description": "Run script"}) == "Run script"
+
+    def test_dict_leaf_with_name_key(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text({"name": "command_executor"}) == "command_executor"
+
+    def test_dict_leaf_prefers_label_over_other_keys(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        leaf = {"label": "first", "text": "second", "name": "third"}
+        assert _extract_leaf_text(leaf) == "first"
+
+    def test_dict_leaf_with_no_matching_keys_returns_empty(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text({"category": "x", "children": []}) == ""
+
+    def test_dict_leaf_with_non_string_values_returns_empty(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text({"label": 42, "text": None}) == ""
+
+    def test_int_leaf_returns_empty(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text(42) == ""
+
+    def test_none_leaf_returns_empty(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text(None) == ""
+
+    def test_list_leaf_returns_empty(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _extract_leaf_text
+
+        assert _extract_leaf_text(["a", "b"]) == ""
+
+
+class TestTreeMentionsToolsEdgeCases:
+    """Cover edge cases in _tree_mentions_tools."""
+
+    def test_non_list_leaves_returns_false(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _tree_mentions_tools
+
+        assert _tree_mentions_tools({"leaves": "not a list"}) is False
+
+    def test_missing_leaves_key_returns_false(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _tree_mentions_tools
+
+        assert _tree_mentions_tools({"root": "x"}) is False
+
+    def test_empty_leaves_returns_false(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _tree_mentions_tools
+
+        assert _tree_mentions_tools({"leaves": []}) is False
+
+    def test_dict_leaf_with_tool_keyword_detected(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _tree_mentions_tools
+
+        tree = {"leaves": [{"label": "Call the API tool"}]}
+        assert _tree_mentions_tools(tree) is True
+
+    def test_non_string_non_dict_leaf_ignored(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _tree_mentions_tools
+
+        tree = {"leaves": [42, None, "call tool"]}
+        assert _tree_mentions_tools(tree) is True
+
+
+class TestNarrativeIndicatesMultiTurnEdgeCases:
+    """Cover edge cases in _narrative_indicates_multi_turn."""
+
+    def test_empty_narrative_returns_false(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import (
+            _narrative_indicates_multi_turn,
+        )
+
+        assert _narrative_indicates_multi_turn("") is False
+
+    def test_none_narrative_returns_false(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import (
+            _narrative_indicates_multi_turn,
+        )
+
+        assert _narrative_indicates_multi_turn(None) is False
+
+
+class TestComputeSystemContextEdgeCases:
+    """Cover not-found paths in compute_system_context."""
+
+    def test_responsibility_not_found_returns_empty_desc(self):
+        profile = _make_capability_profile()
+        cs = _make_control_structure()
+        spec = _make_scenario_spec()
+        spec = spec.model_copy(update={"target_controller": "RESP-999"})
+        ctx = compute_system_context(profile, cs, spec)
+        assert ctx.target_responsibility_description == ""
+        assert ctx.target_control_action_description == ""
+
+    def test_control_action_not_found_returns_empty_ca_desc(self):
+        profile = _make_capability_profile()
+        cs = _make_control_structure()
+        spec = _make_scenario_spec()
+        spec = spec.model_copy(update={"target_control_action": "CA-999"})
+        ctx = compute_system_context(profile, cs, spec)
+        assert ctx.target_responsibility_description == "Orchestrate tool calls safely"
+        assert ctx.target_control_action_description == ""
+
+
+class TestFindControlActionDescription:
+    """Cover _find_control_action_description with None responsibility."""
+
+    def test_none_responsibility_returns_empty(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import (
+            _find_control_action_description,
+        )
+
+        assert _find_control_action_description(None, "CA-1") == ""
+
+
+class TestGarakTestabilityUnknownZone:
+    """Cover default fallback for unknown attack zone."""
+
+    def test_unknown_zone_defaults_to_low(self):
+        from scenario_forge.stpa.scenario_prod.enrichment import _garak_testability
+
+        assert _garak_testability("unknown_zone") == "low"

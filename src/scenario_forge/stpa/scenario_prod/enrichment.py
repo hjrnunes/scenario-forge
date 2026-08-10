@@ -12,7 +12,7 @@ Stage 6 artifacts without any LLM calls:
 from __future__ import annotations
 
 from scenario_forge.models.capability_profile import CapabilityProfile
-from scenario_forge.stpa.models.control_structure import ControlStructure
+from scenario_forge.stpa.models.control_structure import ControlStructure, Responsibility
 from scenario_forge.stpa.models.scenario_envelope import ConsumerHints, SystemContext
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 
@@ -80,20 +80,11 @@ def compute_system_context(
     Returns:
         A populated :class:`SystemContext`.
     """
-    resp_desc = ""
-    ca_desc = ""
-    for resp in control_structure.responsibilities:
-        if resp.resp_id == spec.target_controller:
-            resp_desc = resp.description
-            for ca in resp.control_actions:
-                if ca.ca_id == spec.target_control_action:
-                    ca_desc = ca.description
-                    break
-            break
+    resp = _find_responsibility(control_structure, spec.target_controller)
+    resp_desc = resp.description if resp else ""
+    ca_desc = _find_control_action_description(resp, spec.target_control_action)
 
-    tool_names: list[str] = []
-    if capability_profile.tool_inventory:
-        tool_names = [entry.name for entry in capability_profile.tool_inventory]
+    tool_names = _extract_tool_names(capability_profile)
 
     return SystemContext(
         target_responsibility_description=resp_desc,
@@ -162,15 +153,54 @@ def _tree_mentions_tools(attack_tree: dict) -> bool:
 
 
 def _extract_leaf_text(leaf: object) -> str:
-    """Extract text from a leaf node (str or dict)."""
+    """Extract text from a leaf node (str or dict).
+
+    Returns the raw text without case conversion — callers that need
+    case-insensitive matching should use :func:`_contains_any_keyword`.
+    """
     if isinstance(leaf, str):
-        return leaf.lower()
+        return leaf
     if isinstance(leaf, dict):
-        for key in ("label", "text", "description", "name"):
-            val = leaf.get(key)
-            if isinstance(val, str):
-                return val.lower()
+        return _extract_text_from_dict(leaf)
     return ""
+
+
+def _extract_text_from_dict(leaf: dict) -> str:
+    """Extract the first string value from known text keys in a dict leaf."""
+    for key in ("label", "text", "description", "name"):
+        val = leaf.get(key)
+        if isinstance(val, str):
+            return val
+    return ""
+
+
+def _find_responsibility(
+    control_structure: ControlStructure, resp_id: str
+) -> Responsibility | None:
+    """Find a responsibility by ID in the control structure."""
+    for resp in control_structure.responsibilities:
+        if resp.resp_id == resp_id:
+            return resp
+    return None
+
+
+def _find_control_action_description(
+    responsibility: Responsibility | None, ca_id: str
+) -> str:
+    """Find a control action description by ID within a responsibility."""
+    if responsibility is None:
+        return ""
+    for ca in responsibility.control_actions:
+        if ca.ca_id == ca_id:
+            return ca.description
+    return ""
+
+
+def _extract_tool_names(capability_profile: CapabilityProfile) -> list[str]:
+    """Extract tool names from the capability profile inventory."""
+    if capability_profile.tool_inventory:
+        return [entry.name for entry in capability_profile.tool_inventory]
+    return []
 
 
 def _contains_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
