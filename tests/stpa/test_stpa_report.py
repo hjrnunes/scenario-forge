@@ -810,7 +810,7 @@ class TestBuildSp2IcaSection:
         ica = _make_ica_enumeration(slots=[_make_ica_slot("S-1", "Provided")])
         html = _build_sp2_ica_section(ica)
         assert "S-1" in html
-        assert "Provided" in html
+        assert "ICAs" in html
 
     def test_na_slot(self):
         ica = _make_ica_enumeration(slots=[_make_ica_slot("S-2", "N/A", is_na=True)])

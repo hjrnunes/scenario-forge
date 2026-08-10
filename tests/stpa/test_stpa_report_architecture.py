@@ -138,7 +138,7 @@ class TestDependencyDirection:
         """template.py imports only from the Python standard library."""
         imports = _extract_imports(TEMPLATE_PATH)
         stdlib_prefixes = (
-            "html", "re", "typing", "__future__",
+            "html", "re", "typing", "__future__", "json",
         )
         violations = [
             imp for imp in imports

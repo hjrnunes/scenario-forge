@@ -288,8 +288,19 @@ def generate_report(output_dir: Path, output_path: Path | None = None) -> Path:
     )
 
     # --- Build section HTML ---
+    kc_display: dict[str, str] | None = None
+    if capability_profile is not None:
+        try:
+            from scenario_forge.models.capability_profile import build_kc_subcodes_display
+            kc_display = build_kc_subcodes_display(
+                getattr(capability_profile, "kc_subcodes", [])
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     sp1_html = build_sp1_card(
         loss_analysis, capability_profile, control_structure, sp1_raw,
+        kc_display=kc_display,
     )
     sp2_html = build_sp2_card(ica_enumeration, enriched_threats, sp2_raw)
     sp3_html = _build_sp3_html(scenarios, eval_data, sp3_raw)

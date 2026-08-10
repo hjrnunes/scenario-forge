@@ -18,6 +18,7 @@ Public API (used by :mod:`scenario_forge.stpa.report.generator`):
 from __future__ import annotations
 
 import html
+import json
 import re
 from typing import Any
 
@@ -98,6 +99,21 @@ def _highlight_yaml_value(value: str) -> str:
     if css:
         return f'<span class="{css}">{value}</span>'
     return value
+
+
+def _pretty_print_if_json(content: str) -> str:
+    """If content looks like JSON, pretty-print it. Otherwise escape as-is."""
+    if not isinstance(content, str):
+        return _esc(content)
+    stripped = content.strip()
+    if stripped.startswith(("{", "[")):
+        try:
+            parsed = json.loads(stripped)
+            pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
+            return _esc(pretty)
+        except (ValueError, TypeError):
+            pass
+    return _esc(content)
 
 
 _GHERKIN_KEYWORDS = [
@@ -453,6 +469,26 @@ details.raw-yaml[open] > summary::before { content: '\\25BC '; }
   border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-size: 11px;
 }
 .copy-btn:hover { background: var(--accent); color: white; }
+
+/* Scenario tabs */
+.scenario-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 12px;
+}
+.scenario-tab {
+  padding: 8px 16px; cursor: pointer; font-size: 12px; font-weight: 600;
+  color: var(--text-muted); border: 1px solid transparent; border-bottom: none;
+  border-radius: 6px 6px 0 0; background: transparent; transition: all 0.15s;
+}
+.scenario-tab:hover { color: var(--text-secondary); background: var(--bg-card-hover); }
+.scenario-tab.active {
+  color: var(--accent); border-color: var(--border); border-bottom: 1px solid var(--bg-card);
+  background: var(--bg-card); position: relative; top: 1px;
+}
+.scenario-tab-content { display: none; }
+.scenario-tab-content.active { display: block; }
+
+/* Section spacing */
+.flow-card.sp3-section { margin-bottom: 32px; }
 </style>"""
 
 
@@ -483,6 +519,21 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
       });
     }
   });
+});
+// Scenario tab switching
+document.addEventListener('click', function(e) {
+  if (e.target && e.target.classList.contains('scenario-tab')) {
+    var tabBar = e.target.parentElement;
+    var tabContainer = tabBar.parentElement;
+    // Deactivate all tabs
+    tabBar.querySelectorAll('.scenario-tab').forEach(function(t) { t.classList.remove('active'); });
+    tabContainer.querySelectorAll('.scenario-tab-content').forEach(function(c) { c.classList.remove('active'); });
+    // Activate clicked tab
+    e.target.classList.add('active');
+    var target = e.target.getAttribute('data-tab');
+    var content = tabContainer.querySelector('[data-tab-content="' + target + '"]');
+    if (content) content.classList.add('active');
+  }
 });
 </script>"""
 
@@ -574,7 +625,7 @@ def _build_raw_yaml_sections(
 def _build_table_rows(rows_data: list[tuple], cell_count: int) -> str:
     """Build ``<tr>`` elements from a list of tuples."""
     return "\n".join(
-        "      " + "".join(f"<td>{_esc(cell)}</td>" for cell in row)
+        "      <tr>" + "".join(f"<td>{_esc(cell)}</td>" for cell in row) + "</tr>"
         for row in rows_data
     )
 
@@ -637,7 +688,7 @@ def _build_sp1_losses_section(loss_analysis: Any) -> str:
     return "\n".join(parts)
 
 
-def _build_sp1_capability_section(capability_profile: Any) -> str:
+def _build_sp1_capability_section(capability_profile: Any, kc_display: dict[str, str] | None = None) -> str:
     """Build the capability profile subsection of SP1."""
     parts: list[str] = ['<div class="subsection">']
     parts.append('  <div class="subsection-title">Capability Profile</div>')
@@ -647,10 +698,16 @@ def _build_sp1_capability_section(capability_profile: Any) -> str:
         parts.append(f'    <div>{chips}</div>')
     kcs = getattr(capability_profile, "kc_subcodes", [])
     if kcs:
-        parts.append(
-            f'    <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">'
-            f'KC: {_esc(", ".join(kcs))}</p>'
-        )
+        parts.append('    <div class="kc-list" style="margin-top:12px;">')
+        for kc in kcs:
+            label = (kc_display or {}).get(kc, kc)
+            parts.append(
+                f'      <div class="kc-item" style="margin-bottom:4px;">'
+                f'<code style="color:var(--accent);font-weight:600;">{_esc(kc)}</code>'
+                f' — <span style="color:var(--text-secondary);font-size:12px;">{_esc(label)}</span>'
+                f'</div>'
+            )
+        parts.append('    </div>')
     parts.append('</div>')
     return "\n".join(parts)
 
@@ -674,6 +731,7 @@ def build_sp1_card(
     capability_profile: Any | None,
     control_structure: Any | None,
     raw_texts: dict[str, str] | None,
+    kc_display: dict[str, str] | None = None,
 ) -> str:
     """Build the SP1 flow card."""
     body_parts: list[str] = []
@@ -682,7 +740,7 @@ def build_sp1_card(
         body_parts.append(_build_sp1_losses_section(loss_analysis))
 
     if capability_profile is not None:
-        body_parts.append(_build_sp1_capability_section(capability_profile))
+        body_parts.append(_build_sp1_capability_section(capability_profile, kc_display))
 
     if control_structure is not None:
         body_parts.append(_build_sp1_control_section(control_structure))
@@ -729,12 +787,12 @@ def _build_sp2_ica_section(ica_enumeration: Any) -> str:
     parts.append('  <div class="subsection-title">ICA Enumeration</div>')
     if ica_enumeration.slots:
         rows = "\n".join(
-            f'      <tr><td>{_esc(s.slot_id)}</td><td>{_esc(s.uca_type.value if hasattr(s.uca_type, "value") else s.uca_type)}</td>'
+            f'      <tr><td>{_esc(s.slot_id)}</td>'
             f'<td>{"N/A" if s.is_na else str(len(s.icas))}</td></tr>'
             for s in ica_enumeration.slots
         )
         parts.append(
-            f'    <table class="data-table"><thead><tr><th>Slot ID</th><th>UCA Type</th><th>ICAs</th></tr></thead>\n'
+            f'    <table class="data-table"><thead><tr><th>Slot ID</th><th>ICAs</th></tr></thead>\n'
             f'    <tbody>\n{rows}\n    </tbody></table>'
         )
     parts.append('</div>')
@@ -882,10 +940,11 @@ def _render_tree_child(child: dict) -> list[str]:
     if children:
         parts.append(
             f'  <div class="attack-tree-node connector">'
-            f'<span class="tree-node-label">{_esc(label)}</span></div>'
+            f'<span class="tree-node-label">{_esc(label)}</span>'
         )
         for sub in children:
             parts.extend(_render_tree_child(sub))
+        parts.append('  </div>')
     else:
         details_html = ""
         if details:
@@ -1016,31 +1075,54 @@ def _build_scenario_envelope_body(envelope: Any) -> list[str]:
     parts: list[str] = []
     spec = getattr(envelope, "scenario_spec", None)
 
-    # BDI section
+    # BDI section (always visible above tabs)
     if spec is not None:
         parts.append(_build_bdi_section(spec))
 
-    # Narrative section
+    # Collect tab content
+    tab_contents: list[tuple[str, str]] = []  # (tab_id, html_content)
+
+    # Narrative tab
     narrative = getattr(envelope, "narrative", "") or ""
     if narrative:
-        parts.append('      <div class="scenario-section">')
-        parts.append('        <div class="scenario-section-title">Narrative</div>')
-        parts.append(f'        <div class="narrative-text">{_esc(narrative)}</div>')
+        tab_contents.append(("narrative",
+            f'<div class="narrative-text">{_esc(narrative)}</div>'))
+
+    # Attack tree tab
+    attack_tree = getattr(envelope, "attack_tree", None)
+    tab_contents.append(("attack_tree", _build_attack_tree_visual(attack_tree)))
+
+    # Gherkin tab
+    gherkin_text = getattr(envelope, "gherkin_raw", None) or ""
+    if not gherkin_text:
+        gs = getattr(envelope, "gherkin_spec", None)
+        if gs is not None and hasattr(gs, "to_feature_text"):
+            gherkin_text = gs.to_feature_text()
+    if gherkin_text:
+        highlighted = _highlight_gherkin(gherkin_text)
+        tab_contents.append(("gherkin",
+            f'<div class="gherkin-block">{highlighted}</div>'))
+
+    # Build tab bar + content panels
+    if tab_contents:
+        tab_labels = {"narrative": "Narrative", "attack_tree": "Attack Tree", "gherkin": "Gherkin"}
+        parts.append('      <div class="scenario-tabs-container">')
+        parts.append('        <div class="scenario-tabs">')
+        for i, (tab_id, _) in enumerate(tab_contents):
+            active = " active" if i == 0 else ""
+            parts.append(f'          <div class="scenario-tab{active}" data-tab="{tab_id}">{tab_labels.get(tab_id, tab_id)}</div>')
+        parts.append('        </div>')
+        for i, (tab_id, content_html) in enumerate(tab_contents):
+            active = " active" if i == 0 else ""
+            parts.append(f'        <div class="scenario-tab-content{active}" data-tab-content="{tab_id}">{content_html}</div>')
         parts.append('      </div>')
 
-    # Attack tree section
-    attack_tree = getattr(envelope, "attack_tree", None)
-    parts.append('      <div class="scenario-section">')
-    parts.append('        <div class="scenario-section-title">Attack Tree</div>')
-    parts.append(f'        {_build_attack_tree_visual(attack_tree)}')
-    parts.append('      </div>')
-
-    # System Context section (enrichment)
+    # System Context section (enrichment, below tabs)
     system_context = getattr(envelope, "system_context", None)
     if system_context is not None:
         parts.extend(_build_system_context_section(system_context))
 
-    # Consumer Hints section (enrichment)
+    # Consumer Hints section (enrichment, below tabs)
     consumer_hints = getattr(envelope, "consumer_hints", None)
     if consumer_hints is not None:
         parts.extend(_build_consumer_hints_section(consumer_hints))
@@ -1059,21 +1141,21 @@ def _build_scenario_card(
     if envelope is not None:
         body_parts.extend(_build_scenario_envelope_body(envelope))
 
-    # Gherkin section — prefer feature_text, then gherkin_raw, then
-    # gherkin_spec.to_feature_text() as a final fallback.
-    gherkin_text = feature_text
-    if not gherkin_text and envelope is not None:
-        gherkin_text = getattr(envelope, "gherkin_raw", None) or ""
-    if not gherkin_text and envelope is not None:
-        spec = getattr(envelope, "gherkin_spec", None)
-        if spec is not None and hasattr(spec, "to_feature_text"):
-            gherkin_text = spec.to_feature_text()
-    if gherkin_text:
-        highlighted = _highlight_gherkin(gherkin_text)
-        body_parts.append('      <div class="scenario-section">')
-        body_parts.append('        <div class="scenario-section-title">Gherkin Spec</div>')
-        body_parts.append(f'        <div class="gherkin-block">{highlighted}</div>')
-        body_parts.append('      </div>')
+    # If feature_text is provided separately (from .feature file on disk),
+    # and the envelope didn't already include Gherkin in tabs, add it.
+    if feature_text:
+        has_gherkin_in_tabs = False
+        if envelope is not None:
+            has_gherkin_in_tabs = bool(
+                getattr(envelope, "gherkin_raw", None)
+                or (hasattr(envelope, "gherkin_spec") and envelope.gherkin_spec is not None)
+            )
+        if not has_gherkin_in_tabs:
+            highlighted = _highlight_gherkin(feature_text)
+            body_parts.append('      <div class="scenario-section">')
+            body_parts.append('        <div class="scenario-section-title">Gherkin Spec</div>')
+            body_parts.append(f'        <div class="gherkin-block">{highlighted}</div>')
+            body_parts.append('      </div>')
 
     body = "\n".join(body_parts)
     return (
@@ -1197,7 +1279,7 @@ def build_sp3_card(
 
     body = "\n".join(body_parts)
     return (
-        f'<details id="sp3" class="flow-card">\n'
+        f'<details id="sp3" class="flow-card sp3-section">\n'
         f'  <summary>SP3 — Scenario Production & Evaluation</summary>\n'
         f'  <div class="flow-card-body">\n{body}\n  </div>\n'
         f'</details>'
@@ -1260,9 +1342,10 @@ def _build_call_entry_html(entry: dict, index: int) -> str:
     ):
         content = entry.get(key, "")
         if content:
+            display = _pretty_print_if_json(content)
             sections.append(
                 f'      <details class="raw-yaml"><summary>{_esc(label)}</summary>'
-                f'<pre class="code-block">{_esc(content)}</pre></details>'
+                f'<pre class="code-block">{display}</pre></details>'
             )
 
     sections_html = "\n".join(sections)
