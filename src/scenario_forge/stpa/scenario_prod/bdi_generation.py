@@ -1,0 +1,293 @@
+"""Stage 5 — Dual-BDI scenario specification.
+
+Deterministic defender BDI pre-population from the control structure,
+combined LLM call for vulnerability annotations + attacker BDI,
+and deterministic assembly of the ScenarioSpec.
+"""
+
+from __future__ import annotations
+
+import yaml
+from pathlib import Path
+from pydantic import BaseModel, Field
+
+from scenario_forge.stpa.infra.llm import LLMClient
+from scenario_forge.stpa.infra.templates import TemplateLoader
+from scenario_forge.stpa.models.control_structure import (
+    ControlStructure,
+    Responsibility,
+)
+from scenario_forge.stpa.models.enriched_threat_set import StructuralThreat
+from scenario_forge.stpa.models.ica_enumeration import UCAType
+from scenario_forge.stpa.models.scenario_spec import (
+    AttackerBDI,
+    DefenderBDI,
+    DefenderBelief,
+    DefenderDesire,
+    DefenderIntention,
+    ScenarioSpec,
+    ThreatSource,
+)
+
+from ._constants import PROMPTS_DIR
+
+__all__ = [
+    "BDIGenerationResult",
+    "populate_defender_bdi",
+    "generate_bdi",
+    "assemble_scenario_spec",
+    "generate_scenario_id",
+    "parse_ica_slot_id",
+]
+
+# Counter for deterministic scenario IDs
+_scenario_counter = 0
+
+
+class BDIGenerationResult(BaseModel):
+    """LLM response model for the combined BDI generation call."""
+
+    defender_vulnerabilities: dict[str, str] = Field(default_factory=dict)
+    attacker_bdi: AttackerBDI
+
+
+def generate_scenario_id(index: int = 0) -> str:
+    """Generate a deterministic scenario ID.
+
+    Args:
+        index: Zero-based scenario index.
+
+    Returns:
+        A scenario ID in the format ``SCN-NNN`` (zero-padded).
+    """
+    return f"SCN-{index + 1:03d}"
+
+
+def parse_ica_slot_id(slot_id: str) -> dict[str, str]:
+    """Parse an ICA slot ID into its components.
+
+    Supports two formats:
+    - ``RESP-X:CA-Y:TYPE-Z`` (responsibility slot)
+    - ``CL-X:CM-Y:TYPE-Z`` (coordination link slot)
+
+    Args:
+        slot_id: The ICA slot ID string.
+
+    Returns:
+        A dict with keys ``controller``, ``control_action``, and ``ica_type``.
+    """
+    parts = slot_id.split(":")
+    if len(parts) != 3:
+        raise ValueError(f"Invalid ICA slot ID format: {slot_id}")
+    return {
+        "controller": parts[0],
+        "control_action": parts[1],
+        "ica_type": parts[2],
+    }
+
+
+def populate_defender_bdi(
+    control_structure: ControlStructure,
+    target_resp_id: str,
+) -> DefenderBDI:
+    """Deterministically derive defender BDI from the control structure.
+
+    Extracts beliefs from process model parts, desires from the
+    responsibility description, and intentions from control actions.
+
+    Args:
+        control_structure: The control structure.
+        target_resp_id: The responsibility ID to extract from.
+
+    Returns:
+        A :class:`DefenderBDI` with empty vulnerability fields.
+
+    Raises:
+        ValueError: If ``target_resp_id`` is not found in the control structure.
+    """
+    resp = _find_responsibility(control_structure, target_resp_id)
+
+    beliefs = [
+        DefenderBelief(
+            pm_id=pm.pm_id,
+            content=pm.description,
+            vulnerability="",
+        )
+        for pm in resp.process_model_parts
+    ]
+
+    desires = [
+        DefenderDesire(
+            resp_id=resp.resp_id,
+            content=resp.description,
+        )
+    ]
+
+    intentions = [
+        DefenderIntention(
+            ca_id=ca.ca_id,
+            content=ca.description,
+        )
+        for ca in resp.control_actions
+    ]
+
+    return DefenderBDI(beliefs=beliefs, desires=desires, intentions=intentions)
+
+
+def _find_responsibility(
+    control_structure: ControlStructure,
+    resp_id: str,
+) -> Responsibility:
+    """Find a responsibility by ID in the control structure."""
+    for resp in control_structure.responsibilities:
+        if resp.resp_id == resp_id:
+            return resp
+    raise ValueError(
+        f"Responsibility '{resp_id}' not found in control structure."
+    )
+
+
+def generate_bdi(
+    llm_client: LLMClient,
+    defender_bdi: DefenderBDI,
+    threat: StructuralThreat,
+    control_structure: ControlStructure,
+    run_dir: Path,
+    loader: TemplateLoader | None = None,
+    stage: str = "stage_5",
+    step: str = "bdi_generation",
+    temperature: float = 0.4,
+) -> tuple[BDIGenerationResult | None, str | None]:
+    """Execute the combined LLM call for vulnerability annotations + attacker BDI.
+
+    Args:
+        llm_client: LLM client for making the completion call.
+        defender_bdi: Pre-populated defender BDI with empty vulnerabilities.
+        threat: The structural threat for this scenario.
+        control_structure: The full control structure.
+        run_dir: Directory for call logging.
+        loader: Template loader (default: SP3 prompts directory).
+        stage: Pipeline stage label.
+        step: Sub-step label.
+        temperature: LLM temperature.
+
+    Returns:
+        A tuple of (BDIGenerationResult or None, error_message or None).
+    """
+    from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+
+    if loader is None:
+        loader = TemplateLoader(PROMPTS_DIR)
+
+    slot_parts = parse_ica_slot_id(threat.ica_slot_id)
+    target_resp_id = slot_parts["controller"]
+
+    system_prompt, user_prompt = _build_bdi_prompts(
+        defender_bdi, threat, control_structure, target_resp_id, loader
+    )
+
+    result, _llm_result, error = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=BDIGenerationResult,
+        run_dir=run_dir,
+        stage=stage,
+        step=step,
+        temperature=temperature,
+    )
+
+    if error is not None:
+        return None, error
+    return result, None
+
+
+def _build_bdi_prompts(
+    defender_bdi: DefenderBDI,
+    threat: StructuralThreat,
+    control_structure: ControlStructure,
+    target_resp_id: str,
+    loader: TemplateLoader,
+) -> tuple[str, str]:
+    """Build the system and user prompts for the BDI generation call."""
+    defender_bdi_yaml = yaml.dump(
+        defender_bdi.model_dump(mode="json"),
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+    )
+    control_structure_yaml = yaml.dump(
+        control_structure.model_dump(mode="json", exclude_none=True),
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+    )
+    catalog_context = yaml.dump(
+        [m.model_dump(mode="json") for m in threat.catalog_mappings],
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+    ) if threat.catalog_mappings else "No catalog mappings."
+
+    system_prompt = loader.render_prompt("stage5_system.j2")
+    user_prompt = loader.render_prompt(
+        "stage5_user.j2",
+        defender_bdi_yaml=defender_bdi_yaml,
+        ica_text=threat.ica_text,
+        hazardous_context=threat.hazardous_context,
+        loss_scenario=threat.loss_scenario,
+        control_structure_yaml=control_structure_yaml,
+        target_resp_id=target_resp_id,
+        catalog_context=catalog_context,
+    )
+
+    return system_prompt, user_prompt
+
+
+def assemble_scenario_spec(
+    defender_bdi: DefenderBDI,
+    llm_result: BDIGenerationResult,
+    threat: StructuralThreat,
+    control_structure: ControlStructure,
+    scenario_index: int = 0,
+) -> ScenarioSpec:
+    """Assemble a ScenarioSpec from the defender BDI and LLM result.
+
+    Merges vulnerability annotations into the defender BDI and combines
+    with the attacker BDI. The defender BDI IDs are NOT trusted from the
+    LLM — the original deterministic values are used, and vulnerabilities
+    are extracted by matching to the original pm_id values.
+
+    Args:
+        defender_bdi: Pre-populated defender BDI (will be mutated in place).
+        llm_result: The LLM generation result.
+        threat: The structural threat.
+        control_structure: The full control structure.
+        scenario_index: Zero-based index for scenario ID generation.
+
+    Returns:
+        A :class:`ScenarioSpec`.
+    """
+    slot_parts = parse_ica_slot_id(threat.ica_slot_id)
+
+    # Merge vulnerability annotations — use original deterministic pm_ids
+    for belief in defender_bdi.beliefs:
+        belief.vulnerability = llm_result.defender_vulnerabilities.get(
+            belief.pm_id, ""
+        )
+
+    return ScenarioSpec(
+        scenario_id=generate_scenario_id(scenario_index),
+        threat_source=ThreatSource(
+            ica_slot_id=threat.ica_slot_id,
+            provenance=threat.provenance,
+            ica_id=threat.ica_id,
+        ),
+        target_controller=slot_parts["controller"],
+        target_control_action=slot_parts["control_action"],
+        ica_type=UCAType(slot_parts["ica_type"]),
+        defender_bdi=defender_bdi,
+        attacker_bdi=llm_result.attacker_bdi,
+        catalog_context=threat.catalog_mappings,
+        loss_scenario=threat.loss_scenario,
+    )

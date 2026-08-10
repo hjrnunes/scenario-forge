@@ -1,0 +1,382 @@
+"""Unit tests for SP3 Stage 6 — Narrative, attack tree, Gherkin, and assembly."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from scenario_forge.stpa.models.control_structure import (
+    ControlAction,
+    ControlStructure,
+    ElementRef,
+    FeedbackChannel,
+    ProcessModelPart,
+    ReferenceType,
+    Responsibility,
+    ControlledProcess,
+)
+from scenario_forge.stpa.models.ica_enumeration import UCAType
+from scenario_forge.stpa.models.loss_analysis import (
+    Hazard,
+    Loss,
+    LossAnalysis,
+    LossProvenance,
+    SecurityConstraint,
+)
+from scenario_forge.stpa.models.scenario_spec import (
+    AttackerBDI,
+    DefenderBDI,
+    DefenderBelief,
+    DefenderDesire,
+    DefenderIntention,
+    ScenarioSpec,
+    ThreatSource,
+)
+from scenario_forge.stpa.scenario_prod.narrative import generate_narrative
+from scenario_forge.stpa.scenario_prod.attack_tree import (
+    generate_attack_tree,
+    parse_attack_tree,
+)
+from scenario_forge.stpa.scenario_prod.gherkin import generate_gherkin
+from scenario_forge.stpa.scenario_prod.assembly import assemble_envelope
+
+from tests.stpa.sp1_helpers import MockLLMClient, read_calls_jsonl
+
+
+def _make_cs() -> ControlStructure:
+    cps = [ControlledProcess(cp_id="CP-1", description="Interface")]
+    return ControlStructure(
+        responsibilities=[
+            Responsibility(
+                resp_id="RESP-1",
+                description="R1",
+                process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
+                control_actions=[
+                    ControlAction(
+                        ca_id="CA-1-1", description="Action",
+                        target=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
+                    ),
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id="FB-1-1", description="Feedback", updates="PM-1-1",
+                        source=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
+                    ),
+                ],
+            ),
+        ],
+        controlled_processes=cps,
+    )
+
+
+def _make_scenario_spec() -> ScenarioSpec:
+    return ScenarioSpec(
+        scenario_id="SCN-001",
+        threat_source=ThreatSource(
+            ica_slot_id="RESP-1:CA-1-1:NOT_PROVIDED",
+            provenance="structural",
+            ica_id="RESP-1:CA-1-1:NOT_PROVIDED:1",
+        ),
+        target_controller="RESP-1",
+        target_control_action="CA-1-1",
+        ica_type=UCAType.not_provided,
+        defender_bdi=DefenderBDI(
+            beliefs=[DefenderBelief(pm_id="PM-1-1", content="State", vulnerability="exploitable")],
+            desires=[DefenderDesire(resp_id="RESP-1", content="R1")],
+            intentions=[DefenderIntention(ca_id="CA-1-1", content="Action")],
+        ),
+        attacker_bdi=AttackerBDI(
+            beliefs=["Knows PM-1-1 is weak"],
+            desires=["Induce NOT_PROVIDED"],
+            intentions=["Poison PM-1-1 via FB-1-1"],
+        ),
+        loss_scenario="Loss scenario text",
+    )
+
+
+def _make_loss_analysis() -> LossAnalysis:
+    return LossAnalysis(
+        risk_card_losses=[
+            Loss(loss_id="L-1", description="Loss", provenance=LossProvenance.risk_card, source_risk_cards=["r1"]),
+        ],
+        use_case_losses=[],
+        hazards=[Hazard(hazard_id="H-1", description="Hazard", related_losses=["L-1"])],
+        security_constraints=[
+            SecurityConstraint(
+                constraint_id="SC-1",
+                description="The system must validate before action",
+                related_hazards=["H-1"],
+            ),
+        ],
+    )
+
+
+class TestNarrative:
+    """SP3-NAR-01 through SP3-NAR-07."""
+
+    def test_one_llm_call(self):
+        spec = _make_scenario_spec()
+        client = MockLLMClient()
+        client.set_response_for(None, "A 7-step narrative text.")
+
+        with TemporaryDirectory() as tmpdir:
+            result, error = generate_narrative(client, spec, Path(tmpdir))
+            assert error is None
+            assert result is not None
+            assert client.call_count == 1
+
+    def test_call_logged_with_stage_6(self):
+        spec = _make_scenario_spec()
+        client = MockLLMClient()
+        client.set_response_for(None, "Narrative text.")
+
+        with TemporaryDirectory() as tmpdir:
+            generate_narrative(client, spec, Path(tmpdir))
+            calls = read_calls_jsonl(Path(tmpdir))
+            assert len(calls) == 1
+            assert calls[0]["stage"] == "stage_6"
+            assert calls[0]["step"] == "narrative"
+
+    def test_narrative_is_non_empty_string(self):
+        spec = _make_scenario_spec()
+        client = MockLLMClient()
+        client.set_response_for(None, "Step 1: The defender's process model starts correct...")
+
+        with TemporaryDirectory() as tmpdir:
+            result, _ = generate_narrative(client, spec, Path(tmpdir))
+            assert isinstance(result, str)
+            assert len(result) > 0
+
+    def test_user_prompt_contains_scenario_spec(self):
+        spec = _make_scenario_spec()
+        client = MockLLMClient()
+        client.set_response_for(None, "Narrative.")
+
+        with TemporaryDirectory() as tmpdir:
+            generate_narrative(client, spec, Path(tmpdir))
+            call = client.calls[0]
+            assert "SCN-001" in call.user_prompt
+            assert "PM-1-1" in call.user_prompt
+            assert "Loss scenario text" in call.user_prompt
+
+    def test_system_prompt_contains_7_step_structure(self):
+        spec = _make_scenario_spec()
+        client = MockLLMClient()
+        client.set_response_for(None, "Narrative.")
+
+        with TemporaryDirectory() as tmpdir:
+            generate_narrative(client, spec, Path(tmpdir))
+            sys_prompt = client.calls[0].system_prompt
+            assert "7-step" in sys_prompt.lower() or "seven" in sys_prompt.lower()
+            assert "belief" in sys_prompt.lower()
+
+
+class TestAttackTree:
+    """SP3-TREE-01 through SP3-TREE-14."""
+
+    def test_one_llm_call(self):
+        spec = _make_scenario_spec()
+        cs = _make_cs()
+        tree = {"root": "Induce ICA", "branches": [{"category": "controller_side", "label": "l", "children": []}], "leaves": []}
+        client = MockLLMClient()
+        client.set_response_for(None, json.dumps(tree))
+
+        with TemporaryDirectory() as tmpdir:
+            result, error = generate_attack_tree(client, spec, cs, Path(tmpdir))
+            assert error is None
+            assert result is not None
+            assert client.call_count == 1
+
+    def test_call_logged_with_stage_6(self):
+        spec = _make_scenario_spec()
+        cs = _make_cs()
+        tree = {"root": "r", "branches": [], "leaves": []}
+        client = MockLLMClient()
+        client.set_response_for(None, json.dumps(tree))
+
+        with TemporaryDirectory() as tmpdir:
+            generate_attack_tree(client, spec, cs, Path(tmpdir))
+            calls = read_calls_jsonl(Path(tmpdir))
+            assert len(calls) == 1
+            assert calls[0]["stage"] == "stage_6"
+            assert calls[0]["step"] == "attack_tree"
+
+    def test_result_is_dict_with_keys(self):
+        spec = _make_scenario_spec()
+        cs = _make_cs()
+        tree = {"root": "Induce ICA NOT_PROVIDED on CA-1-1", "branches": [{"category": "controller_side", "label": "l", "children": []}], "leaves": ["leaf1"]}
+        client = MockLLMClient()
+        client.set_response_for(None, json.dumps(tree))
+
+        with TemporaryDirectory() as tmpdir:
+            result, _ = generate_attack_tree(client, spec, cs, Path(tmpdir))
+            assert isinstance(result, dict)
+            assert "root" in result
+            assert "branches" in result
+            assert "leaves" in result
+
+    def test_system_prompt_contains_branch_categories(self):
+        spec = _make_scenario_spec()
+        cs = _make_cs()
+        client = MockLLMClient()
+        client.set_response_for(None, json.dumps({"root": "r", "branches": [], "leaves": []}))
+
+        with TemporaryDirectory() as tmpdir:
+            generate_attack_tree(client, spec, cs, Path(tmpdir))
+            sys_prompt = client.calls[0].system_prompt
+            assert "controller_side" in sys_prompt
+            assert "path_side" in sys_prompt
+            assert "coordination_gap" in sys_prompt
+
+    def test_system_prompt_contains_sub_branches(self):
+        spec = _make_scenario_spec()
+        cs = _make_cs()
+        client = MockLLMClient()
+        client.set_response_for(None, json.dumps({"root": "r", "branches": [], "leaves": []}))
+
+        with TemporaryDirectory() as tmpdir:
+            generate_attack_tree(client, spec, cs, Path(tmpdir))
+            sys_prompt = client.calls[0].system_prompt
+            assert "Corrupt process model" in sys_prompt
+            assert "Actuator/executor failure" in sys_prompt
+            assert "Desynchronize shared PM" in sys_prompt
+
+    def test_system_prompt_contains_pruning_instructions(self):
+        spec = _make_scenario_spec()
+        cs = _make_cs()
+        client = MockLLMClient()
+        client.set_response_for(None, json.dumps({"root": "r", "branches": [], "leaves": []}))
+
+        with TemporaryDirectory() as tmpdir:
+            generate_attack_tree(client, spec, cs, Path(tmpdir))
+            sys_prompt = client.calls[0].system_prompt
+            assert "prune" in sys_prompt.lower()
+
+    def test_user_prompt_contains_scenario_spec_and_cs(self):
+        spec = _make_scenario_spec()
+        cs = _make_cs()
+        client = MockLLMClient()
+        client.set_response_for(None, json.dumps({"root": "r", "branches": [], "leaves": []}))
+
+        with TemporaryDirectory() as tmpdir:
+            generate_attack_tree(client, spec, cs, Path(tmpdir))
+            user_prompt = client.calls[0].user_prompt
+            assert "SCN-001" in user_prompt
+            assert "RESP-1" in user_prompt
+
+    def test_parse_attack_tree_from_dict(self):
+        tree = {"root": "r", "branches": [], "leaves": []}
+        assert parse_attack_tree(tree) == tree
+
+    def test_parse_attack_tree_from_json_string(self):
+        tree = {"root": "r", "branches": [], "leaves": []}
+        assert parse_attack_tree(json.dumps(tree)) == tree
+
+    def test_parse_attack_tree_from_yaml_string(self):
+        tree = "root: r\nbranches: []\nleaves: []\n"
+        result = parse_attack_tree(tree)
+        assert result is not None
+        assert result["root"] == "r"
+
+    def test_parse_attack_tree_none(self):
+        assert parse_attack_tree(None) is None
+
+
+class TestGherkin:
+    """SP3-GHK-01 through SP3-GHK-12."""
+
+    def test_one_llm_call(self):
+        spec = _make_scenario_spec()
+        la = _make_loss_analysis()
+        gherkin = "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n"
+        client = MockLLMClient()
+        client.set_response_for(None, gherkin)
+
+        with TemporaryDirectory() as tmpdir:
+            result, error = generate_gherkin(client, spec, la, Path(tmpdir))
+            assert error is None
+            assert result is not None
+            assert client.call_count == 1
+
+    def test_call_logged_with_stage_6(self):
+        spec = _make_scenario_spec()
+        la = _make_loss_analysis()
+        gherkin = "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n"
+        client = MockLLMClient()
+        client.set_response_for(None, gherkin)
+
+        with TemporaryDirectory() as tmpdir:
+            generate_gherkin(client, spec, la, Path(tmpdir))
+            calls = read_calls_jsonl(Path(tmpdir))
+            assert len(calls) == 1
+            assert calls[0]["stage"] == "stage_6"
+            assert calls[0]["step"] == "gherkin"
+
+    def test_result_is_non_empty_string(self):
+        spec = _make_scenario_spec()
+        la = _make_loss_analysis()
+        gherkin = "Scenario: Test\n  Given PM-1-1 is valid\n"
+        client = MockLLMClient()
+        client.set_response_for(None, gherkin)
+
+        with TemporaryDirectory() as tmpdir:
+            result, _ = generate_gherkin(client, spec, la, Path(tmpdir))
+            assert isinstance(result, str)
+            assert len(result) > 0
+
+    def test_system_prompt_contains_should_but_structure(self):
+        spec = _make_scenario_spec()
+        la = _make_loss_analysis()
+        client = MockLLMClient()
+        client.set_response_for(None, "Gherkin text")
+
+        with TemporaryDirectory() as tmpdir:
+            generate_gherkin(client, spec, la, Path(tmpdir))
+            sys_prompt = client.calls[0].system_prompt
+            assert "should" in sys_prompt.lower()
+            assert "but" in sys_prompt.lower()
+
+    def test_user_prompt_contains_security_constraint(self):
+        spec = _make_scenario_spec()
+        la = _make_loss_analysis()
+        client = MockLLMClient()
+        client.set_response_for(None, "Gherkin text")
+
+        with TemporaryDirectory() as tmpdir:
+            generate_gherkin(client, spec, la, Path(tmpdir))
+            user_prompt = client.calls[0].user_prompt
+            assert "SC-1" in user_prompt
+            assert "validate" in user_prompt.lower()
+
+    def test_user_prompt_contains_ica_type(self):
+        spec = _make_scenario_spec()
+        la = _make_loss_analysis()
+        client = MockLLMClient()
+        client.set_response_for(None, "Gherkin text")
+
+        with TemporaryDirectory() as tmpdir:
+            generate_gherkin(client, spec, la, Path(tmpdir))
+            user_prompt = client.calls[0].user_prompt
+            assert "NOT_PROVIDED" in user_prompt
+            assert "CA-1-1" in user_prompt
+
+
+class TestAssembly:
+    """Tests for ScenarioEnvelope assembly."""
+
+    def test_assemble_envelope(self):
+        spec = _make_scenario_spec()
+        narrative = "A narrative text."
+        attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}], "leaves": []}
+        gherkin_spec = "Scenario: Test\n  Given PM-1-1 is valid\n"
+
+        envelope = assemble_envelope("SCN-001", spec, narrative, attack_tree, gherkin_spec)
+        assert envelope.scenario_id == "SCN-001"
+        assert envelope.scenario_spec.scenario_id == "SCN-001"
+        assert envelope.narrative == narrative
+        assert envelope.attack_tree == attack_tree
+        assert envelope.gherkin_spec == gherkin_spec
+        assert envelope.target_responsibility == "RESP-1"
+        assert envelope.ica_type == UCAType.not_provided
+        assert envelope.provenance == "structural"

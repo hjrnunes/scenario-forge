@@ -222,6 +222,78 @@ def safe_llm_call(
         return None, result, error_msg
 
 
+
+
+def safe_llm_call_raw(
+    *,
+    llm_client: LLMClient,
+    system_prompt: str,
+    user_prompt: str,
+    run_dir: Path,
+    stage: str,
+    step: str,
+    temperature: float = 0.4,
+    max_completion_tokens: int | None = None,
+) -> tuple[str | None, LLMResult | None, str | None]:
+    """Wrap complete() for raw text responses (no structured response_format).
+
+    Like :func:`safe_llm_call` but for calls that return raw text instead
+    of a structured Pydantic model. The LLM client is called with
+    ``response_format=None``.
+
+    On success, logs the call and returns ``(text, result, None)``.
+    On failure, logs the failure and returns ``(None, result_or_none, error_msg)``.
+
+    Args:
+        llm_client: LLM client for making the completion call.
+        system_prompt: System prompt text.
+        user_prompt: User prompt text.
+        run_dir: Directory for call logging.
+        stage: Pipeline stage identifier.
+        step: Sub-step within the stage.
+        temperature: LLM temperature.
+        max_completion_tokens: Optional cap on completion tokens.
+
+    Returns:
+        A tuple of (raw_text_or_None, llm_result_or_None, error_or_None).
+    """
+    result: LLMResult | None = None
+    try:
+        completion_kwargs: dict[str, Any] = {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "response_format": None,
+            "temperature": temperature,
+        }
+        if max_completion_tokens is not None:
+            completion_kwargs["max_completion_tokens"] = max_completion_tokens
+        result = llm_client.complete(**completion_kwargs)
+        content = result.content
+        if content is None:
+            content = ""
+        if not isinstance(content, str):
+            content = str(content)
+        log_llm_call(result, llm_client.model, run_dir, stage, step)
+        return content, result, None
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        _prompt_tokens = result.prompt_tokens if result else 0
+        _completion_tokens = result.completion_tokens if result else 0
+        _duration_ms = result.duration_ms if result else 0
+        log_llm_call_failure(
+            llm_client.model,
+            run_dir,
+            stage,
+            step,
+            error_msg,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            prompt_tokens=_prompt_tokens,
+            completion_tokens=_completion_tokens,
+            duration_ms=_duration_ms,
+        )
+        return None, result, error_msg
+
 # mutate4py-manifest-begin
 # {"version":1,"tested_at":"2026-08-09T20:04:36Z","module_hash":"8ccdd079130c5e44abe50e01a48afef410265f8409fafffa17b7aefbea24b605","functions":[{"id":"func/StageError.__init__","name":"__init__","line":31,"end_line":35,"hash":"4177d4e5e3c335fffd74f73fc638a1c010bb0f05f4b7e84916530ad1645c17d1"},{"id":"func/_stringify_response_content","name":"_stringify_response_content","line":38,"end_line":49,"hash":"30a802977ac66248fc75381524437bf35ae060be960a6a1419ba85619bab2749"},{"id":"func/parse_llm_result","name":"parse_llm_result","line":52,"end_line":80,"hash":"f964028962706a4a0bac14d30116ce175f98f2d2aef982ba8ef8e645c97007e9"},{"id":"func/log_llm_call","name":"log_llm_call","line":83,"end_line":113,"hash":"fd1b0e43e50c09a009cc79191121c7382e9b9410f143dabb277bb2d73c0d5d28"},{"id":"func/log_llm_call_failure","name":"log_llm_call_failure","line":116,"end_line":156,"hash":"632647e67fc23888061cf77c9b9883892d59b9b33e1807a4b8cb535580329751"},{"id":"func/safe_llm_call","name":"safe_llm_call","line":159,"end_line":222,"hash":"4c544221b18ff1c71007db8647c1de76959413e092db15b59a106a5417ec5a9b"}]}
 # mutate4py-manifest-end

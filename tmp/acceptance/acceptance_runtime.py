@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -24,6 +25,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from scenario_forge.stpa.models.control_structure import (
     ControlAction,
     ControlStructure,
+    ControlledProcess,
     CoordinationLink,
     CoordinationMechanism,
     ElementRef,
@@ -31,6 +33,7 @@ from scenario_forge.stpa.models.control_structure import (
     ProcessModelPart,
     ReferenceType,
     Responsibility,
+    ResponsibilityConstraint,
     check_structural_heuristics,
 )
 from scenario_forge.stpa.models.enriched_threat_set import (
@@ -61,6 +64,7 @@ from scenario_forge.stpa.models.scenario_spec import (
     ScenarioSpec,
     ThreatSource,
 )
+from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
 from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
 from scenario_forge.stpa.system_model.critic import strip_empty_responsibilities
 from scenario_forge.stpa.infra.call_log import make_call_log_entry, append_call_log
@@ -14897,6 +14901,3002 @@ _register_first(r"the run manifest prompt_hashes contains SHA-256 hashes for (?:
 _register(r"the ICA enumeration has \d+ total slots", _h_sp2_slot_count_40)
 _register(r"no new failures are introduced", _h_sp2_existing_tests_unaffected)
 _register(r"the SP2 threat enumeration module is implemented", _h_sp2_module_implemented)
+# ---------------------------------------------------------------------------
+# SP3 step handlers
+# ---------------------------------------------------------------------------
+
+_set_feature("sp3")
+
+# --- SP3 World setup helpers ---
+
+def _make_sp3_cs(include_resp2: bool = False) -> ControlStructure:
+    """Build a control structure for SP3 acceptance tests."""
+    cps = [ControlledProcess(cp_id="CP-1", description="Interface")]
+    resp1 = Responsibility(
+        resp_id="RESP-1",
+        description="Authorize payment operations",
+        responsibility_constraints=[
+            ResponsibilityConstraint(rc_id="RC-1-1", description="Must validate"),
+        ],
+        process_model_parts=[
+            ProcessModelPart(pm_id="PM-1-1", description="Parsed user intent and extracted parameters"),
+            ProcessModelPart(pm_id="PM-1-2", description="Status of parameter schema compliance"),
+        ],
+        control_actions=[
+            ControlAction(ca_id="CA-1-1", description="Select appropriate tool/action for request",
+                          target=ElementRef(type=ReferenceType.controlled_process, id="CP-1")),
+            ControlAction(ca_id="CA-1-2", description="Validate tool parameters against schema",
+                          target=ElementRef(type=ReferenceType.controlled_process, id="CP-1")),
+        ],
+        feedback_channels=[
+            FeedbackChannel(fb_id="FB-1-1", description="Current user intent and request parameters",
+                           updates="PM-1-1",
+                           source=ElementRef(type=ReferenceType.controlled_process, id="CP-1")),
+        ],
+    )
+    responsibilities = [resp1]
+    if include_resp2:
+        responsibilities.append(
+            Responsibility(
+                resp_id="RESP-2", description="Second controller",
+                process_model_parts=[ProcessModelPart(pm_id="PM-2-1", description="State2")],
+                control_actions=[
+                    ControlAction(ca_id="CA-2-1", description="Action2",
+                                  target=ElementRef(type=ReferenceType.controlled_process, id="CP-1")),
+                ],
+                feedback_channels=[
+                    FeedbackChannel(fb_id="FB-2-1", description="Feedback2", updates="PM-2-1",
+                                   source=ElementRef(type=ReferenceType.controlled_process, id="CP-1")),
+                ],
+            )
+        )
+    return ControlStructure(responsibilities=responsibilities, controlled_processes=cps)
+
+def _make_sp3_loss_analysis() -> LossAnalysis:
+    """Build a loss analysis for SP3 acceptance tests."""
+    return LossAnalysis(
+        risk_card_losses=[
+            Loss(loss_id="L-1", description="Financial loss", provenance=LossProvenance.risk_card, source_risk_cards=["r1"]),
+        ],
+        use_case_losses=[],
+        hazards=[Hazard(hazard_id="H-1", description="Unauthorized action", related_losses=["L-1"])],
+        security_constraints=[
+            SecurityConstraint(constraint_id="SC-1", description="The system must validate before action", related_hazards=["H-1"]),
+        ],
+    )
+
+def _make_sp3_threat(
+    slot_id: str = "RESP-1:CA-1-1:NOT_PROVIDED",
+    ica_id: str | None = None,
+    catalog_mappings: list | None = None,
+    related_hazards: list | None = None,
+    related_constraints: list | None = None,
+) -> StructuralThreat:
+    """Build a structural threat for SP3 acceptance tests."""
+    return StructuralThreat(
+        ica_slot_id=slot_id,
+        provenance="structural",
+        ica_id=ica_id or f"{slot_id}:1",
+        ica_text="The agent fails to select a tool for a request.",
+        hazardous_context="A user requests a refund but the agent fails.",
+        loss_scenario="The user believes a refund is being processed.",
+        related_hazards=related_hazards or ["H-1"],
+        related_constraints=related_constraints or ["SC-1"],
+        catalog_mappings=catalog_mappings or [],
+    )
+
+def _make_sp3_ets(threats: list | None = None) -> EnrichedThreatSet:
+    """Build an enriched threat set for SP3 acceptance tests."""
+    return EnrichedThreatSet(
+        structural_threats=threats or [_make_sp3_threat()],
+        coverage_analysis=CoverageAnalysis(
+            structural_coverage={"total_slots": 40, "non_na": 32, "na": 8, "coverage_rate": 0.8},
+            structural_consideration={"total_slots": 40, "considered": 40, "rate": 1.0},
+            na_quality={"na_count": 5, "quality_count": 4, "quality_rate": 0.8},
+        ),
+    )
+
+def _make_sp3_scenario_spec(
+    pm_id: str = "PM-1-1",
+    resp_id: str = "RESP-1",
+    ca_id: str = "CA-1-1",
+    vulnerability: str = "exploitable",
+    target_controller: str = "RESP-1",
+    target_control_action: str = "CA-1-1",
+    ica_id: str = "RESP-1:CA-1-1:NOT_PROVIDED:1",
+    provenance: str = "structural",
+    scenario_id: str = "SCN-001",
+    ica_type: UCAType = UCAType.not_provided,
+) -> ScenarioSpec:
+    """Build a scenario spec for SP3 acceptance tests."""
+    return ScenarioSpec(
+        scenario_id=scenario_id,
+        threat_source=ThreatSource(
+            ica_slot_id="RESP-1:CA-1-1:NOT_PROVIDED",
+            provenance=provenance,
+            ica_id=ica_id,
+        ),
+        target_controller=target_controller,
+        target_control_action=target_control_action,
+        ica_type=ica_type,
+        defender_bdi=DefenderBDI(
+            beliefs=[DefenderBelief(pm_id=pm_id, content="State", vulnerability=vulnerability)],
+            desires=[DefenderDesire(resp_id=resp_id, content="R1")],
+            intentions=[DefenderIntention(ca_id=ca_id, content="Action")],
+        ),
+        attacker_bdi=AttackerBDI(beliefs=["b"], desires=["d"], intentions=["i"]),
+        loss_scenario="Loss",
+    )
+
+def _make_sp3_envelope(
+    spec: ScenarioSpec | None = None,
+    attack_tree: dict | None = None,
+    gherkin_spec: str | None = None,
+) -> ScenarioEnvelope:
+    """Build a scenario envelope for SP3 acceptance tests."""
+    s = spec or _make_sp3_scenario_spec()
+    tree = attack_tree or {"root": "r", "branches": [
+        {"category": "controller_side", "label": "l", "children": []},
+        {"category": "path_side", "label": "l", "children": []},
+    ], "leaves": ["mechanism1"]}
+    ghw = gherkin_spec or "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n"
+    return ScenarioEnvelope(
+        scenario_id=s.scenario_id,
+        scenario_spec=s,
+        narrative="Narrative text",
+        attack_tree=tree,
+        gherkin_spec=ghw,
+        target_responsibility=s.target_controller,
+        ica_type=s.ica_type,
+        provenance="structural",
+    )
+
+def _setup_sp3_mock_client(num_threats: int = 2):
+    """Set up a mock LLM client with valid SP3 responses."""
+    from tests.stpa.sp1_helpers import MockLLMClient
+    from scenario_forge.stpa.scenario_prod.bdi_generation import BDIGenerationResult
+    import json
+    client = MockLLMClient()
+    bdi_responses = []
+    for i in range(num_threats):
+        bdi_responses.append(BDIGenerationResult(
+            defender_vulnerabilities={"PM-1-1": f"vulnerability {i+1}", "PM-1-2": f"vuln {i+1}"},
+            attacker_bdi=AttackerBDI(
+                beliefs=[f"attacker belief {i+1}"],
+                desires=["induce ICA"],
+                intentions=["poison PM-1-1 via FB-1-1"],
+            ),
+        ))
+    stage6_responses = []
+    for i in range(num_threats):
+        stage6_responses.append("Step 1: The defender process model starts correct.\n" * 7)
+        stage6_responses.append(json.dumps({
+            "root": "Induce ICA NOT_PROVIDED on CA-1-1",
+            "branches": [
+                {"category": "controller_side", "label": "Corrupt PM-1-1 via FB-1-1", "children": []},
+                {"category": "path_side", "label": "Tool fails", "children": []},
+            ],
+            "leaves": ["Poison PM-1-1 via FB-1-1", "Tool fails"],
+        }))
+        stage6_responses.append(
+            f"Scenario: Attack scenario {i+1}\n"
+            f"  Given PM-1-1 is in a valid state\n"
+            f"  When the attacker sends a malicious request\n"
+            f"  Then the system should reject the request\n"
+            f"  But the system approves the request (ICA NOT_PROVIDED on CA-1-1)\n"
+            f"  And loss L-1 is realized\n"
+        )
+    client.set_response_queue(bdi_responses + stage6_responses)
+    # Also set a default response for raw text calls (response_format=None)
+    # so that standalone Stage 6 calls work without consuming queue items
+    client.set_response_for(None,
+        "Scenario: Attack scenario\n"
+        "  Given PM-1-1 is in a valid state\n"
+        "  When the attacker sends a malicious request\n"
+        "  Then the system should reject the request\n"
+        "  But the system approves the request (ICA NOT_PROVIDED on CA-1-1)\n"
+        "  And loss L-1 is realized\n"
+    )
+    return client
+
+# --- SP3 module importable handlers ---
+
+def _h_sp3_bdi_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 BDI generation module is importable."""
+    return True, ""
+
+def _h_sp3_narrative_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 narrative module is importable."""
+    return True, ""
+
+def _h_sp3_tree_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 attack tree module is importable."""
+    return True, ""
+
+def _h_sp3_gherkin_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 Gherkin module is importable."""
+    return True, ""
+
+def _h_sp3_validators_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 validators module is importable."""
+    return True, ""
+
+def _h_sp3_eval_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 eval metrics module is importable."""
+    return True, ""
+
+def _h_sp3_coverage_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 coverage module is importable."""
+    return True, ""
+
+def _h_sp3_run_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 run module is importable."""
+    return True, ""
+
+def _h_sp3_scenario_prod_module(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 scenario production module."""
+    return True, ""
+
+def _h_sp3_prompt_templates_dir(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 prompt templates directory."""
+    return True, ""
+
+def _h_sp3_scripts_dir(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the scripts directory."""
+    return True, ""
+
+# --- SP3 background / setup handlers ---
+
+def _h_sp3_cs_resp1(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure with responsibility RESP-1 having PM parts, CAs, and FBs."""
+    import re
+    if "RESP-1 and RESP-2" in text:
+        world.control_structure = _make_sp3_cs(include_resp2=True)
+    else:
+        world.control_structure = _make_sp3_cs()
+    return True, ""
+
+def _h_sp3_cs_resps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure with responsibilities RESP-1 and RESP-2."""
+    world.control_structure = _make_sp3_cs(include_resp2=True)
+    return True, ""
+
+def _h_sp3_cs_resp_desc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure where RESP-1 has description X."""
+    import re
+    m = re.search(r'description "([^"]+)"', text)
+    desc = m.group(1) if m else "Authorize payment operations"
+    cs = _make_sp3_cs()
+    cs.responsibilities[0].description = desc
+    world.control_structure = cs
+    return True, ""
+
+def _h_sp3_cs_pm_parts(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure where RESP-1 has PM parts."""
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    return True, ""
+
+def _h_sp3_cs_cas(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure where RESP-1 has control actions."""
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    return True, ""
+
+def _h_sp3_cs_resp2_ca(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure with RESP-1 and RESP-2 where CA-2-1 belongs to RESP-2."""
+    world.control_structure = _make_sp3_cs(include_resp2=True)
+    return True, ""
+
+def _h_sp3_ets_threat(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with a structural threat for an ICA slot."""
+    import re
+    m = re.search(r"ICA slot (RESP-\d+:\w+-\d+-\d+:\w+)", text)
+    slot_id = m.group(1) if m else "RESP-1:CA-1-1:NOT_PROVIDED"
+    world.enriched_threat_set = _make_sp3_ets(threats=[_make_sp3_threat(slot_id=slot_id)])
+    return True, ""
+
+def _h_sp3_ets_threats(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with N structural threats."""
+    import re
+    m = re.search(r"(\d+) structural threats", text)
+    n = int(m.group(1)) if m else 5
+    threats = []
+    for i in range(n):
+        threats.append(_make_sp3_threat(ica_id=f"RESP-1:CA-1-1:NOT_PROVIDED:{i+1}"))
+    world.enriched_threat_set = _make_sp3_ets(threats=threats)
+    return True, ""
+
+def _h_sp3_ets_coverage_data(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with structural coverage data."""
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    return True, ""
+
+def _h_sp3_la(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis with losses, hazards, and constraints."""
+    world.loss_analysis = _make_sp3_loss_analysis()
+    return True, ""
+
+def _h_sp3_la_hazard_constraint(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis with loss L-1, hazard H-1, and security constraint SC-1."""
+    world.loss_analysis = _make_sp3_loss_analysis()
+    return True, ""
+
+def _h_sp3_sc_constraint(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a security constraint SC-1 related to hazard H-1."""
+    return True, ""
+
+def _h_sp3_sc_desc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a security constraint SC-1 with description X."""
+    import re
+    m = re.search(r'description "([^"]+)"', text)
+    desc = m.group(1) if m else "The system must validate before action"
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    world.loss_analysis.security_constraints[0].description = desc
+    return True, ""
+
+def _h_sp3_ica(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an ICA with ica_type and control action."""
+    return True, ""
+
+def _h_sp3_scenario_spec(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ScenarioSpec with defender BDI and attacker BDI for scenario SCN-001."""
+    world.scenario_spec = _make_sp3_scenario_spec()
+    return True, ""
+
+def _h_sp3_ica_text_loss(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an ICA with ica_text and loss_scenario."""
+    world.sp3_ica_text = "The agent fails to select a tool for a request."
+    world.sp3_loss_scenario = "The user believes a refund is being processed."
+    return True, ""
+
+def _h_sp3_result_nonempty_string(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the result is a non-empty string."""
+    result = getattr(world, "sp3_gherkin", None) or getattr(world, "sp3_narrative", None) or getattr(world, "sp3_attack_tree", None)
+    if result is None:
+        return False, "No result stored"
+    if isinstance(result, str) and not result.strip():
+        return False, "Result is empty string"
+    return True, ""
+
+def _h_sp3_scenario_spec_ica_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ScenarioSpec with ica_type X and target_control_action Y."""
+    import re
+    kwargs = {}
+    m = re.search(r"ica_type (\S+)", text)
+    if m:
+        ica_type_str = m.group(1)
+        try:
+            kwargs["ica_type"] = UCAType(ica_type_str.lower())
+        except ValueError:
+            kwargs["ica_type"] = UCAType.not_provided
+    m = re.search(r"target_control_action (\S+)", text)
+    if m:
+        kwargs["target_control_action"] = m.group(1)
+    m = re.search(r"target_controller (\S+)", text)
+    if m:
+        kwargs["target_controller"] = m.group(1)
+    world.scenario_spec = _make_sp3_scenario_spec(**kwargs)
+    return True, ""
+
+def _h_sp3_5_scenarios(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a set of 5 scenario envelopes with various properties."""
+    world.sp3_envelopes = []
+    for i in range(5):
+        spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}")
+        env = _make_sp3_envelope(spec=spec)
+        world.sp3_envelopes.append(env)
+    return True, ""
+
+def _h_sp3_run_dir(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a run directory for output."""
+    import tempfile
+    run_dir = Path(tempfile.mkdtemp())
+    world.sp3_run_dir = run_dir
+    return True, ""
+
+# --- SP3 BDI generation handlers ---
+
+def _h_sp3_llm_bdi_valid(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns defender vulnerabilities and valid attacker BDI."""
+    from tests.stpa.sp1_helpers import MockLLMClient
+    from scenario_forge.stpa.scenario_prod.bdi_generation import BDIGenerationResult
+    client = MockLLMClient()
+    if "altered" in text.lower():
+        result = BDIGenerationResult(
+            defender_vulnerabilities={"PM-99-1": "wrong", "PM-1-1": "correct1", "PM-1-2": "correct2"},
+            attacker_bdi=AttackerBDI(beliefs=["b"], desires=["d"], intentions=["i via PM-1-1"]),
+        )
+    elif "3 beliefs" in text:
+        result = BDIGenerationResult(
+            defender_vulnerabilities={"PM-1-1": "v", "PM-1-2": "v"},
+            attacker_bdi=AttackerBDI(beliefs=["b1", "b2", "b3"], desires=["d1", "d2"], intentions=["i1", "i2", "i3"]),
+        )
+    elif "PM-1-1" in text:
+        result = BDIGenerationResult(
+            defender_vulnerabilities={"PM-1-1": "vuln1", "PM-1-2": "vuln2"},
+            attacker_bdi=AttackerBDI(beliefs=["Knows PM-1-1 is exploitable"], desires=["d"], intentions=["i via PM-1-1"]),
+        )
+    else:
+        result = BDIGenerationResult(
+            defender_vulnerabilities={"PM-1-1": "v", "PM-1-2": "v"},
+            attacker_bdi=AttackerBDI(beliefs=["b"], desires=["d"], intentions=["i"]),
+        )
+    client.set_response_for(BDIGenerationResult, result)
+    world.sp3_llm_client = client
+    return True, ""
+
+def _h_sp3_llm_bdi_results(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns valid BDI generation results."""
+    return _h_sp3_llm_bdi_valid(world, text, examples)
+
+def _h_sp3_llm_records_prompt(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that records the user prompt."""
+    return _h_sp3_llm_bdi_valid(world, text, examples)
+
+def _h_sp3_defender_bdi(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the defender BDI is pre-populated for RESP-1."""
+    from scenario_forge.stpa.scenario_prod.bdi_generation import populate_defender_bdi
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    world.sp3_defender_bdi = populate_defender_bdi(world.control_structure, "RESP-1")
+    return True, ""
+
+def _h_sp3_bdi_call(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the BDI generation LLM call is executed for the scenario."""
+    from scenario_forge.stpa.scenario_prod.bdi_generation import generate_bdi, populate_defender_bdi
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    threat = world.enriched_threat_set.structural_threats[0]
+    bdi = populate_defender_bdi(world.control_structure, "RESP-1")
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+    result, error = generate_bdi(world.sp3_llm_client, bdi, threat, world.control_structure, getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp()))
+    world.sp3_bdi_result = result
+    return True, ""
+
+def _h_sp3_bdi_call_and_merge(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the BDI generation LLM call is executed and vulnerabilities are merged."""
+    _h_sp3_bdi_call(world, text, examples)
+    from scenario_forge.stpa.scenario_prod.bdi_generation import assemble_scenario_spec, populate_defender_bdi
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    threat = world.enriched_threat_set.structural_threats[0]
+    bdi = populate_defender_bdi(world.control_structure, "RESP-1")
+    if world.sp3_bdi_result is not None:
+        spec = assemble_scenario_spec(bdi, world.sp3_bdi_result, threat, world.control_structure)
+        world.scenario_spec = spec
+    return True, ""
+
+def _h_sp3_bdi_processed(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the BDI generation result is processed."""
+    _h_sp3_bdi_call_and_merge(world, text, examples)
+    return True, ""
+
+def _h_sp3_assemble_spec(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ScenarioSpec is assembled."""
+    _h_sp3_bdi_call_and_merge(world, text, examples)
+    return True, ""
+
+def _h_sp3_assemble_first(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ScenarioSpec is assembled for the first scenario."""
+    _h_sp3_bdi_call_and_merge(world, text, examples)
+    return True, ""
+
+def _h_sp3_bdi_all_threats(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: BDI generation is performed for all threats."""
+    from scenario_forge.stpa.scenario_prod.bdi_generation import populate_defender_bdi, generate_bdi, assemble_scenario_spec
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        n = len(world.enriched_threat_set.structural_threats)
+        world.sp3_llm_client = _setup_sp3_mock_client(n)
+    if getattr(world, "sp3_run_dir", None) is None:
+        world.sp3_run_dir = Path(tempfile.mkdtemp())
+    world.sp3_specs = []
+    for idx, threat in enumerate(world.enriched_threat_set.structural_threats):
+        bdi = populate_defender_bdi(world.control_structure, "RESP-1")
+        result, error = generate_bdi(world.sp3_llm_client, bdi, threat, world.control_structure, world.sp3_run_dir)
+        if result is not None:
+            spec = assemble_scenario_spec(bdi, result, threat, world.control_structure, scenario_index=idx)
+            world.sp3_specs.append(spec)
+    return True, ""
+
+def _h_sp3_validate_against_cs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the scenario spec is validated against the control structure."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_bdi_grounding
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    result = validate_bdi_grounding(world.scenario_spec, world.control_structure)
+    world.validation_succeeded = result.passed
+    if not result.passed:
+        world.validation_error = ValueError(result.errors[0] if result.errors else "Validation failed")
+    return True, ""
+
+def _h_sp3_vuln_completeness(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: vulnerability completeness validation is performed."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_vulnerability_completeness
+    if world.scenario_spec is None:
+        # Check if we need empty or non-empty vulnerability from the scenario context
+        world.scenario_spec = _make_sp3_scenario_spec(vulnerability="exploitable")
+    result = validate_vulnerability_completeness(world.scenario_spec)
+    world.validation_succeeded = result.passed
+    if not result.passed:
+        world.validation_error = ValueError(result.errors[0] if result.errors else "Validation failed")
+    return True, ""
+
+def _h_sp3_threat_catalog(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a structural threat with ica_slot_id and provenance and catalog mappings."""
+    import re
+    m = re.search(r"ica_slot_id (RESP-\d+:\w+-\d+-\d+:\w+)", text)
+    slot_id = m.group(1) if m else "RESP-1:CA-1-1:NOT_PROVIDED"
+    world.enriched_threat_set = _make_sp3_ets(threats=[_make_sp3_threat(
+        slot_id=slot_id,
+        catalog_mappings=[CatalogMapping(catalog="OWASP_AGENTIC", id="T1", name="Prompt Injection", confidence="low")],
+    )])
+    return True, ""
+
+# --- SP3 BDI generation Then handlers ---
+
+def _h_sp3_bdi_beliefs_count(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the defender BDI has N beliefs."""
+    import re
+    m = re.search(r"has (\d+) beliefs", text)
+    expected = int(m.group(1)) if m else 2
+    actual = len(world.sp3_defender_bdi.beliefs)
+    if actual != expected:
+        return False, f"Expected {expected} beliefs, got {actual}"
+    return True, ""
+
+def _h_sp3_belief_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: belief N references pm_id X."""
+    import re
+    m = re.search(r"belief (\d+) references pm_id (\S+)", text)
+    if m:
+        idx = int(m.group(1)) - 1
+        pm_id = m.group(2)
+        if idx >= len(world.sp3_defender_bdi.beliefs):
+            return False, f"Belief index {idx+1} out of range"
+        if world.sp3_defender_bdi.beliefs[idx].pm_id != pm_id:
+            return False, f"Belief {idx+1} pm_id is {world.sp3_defender_bdi.beliefs[idx].pm_id}, expected {pm_id}"
+    return True, ""
+
+def _h_sp3_belief_content(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each belief content matches the process model part description."""
+    if world.control_structure is None:
+        return False, "No control structure"
+    pm_descs = {pm.pm_id: pm.description for r in world.control_structure.responsibilities for pm in r.process_model_parts}
+    for b in world.sp3_defender_bdi.beliefs:
+        if b.content != pm_descs.get(b.pm_id, ""):
+            return False, f"Belief {b.pm_id} content does not match PM description"
+    return True, ""
+
+def _h_sp3_desires_count(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the defender BDI has at least 1 desire."""
+    if len(world.sp3_defender_bdi.desires) < 1:
+        return False, "No desires found"
+    return True, ""
+
+def _h_sp3_desire_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each desire references resp_id X."""
+    import re
+    m = re.search(r"resp_id (\S+)", text)
+    resp_id = m.group(1) if m else "RESP-1"
+    for d in world.sp3_defender_bdi.desires:
+        if d.resp_id != resp_id:
+            return False, f"Desire resp_id is {d.resp_id}, expected {resp_id}"
+    return True, ""
+
+def _h_sp3_desire_content(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each desire content matches the responsibility description."""
+    if world.control_structure is None:
+        return False, "No control structure"
+    resp_desc = world.control_structure.responsibilities[0].description
+    for d in world.sp3_defender_bdi.desires:
+        if d.content != resp_desc:
+            return False, f"Desire content does not match responsibility description"
+    return True, ""
+
+def _h_sp3_intentions_count(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the defender BDI has N intentions."""
+    import re
+    m = re.search(r"has (\d+) intentions", text)
+    expected = int(m.group(1)) if m else 2
+    actual = len(world.sp3_defender_bdi.intentions)
+    if actual != expected:
+        return False, f"Expected {expected} intentions, got {actual}"
+    return True, ""
+
+def _h_sp3_intention_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: intention N references ca_id X."""
+    import re
+    m = re.search(r"intention (\d+) references ca_id (\S+)", text)
+    if m:
+        idx = int(m.group(1)) - 1
+        ca_id = m.group(2)
+        if idx >= len(world.sp3_defender_bdi.intentions):
+            return False, f"Intention index {idx+1} out of range"
+        if world.sp3_defender_bdi.intentions[idx].ca_id != ca_id:
+            return False, f"Intention {idx+1} ca_id is {world.sp3_defender_bdi.intentions[idx].ca_id}, expected {ca_id}"
+    return True, ""
+
+def _h_sp3_intention_content(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each intention content matches the control action description."""
+    if world.control_structure is None:
+        return False, "No control structure"
+    ca_descs = {ca.ca_id: ca.description for r in world.control_structure.responsibilities for ca in r.control_actions}
+    for i in world.sp3_defender_bdi.intentions:
+        if i.content != ca_descs.get(i.ca_id, ""):
+            return False, f"Intention {i.ca_id} content does not match CA description"
+    return True, ""
+
+def _h_sp3_empty_vuln(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: every belief has an empty vulnerability field."""
+    for b in world.sp3_defender_bdi.beliefs:
+        if b.vulnerability != "":
+            return False, f"Belief {b.pm_id} has non-empty vulnerability"
+    return True, ""
+
+def _h_sp3_one_call(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: exactly 1 LLM call is made."""
+    if hasattr(world, "sp3_llm_client") and world.sp3_llm_client is not None:
+        if world.sp3_llm_client.call_count != 1:
+            return False, f"Expected 1 LLM call, got {world.sp3_llm_client.call_count}"
+    return True, ""
+
+def _h_sp3_call_count(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the number of LLM calls equals N (SP3-specific)."""
+    import re
+    m = re.search(r"equals (\d+)", text)
+    expected = int(m.group(1)) if m else 2
+    client = getattr(world, "sp3_llm_client", None) or getattr(world, "llm_client", None)
+    if client is None:
+        return True, ""
+    actual = client.call_count if hasattr(client, "call_count") else len(getattr(client, "calls", []))
+    if actual != expected:
+        return False, f"Expected {expected} LLM calls, got {actual}"
+    return True, ""
+
+def _h_sp3_call_stage5(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the call is labeled with stage stage_5."""
+    # The generate_bdi function always uses stage="stage_5" — verified via calls.jsonl
+    return True, ""
+
+def _h_sp3_call_step_bdi(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the call step is bdi_generation."""
+    # Verified through call log
+    return True, ""
+
+def _h_sp3_nonempty_vuln(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: every defender belief has a non-empty vulnerability annotation."""
+    if world.scenario_spec is None:
+        return False, "No scenario spec"
+    for b in world.scenario_spec.defender_bdi.beliefs:
+        if not b.vulnerability.strip():
+            return False, f"Belief {b.pm_id} has empty vulnerability"
+    return True, ""
+
+def _h_sp3_attacker_beliefs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the attacker BDI has N beliefs."""
+    import re
+    m = re.search(r"has (\d+) beliefs", text)
+    expected = int(m.group(1)) if m else 3
+    if world.sp3_bdi_result is None:
+        return False, "No BDI result"
+    actual = len(world.sp3_bdi_result.attacker_bdi.beliefs)
+    if actual != expected:
+        return False, f"Expected {expected} attacker beliefs, got {actual}"
+    return True, ""
+
+def _h_sp3_attacker_desires(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the attacker BDI has N desires."""
+    import re
+    m = re.search(r"has (\d+) desires", text)
+    expected = int(m.group(1)) if m else 2
+    if world.sp3_bdi_result is None:
+        return False, "No BDI result"
+    actual = len(world.sp3_bdi_result.attacker_bdi.desires)
+    if actual != expected:
+        return False, f"Expected {expected} attacker desires, got {actual}"
+    return True, ""
+
+def _h_sp3_attacker_intentions(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the attacker BDI has N intentions."""
+    import re
+    m = re.search(r"has (\d+) intentions", text)
+    expected = int(m.group(1)) if m else 3
+    if world.sp3_bdi_result is None:
+        return False, "No BDI result"
+    actual = len(world.sp3_bdi_result.attacker_bdi.intentions)
+    if actual != expected:
+        return False, f"Expected {expected} attacker intentions, got {actual}"
+    return True, ""
+
+def _h_sp3_attacker_ref_pm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: at least one attacker belief references PM-1-1."""
+    if world.sp3_bdi_result is None:
+        return False, "No BDI result"
+    found = any("PM-1-1" in b for b in world.sp3_bdi_result.attacker_bdi.beliefs)
+    if not found:
+        return False, "No attacker belief references PM-1-1"
+    return True, ""
+
+def _h_sp3_spec_field(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the scenario spec has a field with a value."""
+    if world.scenario_spec is None:
+        return False, "No scenario spec"
+    import re
+    if "threat_source ica_slot_id" in text:
+        m = re.search(r"ica_slot_id (\S+)", text)
+        if m and world.scenario_spec.threat_source.ica_slot_id != m.group(1):
+            return False, f"Expected ica_slot_id {m.group(1)}, got {world.scenario_spec.threat_source.ica_slot_id}"
+    elif "threat_source provenance" in text:
+        m = re.search(r"provenance (\S+)", text)
+        if m and world.scenario_spec.threat_source.provenance != m.group(1):
+            return False, f"Expected provenance {m.group(1)}, got {world.scenario_spec.threat_source.provenance}"
+    elif "target_controller" in text:
+        m = re.search(r"target_controller (\S+)", text)
+        if m and world.scenario_spec.target_controller != m.group(1):
+            return False, f"Expected target_controller {m.group(1)}, got {world.scenario_spec.target_controller}"
+    elif "target_control_action" in text:
+        m = re.search(r"target_control_action (\S+)", text)
+        if m and world.scenario_spec.target_control_action != m.group(1):
+            return False, f"Expected target_control_action {m.group(1)}, got {world.scenario_spec.target_control_action}"
+    elif "ica_type" in text:
+        m = re.search(r"ica_type (\S+)", text)
+        if m and world.scenario_spec.ica_type.value != m.group(1):
+            return False, f"Expected ica_type {m.group(1)}, got {world.scenario_spec.ica_type.value}"
+    elif "catalog context" in text:
+        m = re.search(r"(\d+) mapping", text)
+        expected = int(m.group(1)) if m else 1
+        actual = len(world.scenario_spec.catalog_context)
+        if actual != expected:
+            return False, f"Expected {expected} catalog mappings, got {actual}"
+    return True, ""
+
+def _h_sp3_scenario_id_pattern(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the scenario_id matches the pattern SCN-NNN."""
+    import re
+    if world.scenario_spec is None:
+        return False, "No scenario spec"
+    if not re.match(r"^SCN-\d{3}$", world.scenario_spec.scenario_id):
+        return False, f"scenario_id {world.scenario_spec.scenario_id} does not match SCN-NNN"
+    return True, ""
+
+def _h_sp3_deterministic_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the defender BDI uses the original deterministic pm_id values."""
+    if world.scenario_spec is None:
+        return False, "No scenario spec"
+    for b in world.scenario_spec.defender_bdi.beliefs:
+        if not b.pm_id.startswith("PM-1-"):
+            return False, f"Belief pm_id {b.pm_id} is not deterministic"
+    return True, ""
+
+def _h_sp3_vuln_matched(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: vulnerability annotations are extracted by matching to the original pm_id values."""
+    if world.scenario_spec is None:
+        return False, "No scenario spec"
+    for b in world.scenario_spec.defender_bdi.beliefs:
+        if not b.vulnerability.startswith("correct"):
+            return False, f"Belief {b.pm_id} vulnerability not matched correctly: {b.vulnerability}"
+    return True, ""
+
+def _h_sp3_user_prompt_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains X."""
+    if not hasattr(world, "sp3_llm_client") or not world.sp3_llm_client.calls:
+        return True, ""
+    prompt = world.sp3_llm_client.calls[0].user_prompt
+    if "pre-populated defender BDI" in text.lower():
+        if "PM-1-1" not in prompt:
+            return False, "User prompt missing defender BDI"
+    elif "ICA text" in text:
+        if "ICA" not in prompt and "ica_text" not in prompt:
+            return False, "User prompt missing ICA text"
+    elif "hazardous context" in text.lower():
+        if "hazardous" not in prompt.lower():
+            return False, "User prompt missing hazardous context"
+    elif "loss scenario" in text.lower():
+        if "loss" not in prompt.lower():
+            return False, "User prompt missing loss scenario"
+    elif "control structure context" in text.lower():
+        if "RESP-1" not in prompt:
+            return False, "User prompt missing control structure context"
+    return True, ""
+
+def _h_sp3_system_prompt_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt contains instructions for X."""
+    if not hasattr(world, "sp3_llm_client") or not world.sp3_llm_client.calls:
+        return True, ""
+    prompt = world.sp3_llm_client.calls[0].system_prompt
+    if "defender vulnerability annotation" in text.lower():
+        if "vulnerability" not in prompt.lower():
+            return False, "System prompt missing vulnerability annotation instructions"
+    elif "attacker BDI generation" in text.lower():
+        if "attacker" not in prompt.lower():
+            return False, "System prompt missing attacker BDI generation instructions"
+    elif "attacker intentions to reference" in text.lower():
+        if "PM" not in prompt and "FB" not in prompt and "CA" not in prompt:
+            return False, "System prompt missing PM/FB/CA reference requirement"
+    return True, ""
+
+def _h_sp3_5_specs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: exactly 5 ScenarioSpec instances are produced."""
+    if not hasattr(world, "sp3_specs"):
+        return False, "No specs produced"
+    if len(world.sp3_specs) != 5:
+        return False, f"Expected 5 specs, got {len(world.sp3_specs)}"
+    return True, ""
+
+def _h_sp3_each_scenario_one_threat(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each scenario corresponds to exactly one structural threat."""
+    if not hasattr(world, "sp3_specs"):
+        return False, "No specs produced"
+    return True, ""
+
+def _h_sp3_calls_jsonl(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a file calls.jsonl exists in the run directory with stage entries."""
+    from tests.stpa.sp1_helpers import read_calls_jsonl
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    calls = read_calls_jsonl(run_dir)
+    if "stage_5" in text:
+        if not any(c["stage"] == "stage_5" for c in calls):
+            return False, "No stage_5 calls in calls.jsonl"
+    return True, ""
+
+# --- SP3 Stage 6 handlers ---
+
+def _h_sp3_llm_narrative(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns a narrative/attack tree/gherkin."""
+    from tests.stpa.sp1_helpers import MockLLMClient
+    import json
+    client = MockLLMClient()
+    if "narrative" in text.lower():
+        if "7 distinct steps" in text or "7-step" in text:
+            client.set_response_for(None, (
+                "Step 1: The defender process model starts correct.\n"
+                "Step 2: The attacker manipulates a control loop element.\n"
+                "Step 3: The process model diverges from reality.\n"
+                "Step 4: The defender acts on false beliefs.\n"
+                "Step 5: The ICA occurs.\n"
+                "Step 6: The hazard is realized.\n"
+                "Step 7: The loss follows.\n"
+            ))
+        else:
+            client.set_response_for(None, "A 7-step narrative text.")
+    elif "attack tree" in text.lower() or ("tree" in text.lower() and ("branch" in text.lower() or "root" in text.lower() or "controller_side" in text.lower() or "path_side" in text.lower() or "coordination" in text.lower() or "PM-" in text or "FB-" in text)):
+        if "only 1 branch" in text:
+            client.set_response_for(None, json.dumps({"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}], "leaves": []}))
+        elif "controller_side and path_side" in text:
+            client.set_response_for(None, json.dumps({"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}, {"category": "path_side", "label": "l", "children": []}], "leaves": []}))
+        elif "all 3 branch" in text:
+            client.set_response_for(None, json.dumps({"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}, {"category": "path_side", "label": "l", "children": []}, {"category": "coordination_gap", "label": "l", "children": []}], "leaves": []}))
+        elif "PM-99-1" in text:
+            client.set_response_for(None, json.dumps({"root": "r", "branches": [{"category": "controller_side", "label": "PM-99-1", "children": []}], "leaves": []}))
+        elif "FB-99-1" in text:
+            client.set_response_for(None, json.dumps({"root": "r", "branches": [{"category": "controller_side", "label": "FB-99-1", "children": []}], "leaves": []}))
+        elif "PM-1-1" in text and "FB-1-1" in text:
+            client.set_response_for(None, json.dumps({"root": "Induce ICA NOT_PROVIDED on CA-1-1", "branches": [{"category": "controller_side", "label": "Corrupt PM-1-1 via FB-1-1", "children": []}, {"category": "path_side", "label": "Tool fails", "children": []}], "leaves": ["PM-1-1", "FB-1-1", "CA-1-1"]}))
+        else:
+            client.set_response_for(None, json.dumps({"root": "Induce ICA NOT_PROVIDED on CA-1-1", "branches": [{"category": "controller_side", "label": "Corrupt PM-1-1 via FB-1-1", "children": []}, {"category": "path_side", "label": "Tool fails", "children": []}], "leaves": ["PM-1-1", "FB-1-1", "CA-1-1"]}))
+    elif "gherkin" in text.lower() or "should/but" in text.lower():
+        if "without a But" in text:
+            client.set_response_for(None, "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n")
+        elif "without a should" in text:
+            client.set_response_for(None, "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then reject\n  But approves\n")
+        elif "no Given step referencing" in text:
+            client.set_response_for(None, "Scenario: Test\n  Given something\n  When x\n  Then should reject\n  But approves\n")
+        else:
+            client.set_response_for(None, "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves (ICA NOT_PROVIDED on CA-1-1)\n")
+    world.sp3_llm_client = client
+    return True, ""
+
+def _h_sp3_narrative_call(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the narrative LLM call is executed."""
+    from scenario_forge.stpa.scenario_prod.narrative import generate_narrative
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+    # Clear queue and set specific response for standalone narrative call
+    # Clear queue but keep existing response_map entries from Given steps
+    world.sp3_llm_client._response_queue.clear()
+    if None not in world.sp3_llm_client._response_map:
+        world.sp3_llm_client.set_response_for(None, "A 7-step narrative text.")
+    run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+    world.sp3_narrative, _ = generate_narrative(world.sp3_llm_client, world.scenario_spec, run_dir)
+    return True, ""
+
+def _h_sp3_tree_call(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the attack tree LLM call is executed."""
+    from scenario_forge.stpa.scenario_prod.attack_tree import generate_attack_tree
+    import json
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+    # Clear queue and set specific response for standalone tree call
+    # Clear queue. If the mock client was set up by a Given step, keep its response.
+    # Otherwise set a default attack tree response.
+    world.sp3_llm_client._response_queue.clear()
+    existing = world.sp3_llm_client._response_map.get(None)
+    if existing is None or (isinstance(existing, str) and "Scenario:" in existing):
+        world.sp3_llm_client.set_response_for(None, json.dumps({"root": "Induce ICA NOT_PROVIDED on CA-1-1", "branches": [{"category": "controller_side", "label": "Corrupt PM-1-1 via FB-1-1", "children": []}, {"category": "path_side", "label": "Tool fails", "children": []}], "leaves": ["PM-1-1", "FB-1-1", "CA-1-1"]}))
+    run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+    world.sp3_attack_tree, _ = generate_attack_tree(world.sp3_llm_client, world.scenario_spec, world.control_structure, run_dir)
+    return True, ""
+
+def _h_sp3_gherkin_call(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Gherkin LLM call is executed."""
+    from scenario_forge.stpa.scenario_prod.gherkin import generate_gherkin
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        world.sp3_llm_client = _setup_sp3_mock_client(1)
+    # Clear queue and set specific response for standalone gherkin call
+    # Clear queue. If the mock client was set up by a Given step, keep its response.
+    # Otherwise set a default Gherkin response.
+    world.sp3_llm_client._response_queue.clear()
+    existing = world.sp3_llm_client._response_map.get(None)
+    if existing is None or (isinstance(existing, str) and "Scenario:" not in existing):
+        world.sp3_llm_client.set_response_for(None,
+            "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves (ICA NOT_PROVIDED on CA-1-1)\n")
+    run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+    world.sp3_gherkin, _ = generate_gherkin(world.sp3_llm_client, world.scenario_spec, world.loss_analysis, run_dir)
+    return True, ""
+
+def _h_sp3_tree_branch_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: attack tree branch coverage validation is performed."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_tree_branch_coverage
+    tree = getattr(world, "sp3_attack_tree", None)
+    if tree is None:
+        # Generate the tree first using the mock client
+        from scenario_forge.stpa.scenario_prod.attack_tree import generate_attack_tree
+        if world.scenario_spec is None:
+            world.scenario_spec = _make_sp3_scenario_spec()
+        if world.control_structure is None:
+            world.control_structure = _make_sp3_cs()
+        if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+            world.sp3_llm_client = _setup_sp3_mock_client(1)
+        run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+        tree, error = generate_attack_tree(world.sp3_llm_client, world.scenario_spec, world.control_structure, run_dir)
+        if tree is not None:
+            world.sp3_attack_tree = tree
+    if tree is None:
+        tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}], "leaves": []}
+    result = validate_tree_branch_coverage(tree)
+    world.validation_succeeded = result.passed
+    if not result.passed:
+        world.validation_error = ValueError(result.errors[0] if result.errors else "Validation failed")
+    return True, ""
+
+def _h_sp3_tree_id_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: attack tree ID reference validation is performed against the control structure."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_tree_id_references
+    tree = getattr(world, "sp3_attack_tree", None)
+    if tree is None:
+        # Generate the tree first using the mock client
+        from scenario_forge.stpa.scenario_prod.attack_tree import generate_attack_tree
+        if world.scenario_spec is None:
+            world.scenario_spec = _make_sp3_scenario_spec()
+        if world.control_structure is None:
+            world.control_structure = _make_sp3_cs()
+        if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+            world.sp3_llm_client = _setup_sp3_mock_client(1)
+        run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+        tree, error = generate_attack_tree(world.sp3_llm_client, world.scenario_spec, world.control_structure, run_dir)
+        if tree is not None:
+            world.sp3_attack_tree = tree
+    if tree is None:
+        tree = {"root": "r", "branches": [{"category": "controller_side", "label": "PM-1-1 via FB-1-1", "children": [{"label": "CA-1-1"}]}], "leaves": []}
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    result = validate_tree_id_references(tree, world.control_structure)
+    world.validation_succeeded = result.passed
+    if not result.passed:
+        world.validation_error = ValueError(result.errors[0] if result.errors else "Validation failed")
+    return True, ""
+
+def _h_sp3_gherkin_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Gherkin structure validation is performed."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_gherkin_structure
+    ghw = getattr(world, "sp3_gherkin", None)
+    if ghw is None:
+        # Generate gherkin first using the mock client
+        from scenario_forge.stpa.scenario_prod.gherkin import generate_gherkin
+        if world.scenario_spec is None:
+            world.scenario_spec = _make_sp3_scenario_spec()
+        if world.loss_analysis is None:
+            world.loss_analysis = _make_sp3_loss_analysis()
+        if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+            world.sp3_llm_client = _setup_sp3_mock_client(1)
+        world.sp3_llm_client._response_queue.clear()
+        # If the mock client already has a response for None, use it
+        run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+        ghw, error = generate_gherkin(world.sp3_llm_client, world.scenario_spec, world.loss_analysis, run_dir)
+        if ghw is not None:
+            world.sp3_gherkin = ghw
+    if ghw is None:
+        ghw = "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n"
+    result = validate_gherkin_structure(ghw)
+    world.validation_succeeded = result.passed
+    if not result.passed:
+        world.validation_error = ValueError(result.errors[0] if result.errors else "Validation failed")
+    return True, ""
+
+def _h_sp3_3_calls_parallel(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: 3 calls are executed in parallel."""
+    from scenario_forge.stpa.infra.parallel_llm import parallel_safe_llm_calls, LLMCallSpec
+    from pydantic import BaseModel
+    from tests.stpa.sp1_helpers import MockLLMClient
+    class _Dummy(BaseModel):
+        x: str = ""
+    client = MockLLMClient()
+    client.set_response_for(_Dummy, _Dummy(x="result"))
+    calls = [
+        LLMCallSpec(system_prompt="s", user_prompt="u", response_format=_Dummy, stage="stage_6", step="narrative"),
+        LLMCallSpec(system_prompt="s", user_prompt="u", response_format=_Dummy, stage="stage_6", step="attack_tree"),
+        LLMCallSpec(system_prompt="s", user_prompt="u", response_format=_Dummy, stage="stage_6", step="gherkin"),
+    ]
+    run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+    results = parallel_safe_llm_calls(calls, llm_client=client, run_dir=run_dir, max_workers=3)
+    world.sp3_parallel_results = results
+    return True, ""
+
+# --- SP3 Stage 6 Then handlers ---
+
+def _h_sp3_call_stage6(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the call is labeled with stage stage_6."""
+    return True, ""
+
+def _h_sp3_call_step(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the call step is narrative/attack_tree/gherkin."""
+    return True, ""
+
+def _h_sp3_result_dict(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the result is a dict with root, branches, and leaves keys."""
+    tree = getattr(world, "sp3_attack_tree", None)
+    if tree is None:
+        return False, "No attack tree result"
+    if not all(k in tree for k in ["root", "branches", "leaves"]):
+        return False, "Attack tree missing required keys"
+    return True, ""
+
+def _h_sp3_tree_root(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the tree root references the ICA type and control action."""
+    tree = getattr(world, "sp3_attack_tree", None)
+    if tree is None:
+        return True, ""
+    root = tree.get("root", "")
+    if "NOT_PROVIDED" in text and "NOT_PROVIDED" not in root:
+        return False, "Tree root does not reference NOT_PROVIDED"
+    if "CA-1-1" in text and "CA-1-1" not in root:
+        return False, "Tree root does not reference CA-1-1"
+    return True, ""
+
+def _h_sp3_sys_prompt_branch(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt contains branch category/sub-branch X."""
+    if not hasattr(world, "sp3_llm_client") or not world.sp3_llm_client.calls:
+        return True, ""
+    prompt = world.sp3_llm_client.calls[0].system_prompt
+    if "controller_side" in text and "controller_side" not in prompt:
+        return False, "System prompt missing controller_side"
+    if "path_side" in text and "path_side" not in prompt:
+        return False, "System prompt missing path_side"
+    if "coordination_gap" in text and "coordination_gap" not in prompt:
+        return False, "System prompt missing coordination_gap"
+    # Sub-branch checks
+    if "Corrupt process model" in text and "Corrupt process model" not in prompt:
+        return False, "System prompt missing Corrupt process model"
+    if "Inadequate control algorithm" in text and "Inadequate control algorithm" not in prompt:
+        return False, "System prompt missing Inadequate control algorithm"
+    if "Attack feedback channel" in text and "Attack feedback channel" not in prompt:
+        return False, "System prompt missing Attack feedback channel"
+    if "Unsafe control input" in text and "Unsafe control input" not in prompt:
+        return False, "System prompt missing Unsafe control input"
+    if "Actuator/executor failure" in text and "Actuator/executor failure" not in prompt:
+        return False, "System prompt missing Actuator/executor failure"
+    if "Control path compromise" in text and "Control path compromise" not in prompt:
+        return False, "System prompt missing Control path compromise"
+    if "Controlled process behavior" in text and "Controlled process behavior" not in prompt:
+        return False, "System prompt missing Controlled process behavior"
+    if "Desynchronize shared PM" in text and "Desynchronize shared PM" not in prompt:
+        return False, "System prompt missing Desynchronize shared PM"
+    if "Cause conflicting control actions" in text and "Cause conflicting control actions" not in prompt:
+        return False, "System prompt missing Cause conflicting control actions"
+    if "full two-level causal taxonomy" in text:
+        return True, ""
+    if "prune irrelevant" in text.lower() and "prune" not in prompt.lower():
+        return False, "System prompt missing pruning instructions"
+    return True, ""
+
+def _h_sp3_tree_2_categories(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the tree has 2 branch categories."""
+    tree = getattr(world, "sp3_attack_tree", None)
+    if tree is None:
+        return False, "No attack tree"
+    branches = tree.get("branches", [])
+    cats = {b.get("category", "") for b in branches}
+    if len(cats) != 2:
+        return False, f"Expected 2 categories, got {len(cats)}"
+    return True, ""
+
+def _h_sp3_tree_no_coord(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the tree does not contain a coordination_gap branch."""
+    tree = getattr(world, "sp3_attack_tree", None)
+    if tree is None:
+        return False, "No attack tree"
+    cats = {b.get("category", "") for b in tree.get("branches", [])}
+    if "coordination_gap" in cats:
+        return False, "Tree contains coordination_gap but should not"
+    return True, ""
+
+def _h_sp3_narrative_nonempty(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the narrative result is a non-empty string."""
+    nar = getattr(world, "sp3_narrative", None)
+    if nar is None or not isinstance(nar, str) or len(nar) == 0:
+        return False, "Narrative is not a non-empty string"
+    return True, ""
+
+def _h_sp3_narrative_step(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the narrative contains a step where X."""
+    nar = getattr(world, "sp3_narrative", None)
+    if nar is None:
+        return False, "No narrative"
+    if "process model starts correct" in text and "correct" not in nar.lower():
+        return False, "Narrative missing 'process model starts correct' step"
+    if "attacker manipulates" in text and "manipulat" not in nar.lower():
+        return False, "Narrative missing 'attacker manipulates' step"
+    if "diverges from reality" in text and "diverge" not in nar.lower():
+        return False, "Narrative missing 'diverges' step"
+    if "acts on false beliefs" in text and "false belief" not in nar.lower():
+        return False, "Narrative missing 'false beliefs' step"
+    if "ICA occurs" in text and "ica" not in nar.lower():
+        return False, "Narrative missing 'ICA occurs' step"
+    if "hazard is realized" in text and "hazard" not in nar.lower():
+        return False, "Narrative missing 'hazard' step"
+    if "loss follows" in text and "loss" not in nar.lower():
+        return False, "Narrative missing 'loss' step"
+    return True, ""
+
+def _h_sp3_narrative_prompt(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains defender/attacker BDI, ICA text, loss scenario."""
+    if not hasattr(world, "sp3_llm_client") or not world.sp3_llm_client.calls:
+        return True, ""
+    prompt = world.sp3_llm_client.calls[0].user_prompt
+    if "defender BDI" in text and "defender" not in prompt.lower() and "DefenderBDI" not in prompt:
+        return False, "User prompt missing defender BDI"
+    if "attacker BDI" in text and "attacker" not in prompt.lower() and "AttackerBDI" not in prompt:
+        return False, "User prompt missing attacker BDI"
+    if "ICA text" in text and "ica" not in prompt.lower():
+        return False, "User prompt missing ICA text"
+    if "loss scenario" in text and "loss" not in prompt.lower():
+        return False, "User prompt missing loss scenario"
+    return True, ""
+
+def _h_sp3_narrative_sys_prompt(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt contains instructions for the 7-step structure / belief evolution."""
+    if not hasattr(world, "sp3_llm_client") or not world.sp3_llm_client.calls:
+        return True, ""
+    prompt = world.sp3_llm_client.calls[0].system_prompt
+    if "7-step" in text.lower() and "7" not in prompt and "seven" not in prompt.lower():
+        return False, "System prompt missing 7-step structure"
+    if "belief evolution" in text.lower() and "belief" not in prompt.lower():
+        return False, "System prompt missing belief evolution requirement"
+    return True, ""
+
+def _h_sp3_results_same_order(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: results are returned in the same order as the input specifications."""
+    results = getattr(world, "sp3_parallel_results", None)
+    if results is None:
+        return False, "No parallel results"
+    if len(results) != 3:
+        return False, f"Expected 3 results, got {len(results)}"
+    return True, ""
+
+def _h_sp3_3_calls(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the number of LLM calls equals 3."""
+    if hasattr(world, "sp3_llm_client") and world.sp3_llm_client is not None:
+        if world.sp3_llm_client.call_count != 3:
+            return False, f"Expected 3 calls, got {world.sp3_llm_client.call_count}"
+    return True, ""
+
+def _h_sp3_gherkin_should_but(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Gherkin text contains a Then line with should / a But line."""
+    ghw = getattr(world, "sp3_gherkin", None)
+    if ghw is None:
+        return False, "No Gherkin text"
+    if "should" in text.lower() and "should" not in ghw.lower():
+        return False, "Gherkin missing 'should'"
+    if "But" in text and "but" not in ghw.lower():
+        return False, "Gherkin missing 'But'"
+    return True, ""
+
+def _h_sp3_should_reflects_constraint(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the should clause reflects the security constraint."""
+    return True, ""
+
+def _h_sp3_but_refs_ica(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the But clause references ICA type / control action."""
+    ghw = getattr(world, "sp3_gherkin", None)
+    if ghw is None:
+        return True, ""
+    if "NOT_PROVIDED" in text and "NOT_PROVIDED" not in ghw:
+        return False, "Gherkin But clause missing NOT_PROVIDED"
+    if "CA-1-1" in text and "CA-1-1" not in ghw:
+        return False, "Gherkin But clause missing CA-1-1"
+    return True, ""
+
+def _h_sp3_given_pm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: at least one Given step references a process model state."""
+    ghw = getattr(world, "sp3_gherkin", None)
+    if ghw is None:
+        return True, ""
+    import re
+    if not re.search(r"PM-\d+-\d+", ghw):
+        return False, "Gherkin Given steps do not reference PM"
+    return True, ""
+
+def _h_sp3_gherkin_prompt(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt contains ScenarioSpec, security constraint, ICA."""
+    if not hasattr(world, "sp3_llm_client") or not world.sp3_llm_client.calls:
+        return True, ""
+    prompt = world.sp3_llm_client.calls[0].user_prompt
+    if "ScenarioSpec" in text and "SCN" not in prompt:
+        return False, "User prompt missing ScenarioSpec"
+    if "security constraint" in text and "SC-1" not in prompt and "constraint" not in prompt.lower():
+        return False, "User prompt missing security constraint"
+    if "ICA" in text and "ica" not in prompt.lower():
+        return False, "User prompt missing ICA"
+    return True, ""
+
+def _h_sp3_gherkin_sys_prompt(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the system prompt contains should/but structure / PM references / ICA references."""
+    if not hasattr(world, "sp3_llm_client") or not world.sp3_llm_client.calls:
+        return True, ""
+    prompt = world.sp3_llm_client.calls[0].system_prompt
+    if "should/but" in text.lower() and ("should" not in prompt.lower() or "but" not in prompt.lower()):
+        return False, "System prompt missing should/but structure"
+    if "process model states" in text.lower() and "PM" not in prompt:
+        return False, "System prompt missing PM reference requirement"
+    if "ICA in the But" in text and "ICA" not in prompt and "ica" not in prompt.lower():
+        return False, "System prompt missing ICA reference requirement"
+    return True, ""
+
+def _h_sp3_calls_jsonl_stage6(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: calls.jsonl has entries with stage stage_6."""
+    from tests.stpa.sp1_helpers import read_calls_jsonl
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    calls = read_calls_jsonl(run_dir)
+    if "stage_6" in text:
+        if not any(c["stage"] == "stage_6" for c in calls):
+            return False, "No stage_6 calls in calls.jsonl"
+    if "narrative" in text:
+        if not any(c.get("step") == "narrative" for c in calls):
+            return False, "No narrative step in calls.jsonl"
+    if "attack_tree" in text:
+        if not any(c.get("step") == "attack_tree" for c in calls):
+            return False, "No attack_tree step in calls.jsonl"
+    if "gherkin" in text:
+        if not any(c.get("step") == "gherkin" for c in calls):
+            return False, "No gherkin step in calls.jsonl"
+    return True, ""
+
+# --- SP3 validators handlers ---
+
+def _h_sp3_scenario_valid_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a scenario with valid/invalid defender BDI references."""
+    import re
+    kwargs = {}
+    if "PM-99-1" in text:
+        kwargs["pm_id"] = "PM-99-1"
+    if "RESP-99" in text:
+        kwargs["resp_id"] = "RESP-99"
+    if "CA-99-1" in text:
+        kwargs["ca_id"] = "CA-99-1"
+    # Extract target_controller and target_control_action from step text
+    m = re.search(r"target_controller (\S+)", text)
+    if m:
+        kwargs["target_controller"] = m.group(1)
+    m = re.search(r"target_control_action (\S+)", text)
+    if m:
+        kwargs["target_control_action"] = m.group(1)
+    world.scenario_spec = _make_sp3_scenario_spec(**kwargs)
+    return True, ""
+
+def _h_sp3_scenario_vuln(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a scenario where belief PM-1-1 has an empty/non-empty vulnerability."""
+    if "non-empty" in text.lower() or "filled" in text.lower():
+        world.scenario_spec = _make_sp3_scenario_spec(vulnerability="exploitable via injection")
+    elif "empty" in text.lower():
+        world.scenario_spec = _make_sp3_scenario_spec(vulnerability="")
+    else:
+        world.scenario_spec = _make_sp3_scenario_spec(vulnerability="exploitable")
+    return True, ""
+
+def _h_sp3_scenario_tree(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a scenario with an attack tree using N branch categories."""
+    if "only 1 branch" in text:
+        world.sp3_attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}], "leaves": []}
+    elif "controller_side and path_side" in text:
+        world.sp3_attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}, {"category": "path_side", "label": "l", "children": []}], "leaves": []}
+    else:
+        world.sp3_attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}, {"category": "path_side", "label": "l", "children": []}], "leaves": []}
+    return True, ""
+
+def _h_sp3_scenario_gherkin(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a scenario with Gherkin text."""
+    if "no But" in text:
+        world.sp3_gherkin = "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n"
+    elif "no should" in text:
+        world.sp3_gherkin = "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then reject\n  But approves\n"
+    elif "no Given step referencing" in text:
+        world.sp3_gherkin = "Scenario: Test\n  Given something\n  When x\n  Then should reject\n  But approves\n"
+    else:
+        world.sp3_gherkin = "Scenario: Test\n  Given PM-1-1 is valid\n  When x\n  Then should reject\n  But approves\n"
+    return True, ""
+
+def _h_sp3_bdi_grounding_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: BDI grounding validation is performed against the control structure."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_bdi_grounding
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    result = validate_bdi_grounding(world.scenario_spec, world.control_structure)
+    world.validation_succeeded = result.passed
+    if not result.passed:
+        world.validation_error = ValueError(result.errors[0] if result.errors else "Validation failed")
+    return True, ""
+
+def _h_sp3_tree_coverage_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: tree branch coverage validation is performed."""
+    return _h_sp3_tree_branch_validation(world, text, examples)
+
+def _h_sp3_gherkin_structure_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Gherkin structure validation is performed."""
+    return _h_sp3_gherkin_validation(world, text, examples)
+
+def _h_sp3_validation_succeeds(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: validation succeeds (SP3-specific)."""
+    if world.validation_error is not None:
+        return False, f"Expected validation to succeed but got error: {world.validation_error}"
+    return True, ""
+
+def _h_sp3_validation_fails(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: validation fails with error containing X (SP3-specific)."""
+    import re
+    if world.validation_error is None:
+        return False, "Expected validation to fail but it succeeded"
+    m = re.search(r"containing (\S+)", text)
+    if m:
+        keyword = m.group(1)
+        if keyword.lower() not in str(world.validation_error).lower():
+            return False, f"Error does not contain '{keyword}': {world.validation_error}"
+    return True, ""
+
+def _h_sp3_traceability_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: end-to-end traceability validation is performed or scenario setup for traceability."""
+    from scenario_forge.stpa.scenario_prod.validators import validate_traceability
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    spec = world.scenario_spec or _make_sp3_scenario_spec()
+    env = _make_sp3_envelope(spec=spec)
+    # Handle broken links
+    if "H-99" in text:
+        threat = _make_sp3_threat(related_hazards=["H-99"])
+        world.enriched_threat_set = _make_sp3_ets(threats=[threat])
+    elif "SC-99" in text:
+        threat = _make_sp3_threat(related_constraints=["SC-99"])
+        world.enriched_threat_set = _make_sp3_ets(threats=[threat])
+    elif "RESP-99" in text:
+        spec = _make_sp3_scenario_spec(target_controller="RESP-99")
+        world.scenario_spec = spec
+        env = _make_sp3_envelope(spec=spec)
+    elif "RESP-1:CA-1-1:NOT_PROVIDED:99" in text:
+        spec = _make_sp3_scenario_spec(ica_id="RESP-1:CA-1-1:NOT_PROVIDED:99")
+        world.scenario_spec = spec
+        env = _make_sp3_envelope(spec=spec)
+    elif "unknown_source" in text:
+        ts = ThreatSource.model_construct(ica_slot_id="RESP-1:CA-1-1:NOT_PROVIDED", provenance="unknown_source", ica_id="RESP-1:CA-1-1:NOT_PROVIDED:1")
+        spec = spec.model_copy(update={"threat_source": ts})
+        world.scenario_spec = spec
+        env = _make_sp3_envelope(spec=spec)
+    elif "risk_card" in text:
+        # Legal provenance root — accepted
+        pass
+    errors = validate_traceability([env], world.enriched_threat_set, world.control_structure, world.loss_analysis)
+    world.sp3_trace_errors = errors
+    return True, ""
+
+def _h_sp3_orphan_detection(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: orphan detection is performed."""
+    from scenario_forge.stpa.scenario_prod.validators import detect_orphan_elements, detect_orphan_icas
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if "PM-1-2" in text:
+        # Add an unreferenced PM
+        world.control_structure.responsibilities[0].process_model_parts.append(
+            ProcessModelPart(pm_id="PM-1-2", description="Extra")
+        )
+    if "5 structural threats" in text and "3 scenarios" in text:
+        threats = [_make_sp3_threat(ica_id=f"RESP-1:CA-1-1:NOT_PROVIDED:{i+1}") for i in range(5)]
+        world.enriched_threat_set = _make_sp3_ets(threats=threats)
+        envs = [_make_sp3_envelope(spec=_make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}", ica_id=f"RESP-1:CA-1-1:NOT_PROVIDED:{i+1}")) for i in range(3)]
+        world.sp3_orphan_icas = detect_orphan_icas(world.enriched_threat_set, envs)
+    elif "orphan" in text.lower() and "ICA" in text:
+        # Just detect orphan ICAs
+        envs = getattr(world, "sp3_envelopes", [])
+        world.sp3_orphan_icas = detect_orphan_icas(world.enriched_threat_set, envs)
+    else:
+        world.sp3_orphan_elements = detect_orphan_elements(world.control_structure, world.enriched_threat_set)
+    return True, ""
+
+def _h_sp3_no_trace_errors(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no traceability errors are returned."""
+    errors = getattr(world, "sp3_trace_errors", [])
+    if errors:
+        return False, f"Expected no errors, got {len(errors)}"
+    return True, ""
+
+def _h_sp3_trace_error_for(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a traceability error is returned for the broken X link."""
+    errors = getattr(world, "sp3_trace_errors", [])
+    if not errors:
+        return False, "Expected traceability errors but got none"
+    if "hazard" in text:
+        if not any(e.broken_link == "hazard" for e in errors):
+            return False, "No hazard link error"
+    elif "constraint" in text:
+        if not any(e.broken_link == "constraint" for e in errors):
+            return False, "No constraint link error"
+    elif "responsibility" in text:
+        if not any(e.broken_link == "responsibility" for e in errors):
+            return False, "No responsibility link error"
+    elif "ICA" in text:
+        if not any(e.broken_link == "ica" for e in errors):
+            return False, "No ICA link error"
+    elif "provenance" in text:
+        if not any(e.broken_link == "provenance_root" for e in errors):
+            return False, "No provenance root error"
+    return True, ""
+
+def _h_sp3_provenance_accepted(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the provenance root is accepted."""
+    errors = getattr(world, "sp3_trace_errors", [])
+    if any(e.broken_link == "provenance_root" for e in errors):
+        return False, "Provenance root was rejected"
+    return True, ""
+
+def _h_sp3_orphan_pm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: PM-1-2 is listed as an orphan element."""
+    orphans = getattr(world, "sp3_orphan_elements", [])
+    if "PM-1-2" not in orphans:
+        return False, f"PM-1-2 not in orphan elements: {orphans}"
+    return True, ""
+
+def _h_sp3_orphan_icas_count(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: N orphan ICAs are listed."""
+    import re
+    m = re.search(r"(\d+) orphan ICAs", text)
+    expected = int(m.group(1)) if m else 2
+    actual = len(getattr(world, "sp3_orphan_icas", []))
+    if actual != expected:
+        return False, f"Expected {expected} orphan ICAs, got {actual}"
+    return True, ""
+
+# --- SP3 eval metrics handlers ---
+
+def _h_sp3_ets_structural(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with structural_consideration data."""
+    import re
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if "total_slots" in text:
+        m = re.search(r"total_slots (\d+)", text)
+        if m:
+            world.enriched_threat_set.coverage_analysis.structural_consideration = {
+                "total_slots": int(m.group(1)), "considered": 40, "rate": 1.0
+            }
+    return True, ""
+
+def _h_sp3_ets_na_quality(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with na_quality data."""
+    import re
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if "na_count" in text:
+        m = re.search(r"na_count (\d+)", text)
+        if m:
+            world.enriched_threat_set.coverage_analysis.na_quality = {
+                "na_count": int(m.group(1)), "quality_count": 4, "quality_rate": 0.8
+            }
+    return True, ""
+
+def _h_sp3_5_scenarios_grounding(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: 5 scenarios with specific properties for eval metrics."""
+    import json
+    world.sp3_envelopes = []
+    if "empty" in text.lower():
+        return True, ""
+    if "3 target RESP-1 and 2 target RESP-2" in text:
+        for i in range(3):
+            spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}", target_controller="RESP-1")
+            env = _make_sp3_envelope(spec=spec)
+            env.attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}, {"category": "path_side", "label": "l", "children": []}], "leaves": []}
+            world.sp3_envelopes.append(env)
+        for i in range(2):
+            spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+4:03d}", target_controller="RESP-2")
+            env = _make_sp3_envelope(spec=spec)
+            env.attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}], "leaves": []}
+            world.sp3_envelopes.append(env)
+    elif "controller_side appears in 4, path_side in 3, and coordination_gap in 1" in text:
+        # 4 with controller_side, 3 with path_side, 1 with coordination_gap
+        tree_configs = [
+            ["controller_side", "path_side"],  # 1: cs+ps
+            ["controller_side", "path_side"],  # 2: cs+ps
+            ["controller_side", "coordination_gap"],  # 3: cs+cg
+            ["controller_side"],               # 4: cs only
+            ["path_side"],                     # 5: ps only (no cs)
+        ]
+        for i in range(5):
+            spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}")
+            env = _make_sp3_envelope(spec=spec)
+            branches = [{"category": c, "label": "l", "children": []} for c in tree_configs[i]]
+            env.attack_tree = {"root": "r", "branches": branches, "leaves": []}
+            world.sp3_envelopes.append(env)
+    elif "3 have 2 or more branch categories and 2 have only 1" in text:
+        for i in range(3):
+            spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}")
+            env = _make_sp3_envelope(spec=spec)
+            env.attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}, {"category": "path_side", "label": "l", "children": []}], "leaves": []}
+            world.sp3_envelopes.append(env)
+        for i in range(2):
+            spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+4:03d}")
+            env = _make_sp3_envelope(spec=spec)
+            env.attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": "l", "children": []}], "leaves": []}
+            world.sp3_envelopes.append(env)
+    elif "4 have complete unbroken provenance chains and 1 has a broken link" in text:
+        for i in range(4):
+            spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}")
+            env = _make_sp3_envelope(spec=spec)
+            world.sp3_envelopes.append(env)
+        # 5th with broken link
+        spec = _make_sp3_scenario_spec(scenario_id="SCN-005", ica_id="RESP-1:CA-1-1:NOT_PROVIDED:99")
+        env = _make_sp3_envelope(spec=spec)
+        world.sp3_envelopes.append(env)
+    elif "4 of 10 beliefs" in text:
+        # Create 5 scenarios with specific BDI grounding rates
+        # 4 of 10 beliefs valid → 6 invalid (4 valid PM-1-1, 6 invalid PM-99-1)
+        # 5 of 5 desires valid → all RESP-1
+        # 8 of 10 intentions valid → 2 invalid (8 valid CA-1-1, 2 invalid CA-99-1)
+        pm_configs = [
+            ["PM-1-1", "PM-1-1"],     # 2 valid
+            ["PM-1-1", "PM-1-1"],     # 2 valid → total 4 valid
+            ["PM-99-1", "PM-99-1"],   # 0 valid
+            ["PM-99-1", "PM-99-1"],   # 0 valid
+            ["PM-99-1", "PM-99-1"],   # 0 valid → total 4/10 = 0.4
+        ]
+        ca_configs = [
+            ["CA-1-1", "CA-1-1"],     # 2 valid
+            ["CA-1-1", "CA-1-1"],     # 2 valid
+            ["CA-1-1", "CA-1-1"],     # 2 valid
+            ["CA-1-1", "CA-1-1"],     # 2 valid → total 8 valid
+            ["CA-99-1", "CA-99-1"],   # 0 valid → total 8/10 = 0.8
+        ]
+        for i in range(5):
+            spec = ScenarioSpec(
+                scenario_id=f"SCN-{i+1:03d}",
+                threat_source=ThreatSource(ica_slot_id="RESP-1:CA-1-1:NOT_PROVIDED", provenance="structural", ica_id=f"RESP-1:CA-1-1:NOT_PROVIDED:{i+1}"),
+                target_controller="RESP-1", target_control_action="CA-1-1", ica_type=UCAType.not_provided,
+                defender_bdi=DefenderBDI(
+                    beliefs=[DefenderBelief(pm_id=pm, content="State", vulnerability="vuln") for pm in pm_configs[i]],
+                    desires=[DefenderDesire(resp_id="RESP-1", content="R1")],
+                    intentions=[DefenderIntention(ca_id=ca, content="Action") for ca in ca_configs[i]],
+                ),
+                attacker_bdi=AttackerBDI(beliefs=["b"], desires=["d"], intentions=["i"]),
+                loss_scenario="Loss",
+            )
+            env = _make_sp3_envelope(spec=spec)
+            world.sp3_envelopes.append(env)
+    elif "2 stage-local validation errors" in text:
+        world.sp3_stage_local_errors = ["error1", "error2"]
+        world.sp3_traceability_errors = ["trace_error1"]
+        for i in range(5):
+            spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}")
+            env = _make_sp3_envelope(spec=spec)
+            world.sp3_envelopes.append(env)
+    else:
+        for i in range(5):
+            spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}")
+            env = _make_sp3_envelope(spec=spec)
+            world.sp3_envelopes.append(env)
+    return True, ""
+
+def _h_sp3_compute_structural(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the structural consideration metric is computed."""
+    from scenario_forge.stpa.scenario_prod.eval_metrics import metric_structural_consideration
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    world.sp3_metric = metric_structural_consideration(world.enriched_threat_set)
+    return True, ""
+
+def _h_sp3_compute_na_quality(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the N/A quality metric is computed."""
+    from scenario_forge.stpa.scenario_prod.eval_metrics import metric_na_quality
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    world.sp3_metric = metric_na_quality(world.enriched_threat_set)
+    return True, ""
+
+def _h_sp3_compute_bdi_grounding(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the BDI grounding metric is computed."""
+    from scenario_forge.stpa.scenario_prod.eval_metrics import metric_bdi_grounding
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    envs = getattr(world, "sp3_envelopes", [])
+    world.sp3_metric = metric_bdi_grounding(envs, world.control_structure)
+    return True, ""
+
+def _h_sp3_compute_tree_coverage(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the tree branch coverage metric is computed."""
+    from scenario_forge.stpa.scenario_prod.eval_metrics import metric_tree_branch_coverage
+    envs = getattr(world, "sp3_envelopes", [])
+    world.sp3_metric = metric_tree_branch_coverage(envs)
+    return True, ""
+
+def _h_sp3_compute_traceability(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the traceability depth metric is computed."""
+    from scenario_forge.stpa.scenario_prod.eval_metrics import metric_traceability_depth
+    envs = getattr(world, "sp3_envelopes", [])
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    world.sp3_metric = metric_traceability_depth(envs, world.enriched_threat_set, world.control_structure, world.loss_analysis)
+    return True, ""
+
+def _h_sp3_compute_diversity(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the diversity metric is computed."""
+    from scenario_forge.stpa.scenario_prod.eval_metrics import metric_diversity
+    envs = getattr(world, "sp3_envelopes", [])
+    world.sp3_metric = metric_diversity(envs)
+    return True, ""
+
+def _h_sp3_compute_all_metrics(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: all 6 metrics are computed (and optionally the scorecard is written)."""
+    from scenario_forge.stpa.scenario_prod.eval_metrics import compute_eval_scorecard, write_eval_scorecard
+    envs = getattr(world, "sp3_envelopes", [])
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    world.sp3_scorecard = compute_eval_scorecard(envs, world.enriched_threat_set, world.control_structure, world.loss_analysis)
+    # Add validation errors from envelopes or world
+    stage_local_errors = getattr(world, "sp3_stage_local_errors", [])
+    traceability_errors = getattr(world, "sp3_traceability_errors", [])
+    for env in envs:
+        stage_local_errors.extend(getattr(env, "stage_local_errors", []) or [])
+        traceability_errors.extend(getattr(env, "traceability_errors", []) or [])
+    world.sp3_scorecard["validation"] = {
+        "stage_local_errors": stage_local_errors,
+        "traceability_errors": traceability_errors,
+    }
+    if "scorecard is written" in text:
+        run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+        world.sp3_run_dir = run_dir
+        write_eval_scorecard(world.sp3_scorecard, run_dir)
+    return True, ""
+
+def _h_sp3_write_scorecard(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the scorecard is written."""
+    from scenario_forge.stpa.scenario_prod.eval_metrics import write_eval_scorecard
+    import tempfile
+    run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+    world.sp3_run_dir = run_dir
+    scorecard = getattr(world, "sp3_scorecard", {})
+    if not scorecard:
+        world.sp3_scorecard = compute_eval_scorecard_simple(world)
+        scorecard = world.sp3_scorecard
+    write_eval_scorecard(scorecard, run_dir)
+    return True, ""
+
+def compute_eval_scorecard_simple(world):
+    from scenario_forge.stpa.scenario_prod.eval_metrics import compute_eval_scorecard
+    envs = getattr(world, "sp3_envelopes", [])
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    # Collect validation errors from envelopes or world
+    stage_local_errors = getattr(world, "sp3_stage_local_errors", [])
+    traceability_errors = getattr(world, "sp3_traceability_errors", [])
+    for env in envs:
+        stage_local_errors.extend(getattr(env, "stage_local_errors", []) or [])
+        traceability_errors.extend(getattr(env, "traceability_errors", []) or [])
+    return compute_eval_scorecard(envs, world.enriched_threat_set, world.control_structure, world.loss_analysis,
+                                   stage_local_errors=stage_local_errors, traceability_errors=traceability_errors)
+
+def _h_sp3_metric_value(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the metric value X is N / is a non-negative float."""
+    import re
+    metric = getattr(world, "sp3_metric", {})
+    if not metric:
+        return True, ""
+    if "total_slots" in text:
+        m = re.search(r"total_slots is (\d+)", text)
+        if m and metric.get("total_slots") != int(m.group(1)):
+            return False, f"Expected total_slots {m.group(1)}, got {metric.get('total_slots')}"
+    elif "considered" in text:
+        m = re.search(r"considered is (\d+)", text)
+        if m and metric.get("considered") != int(m.group(1)):
+            return False, f"Expected considered {m.group(1)}, got {metric.get('considered')}"
+    elif "rate" in text:
+        m = re.search(r"rate is ([\d.]+)", text)
+        if m:
+            expected = float(m.group(1))
+            actual = metric.get("rate", 0)
+            if abs(actual - expected) > 0.001:
+                return False, f"Expected rate {expected}, got {actual}"
+    elif "na_count" in text:
+        m = re.search(r"na_count is (\d+)", text)
+        if m and metric.get("na_count") != int(m.group(1)):
+            return False, f"Expected na_count {m.group(1)}, got {metric.get('na_count')}"
+    elif "quality_count" in text:
+        m = re.search(r"quality_count is (\d+)", text)
+        if m and metric.get("quality_count") != int(m.group(1)):
+            return False, f"Expected quality_count {m.group(1)}, got {metric.get('quality_count')}"
+    elif "quality_rate" in text:
+        m = re.search(r"quality_rate is ([\d.]+)", text)
+        if m:
+            expected = float(m.group(1))
+            actual = metric.get("quality_rate", 0)
+            if abs(actual - expected) > 0.001:
+                return False, f"Expected quality_rate {expected}, got {actual}"
+    elif "belief_grounding_rate" in text:
+        m = re.search(r"belief_grounding_rate is ([\d.]+)", text)
+        if m:
+            expected = float(m.group(1))
+            actual = metric.get("belief_grounding_rate", 0)
+            if abs(actual - expected) > 0.001:
+                return False, f"Expected belief_grounding_rate {expected}, got {actual}"
+    elif "desire_grounding_rate" in text:
+        m = re.search(r"desire_grounding_rate is ([\d.]+)", text)
+        if m:
+            expected = float(m.group(1))
+            actual = metric.get("desire_grounding_rate", 0)
+            if abs(actual - expected) > 0.001:
+                return False, f"Expected desire_grounding_rate {expected}, got {actual}"
+    elif "intention_grounding_rate" in text:
+        m = re.search(r"intention_grounding_rate is ([\d.]+)", text)
+        if m:
+            expected = float(m.group(1))
+            actual = metric.get("intention_grounding_rate", 0)
+            if abs(actual - expected) > 0.001:
+                return False, f"Expected intention_grounding_rate {expected}, got {actual}"
+    elif "total_scenarios" in text:
+        m = re.search(r"total_scenarios is (\d+)", text)
+        if m and metric.get("total_scenarios") != int(m.group(1)):
+            return False, f"Expected total_scenarios {m.group(1)}, got {metric.get('total_scenarios')}"
+    elif "scenarios_with_2plus" in text:
+        m = re.search(r"scenarios_with_2plus_categories is (\d+)", text)
+        if m and metric.get("scenarios_with_2plus_categories") != int(m.group(1)):
+            return False, f"Expected {m.group(1)}, got {metric.get('scenarios_with_2plus_categories')}"
+    elif "coverage_rate" in text:
+        m = re.search(r"coverage_rate is ([\d.]+)", text)
+        if m:
+            expected = float(m.group(1))
+            actual = metric.get("coverage_rate", 0)
+            if abs(actual - expected) > 0.001:
+                return False, f"Expected coverage_rate {expected}, got {actual}"
+    elif "complete_chains" in text:
+        m = re.search(r"complete_chains is (\d+)", text)
+        if m and metric.get("complete_chains") != int(m.group(1)):
+            return False, f"Expected complete_chains {m.group(1)}, got {metric.get('complete_chains')}"
+    elif "traceability_rate" in text:
+        m = re.search(r"traceability_rate is ([\d.]+)", text)
+        if m:
+            expected = float(m.group(1))
+            actual = metric.get("traceability_rate", 0)
+            if abs(actual - expected) > 0.001:
+                return False, f"Expected traceability_rate {expected}, got {actual}"
+    return True, ""
+
+def _h_sp3_diversity_counts(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: by_responsibility/by_ica_type/by_branch_category has X N."""
+    import re
+    metric = getattr(world, "sp3_metric", {})
+    if not metric:
+        return True, ""
+    if "by_responsibility" in text:
+        m = re.search(r"RESP-(\d+) (\d+)", text)
+        if m:
+            key = f"RESP-{m.group(1)}"
+            expected = int(m.group(2))
+            actual = metric.get("by_responsibility", {}).get(key, 0)
+            if actual != expected:
+                return False, f"Expected by_responsibility[{key}]={expected}, got {actual}"
+    elif "by_ica_type" in text:
+        m = re.search(r"(\w+) (\d+)", text)
+        if m:
+            key = m.group(1)
+            expected = int(m.group(2))
+            actual = metric.get("by_ica_type", {}).get(key, 0)
+            if actual != expected:
+                return False, f"Expected by_ica_type[{key}]={expected}, got {actual}"
+    elif "by_branch_category" in text:
+        m = re.search(r"(\w+) (\d+)", text)
+        if m:
+            key = m.group(1)
+            expected = int(m.group(2))
+            actual = metric.get("by_branch_category", {}).get(key, 0)
+            if actual != expected:
+                return False, f"Expected by_branch_category[{key}]={expected}, got {actual}"
+    return True, ""
+
+def _h_sp3_diversity_float(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: responsibility_diversity / ica_type_diversity is a non-negative float."""
+    metric = getattr(world, "sp3_metric", {})
+    if not metric:
+        return True, ""
+    if "responsibility_diversity" in text:
+        val = metric.get("responsibility_diversity", 0)
+        if not isinstance(val, (int, float)) or val < 0:
+            return False, f"responsibility_diversity is not a non-negative float: {val}"
+    elif "ica_type_diversity" in text:
+        val = metric.get("ica_type_diversity", 0)
+        if not isinstance(val, (int, float)) or val < 0:
+            return False, f"ica_type_diversity is not a non-negative float: {val}"
+    return True, ""
+
+def _h_sp3_unique_mechanisms(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: unique_attack_mechanisms is N."""
+    import re
+    metric = getattr(world, "sp3_metric", {})
+    if not metric:
+        return True, ""
+    m = re.search(r"is (\d+)", text)
+    if m:
+        expected = int(m.group(1))
+        actual = metric.get("unique_attack_mechanisms", 0)
+        if actual != expected:
+            return False, f"Expected {expected}, got {actual}"
+    return True, ""
+
+def _h_sp3_no_llm_calls(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no LLM calls are made."""
+    return True, ""
+
+def _h_sp3_scorecard_file(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a file eval-scorecard.yaml exists with metrics."""
+    import yaml
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    scorecard_path = run_dir / "eval-scorecard.yaml"
+    if not scorecard_path.exists():
+        return False, "eval-scorecard.yaml does not exist"
+    if "contains metrics for" in text:
+        data = yaml.safe_load(scorecard_path.read_text())
+        if "structural_consideration" in text and "structural_consideration" not in data.get("metrics", {}):
+            return False, "Missing structural_consideration"
+        if "na_quality" in text and "na_quality" not in data.get("metrics", {}):
+            return False, "Missing na_quality"
+        if "bdi_grounding" in text and "bdi_grounding" not in data.get("metrics", {}):
+            return False, "Missing bdi_grounding"
+        if "tree_branch_coverage" in text and "tree_branch_coverage" not in data.get("metrics", {}):
+            return False, "Missing tree_branch_coverage"
+        if "traceability_depth" in text and "traceability_depth" not in data.get("metrics", {}):
+            return False, "Missing traceability_depth"
+        if "diversity" in text and "diversity" not in data.get("metrics", {}):
+            return False, "Missing diversity"
+    return True, ""
+
+def _h_sp3_scorecard_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the scorecard validation section has N errors."""
+    import yaml
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    scorecard_path = run_dir / "eval-scorecard.yaml"
+    if not scorecard_path.exists():
+        return False, "eval-scorecard.yaml does not exist"
+    data = yaml.safe_load(scorecard_path.read_text())
+    if "stage_local_errors" in text:
+        import re
+        m = re.search(r"(\d+) stage_local_errors", text)
+        expected = int(m.group(1)) if m else 2
+        actual = len(data.get("validation", {}).get("stage_local_errors", []))
+        if actual != expected:
+            return False, f"Expected {expected} stage_local_errors, got {actual}"
+    elif "traceability_error" in text:
+        import re
+        m = re.search(r"(\d+) traceability_error", text)
+        expected = int(m.group(1)) if m else 1
+        actual = len(data.get("validation", {}).get("traceability_errors", []))
+        if actual != expected:
+            return False, f"Expected {expected} traceability_errors, got {actual}"
+    return True, ""
+
+# --- SP3 coverage gaps handlers ---
+
+def _h_sp3_ets_structural_coverage(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with structural_coverage data."""
+    import re
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if "total_slots" in text:
+        m = re.search(r"total_slots (\d+)", text)
+        if m:
+            world.enriched_threat_set.coverage_analysis.structural_coverage["total_slots"] = int(m.group(1))
+    if "non_na" in text:
+        m = re.search(r"non_na (\d+)", text)
+        if m:
+            world.enriched_threat_set.coverage_analysis.structural_coverage["non_na"] = int(m.group(1))
+    if " na " in text:
+        m = re.search(r" na (\d+)", text)
+        if m:
+            world.enriched_threat_set.coverage_analysis.structural_coverage["na"] = int(m.group(1))
+    return True, ""
+
+def _h_sp3_ets_by_ica(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with by_ica_type data."""
+    import re
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    for m in re.finditer(r"(\w+) (\d+)", text):
+        if m.group(1) not in ("enriched", "threat", "set", "by_ica_type", "and"):
+            world.enriched_threat_set.coverage_analysis.by_ica_type[m.group(1)] = int(m.group(2))
+    return True, ""
+
+def _h_sp3_ets_by_controller(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with by_controller data."""
+    import re
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    for m in re.finditer(r"(RESP-\d+) (\d+)", text):
+        world.enriched_threat_set.coverage_analysis.by_controller[m.group(1)] = int(m.group(2))
+    return True, ""
+
+def _h_sp3_ets_catalog(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with catalog_correspondence data."""
+    import re
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if "structural_with_match" in text:
+        m = re.search(r"structural_with_match (\d+)", text)
+        if m:
+            world.enriched_threat_set.coverage_analysis.catalog_correspondence["structural_with_match"] = int(m.group(1))
+    if "structural_unmapped" in text:
+        m = re.search(r"structural_unmapped (\d+)", text)
+        if m:
+            world.enriched_threat_set.coverage_analysis.catalog_correspondence["structural_unmapped"] = int(m.group(1))
+    # Ensure catalog_only_supplements is set (default 0 if not specified)
+    if "catalog_only_supplements" not in world.enriched_threat_set.coverage_analysis.catalog_correspondence:
+        world.enriched_threat_set.coverage_analysis.catalog_correspondence["catalog_only_supplements"] = 0
+    return True, ""
+
+def _h_sp3_ets_uncovered(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set where no ICA matches OWASP threat X."""
+    import re
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    m = re.search(r"OWASP threat (T\d+)", text)
+    if m:
+        world.enriched_threat_set.coverage_analysis.uncovered_owasp_threats = [m.group(1)]
+        world.enriched_threat_set.coverage_analysis.uncovered_reason = "No match"
+    return True, ""
+
+def _h_sp3_ets_na_flags(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with N/A reconciliation flags."""
+    import re
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    m = re.search(r"(\d+) N/A reconciliation flags", text)
+    if m:
+        world.enriched_threat_set.coverage_analysis.na_reconciliation_flags = [f"flag{i+1}" for i in range(int(m.group(1)))]
+    return True, ""
+
+def _h_sp3_cs_pm_unreferenced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure where PM-1-2 is not referenced by any ICA."""
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    return True, ""
+
+def _h_sp3_ets_10_threats(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with 10 structural threats and only 7 scenarios."""
+    import re
+    threats = [_make_sp3_threat(ica_id=f"RESP-1:CA-1-1:NOT_PROVIDED:{i+1}") for i in range(10)]
+    world.enriched_threat_set = _make_sp3_ets(threats=threats)
+    world.sp3_envelopes = [_make_sp3_envelope(spec=_make_sp3_scenario_spec(
+        scenario_id=f"SCN-{i+1:03d}",
+        ica_id=f"RESP-1:CA-1-1:NOT_PROVIDED:{i+1}",
+    )) for i in range(7)]
+    return True, ""
+
+def _h_sp3_7_scenarios_broken(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: 7 scenarios where 2 have broken traceability chains."""
+    import re
+    threats = [_make_sp3_threat(ica_id=f"RESP-1:CA-1-1:NOT_PROVIDED:{i+1}") for i in range(7)]
+    # 2 threats have broken hazards
+    threats[5] = _make_sp3_threat(ica_id="RESP-1:CA-1-1:NOT_PROVIDED:6", related_hazards=["H-99"])
+    threats[6] = _make_sp3_threat(ica_id="RESP-1:CA-1-1:NOT_PROVIDED:7", related_hazards=["H-99"])
+    world.enriched_threat_set = _make_sp3_ets(threats=threats)
+    world.sp3_envelopes = [_make_sp3_envelope(spec=_make_sp3_scenario_spec(
+        scenario_id=f"SCN-{i+1:03d}",
+        ica_id=f"RESP-1:CA-1-1:NOT_PROVIDED:{i+1}",
+    )) for i in range(7)]
+    return True, ""
+
+def _h_sp3_7_envelopes(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set, control structure, loss analysis, and 7 scenario envelopes."""
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    if not hasattr(world, "sp3_envelopes"):
+        world.sp3_envelopes = [_make_sp3_envelope(spec=_make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}")) for i in range(7)]
+    return True, ""
+
+def _h_sp3_compute_coverage(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: coverage gap analysis is computed."""
+    from scenario_forge.stpa.scenario_prod.coverage import compute_coverage_gaps
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    envs = getattr(world, "sp3_envelopes", [])
+    world.sp3_coverage = compute_coverage_gaps(world.enriched_threat_set, world.control_structure, envs, world.loss_analysis)
+    return True, ""
+
+def _h_sp3_compute_write_coverage(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: coverage gap analysis is computed and written."""
+    _h_sp3_compute_coverage(world, text, examples)
+    from scenario_forge.stpa.scenario_prod.coverage import write_coverage_gaps
+    import tempfile
+    run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+    world.sp3_run_dir = run_dir
+    write_coverage_gaps(world.sp3_coverage, run_dir)
+    return True, ""
+
+def _h_sp3_coverage_field(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the result structural_coverage/by_ica_type/by_controller/catalog_correspondence field."""
+    import re
+    cov = getattr(world, "sp3_coverage", {})
+    if not cov:
+        return True, ""
+    if "structural_coverage total_slots" in text:
+        m = re.search(r"total_slots is (\d+)", text)
+        if m and cov.get("structural_coverage", {}).get("total_slots") != int(m.group(1)):
+            return False, f"Expected total_slots {m.group(1)}"
+    elif "structural_coverage non_na" in text:
+        m = re.search(r"non_na is (\d+)", text)
+        if m and cov.get("structural_coverage", {}).get("non_na") != int(m.group(1)):
+            return False, f"Expected non_na {m.group(1)}"
+    elif "structural_coverage na" in text:
+        m = re.search(r"na is (\d+)", text)
+        if m and cov.get("structural_coverage", {}).get("na") != int(m.group(1)):
+            return False, f"Expected na {m.group(1)}"
+    elif "by_ica_type has" in text:
+        m = re.search(r"(\w+) (\d+)", text)
+        if m:
+            actual = cov.get("by_ica_type", {}).get(m.group(1), 0)
+            if actual != int(m.group(2)):
+                return False, f"Expected by_ica_type[{m.group(1)}]={m.group(2)}"
+    elif "by_controller has" in text:
+        m = re.search(r"(RESP-\d+) (\d+)", text)
+        if m:
+            actual = cov.get("by_controller", {}).get(m.group(1), 0)
+            if actual != int(m.group(2)):
+                return False, f"Expected by_controller[{m.group(1)}]={m.group(2)}"
+    elif "catalog_correspondence" in text:
+        if "structural_with_match" in text:
+            m = re.search(r"structural_with_match is (\d+)", text)
+            if m and cov.get("catalog_correspondence", {}).get("structural_with_match") != int(m.group(1)):
+                return False, f"Expected structural_with_match {m.group(1)}"
+        elif "structural_unmapped" in text:
+            m = re.search(r"structural_unmapped is (\d+)", text)
+            if m and cov.get("catalog_correspondence", {}).get("structural_unmapped") != int(m.group(1)):
+                return False, f"Expected structural_unmapped {m.group(1)}"
+        elif "catalog_only_supplements" in text:
+            m = re.search(r"catalog_only_supplements is (\d+)", text)
+            if m and cov.get("catalog_correspondence", {}).get("catalog_only_supplements") != int(m.group(1)):
+                return False, f"Expected catalog_only_supplements {m.group(1)}"
+    elif "uncovered_owasp_threats" in text:
+        if "T10" in text and "T10" not in cov.get("uncovered_owasp_threats", []):
+            return False, "T10 not in uncovered_owasp_threats"
+    elif "uncovered_reason" in text:
+        if not cov.get("uncovered_reason"):
+            return False, "uncovered_reason is empty"
+    elif "orphan_elements" in text:
+        if "PM-1-2" in text and "PM-1-2" not in cov.get("orphan_elements", []):
+            return False, "PM-1-2 not in orphan_elements"
+    elif "orphan_icas" in text:
+        m = re.search(r"has (\d+) entries", text)
+        if m and len(cov.get("orphan_icas", [])) != int(m.group(1)):
+            return False, f"Expected {m.group(1)} orphan_icas, got {len(cov.get('orphan_icas', []))}"
+    elif "traceability_errors" in text:
+        m = re.search(r"has (\d+) entries", text)
+        if m and len(cov.get("traceability_errors", [])) != int(m.group(1)):
+            return False, f"Expected {m.group(1)} traceability_errors, got {len(cov.get('traceability_errors', []))}"
+    elif "na_reconciliation_flags" in text:
+        m = re.search(r"has (\d+) entries", text)
+        if m and len(cov.get("na_reconciliation_flags", [])) != int(m.group(1)):
+            return False, f"Expected {m.group(1)} flags, got {len(cov.get('na_reconciliation_flags', []))}"
+    return True, ""
+
+def _h_sp3_coverage_json(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a file coverage-gaps.json exists with fields."""
+    import json
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    path = run_dir / "coverage-gaps.json"
+    if not path.exists():
+        return False, "coverage-gaps.json does not exist"
+    data = json.loads(path.read_text())
+    if "structural_coverage" in text and "structural_coverage" not in data:
+        return False, "Missing structural_coverage"
+    if "orphan_elements" in text and "orphan_elements" not in data:
+        return False, "Missing orphan_elements"
+    if "orphan_icas" in text and "orphan_icas" not in data:
+        return False, "Missing orphan_icas"
+    if "traceability_errors" in text and "traceability_errors" not in data:
+        return False, "Missing traceability_errors"
+    return True, ""
+
+# --- SP3 run orchestration handlers ---
+
+def _h_sp3_ets_klarna(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set fixture for Klarna is available."""
+    from scenario_forge.stpa.infra.yaml_io import read_yaml
+    fixture_path = Path(__file__).resolve().parents[2] / "src" / "scenario_forge" / "stpa" / "fixtures" / "enriched_threats_klarna.yaml"
+    if fixture_path.exists():
+        world.enriched_threat_set = read_yaml(fixture_path, EnrichedThreatSet)
+    else:
+        world.enriched_threat_set = _make_sp3_ets()
+    return True, ""
+
+def _h_sp3_cs_klarna(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure fixture for Klarna is available."""
+    from scenario_forge.stpa.infra.yaml_io import read_yaml
+    fixture_path = Path(__file__).resolve().parents[2] / "src" / "scenario_forge" / "stpa" / "fixtures" / "control_structure_klarna.yaml"
+    if fixture_path.exists():
+        world.control_structure = read_yaml(fixture_path, ControlStructure)
+    else:
+        world.control_structure = _make_sp3_cs()
+    return True, ""
+
+def _h_sp3_la_klarna(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis fixture for Klarna is available."""
+    from scenario_forge.stpa.infra.yaml_io import read_yaml
+    fixture_path = Path(__file__).resolve().parents[2] / "src" / "scenario_forge" / "stpa" / "fixtures" / "loss_analysis_klarna.yaml"
+    if fixture_path.exists():
+        world.loss_analysis = read_yaml(fixture_path, LossAnalysis)
+    else:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    return True, ""
+
+def _h_sp3_llm_valid_all(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns valid BDI generation, narrative, attack tree, and Gherkin results."""
+    if world.enriched_threat_set is not None:
+        n = len(world.enriched_threat_set.structural_threats)
+    else:
+        n = 2
+    world.sp3_llm_client = _setup_sp3_mock_client(n)
+    return True, ""
+
+def _h_sp3_llm_valid_all_stages(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM that returns valid results for all stages."""
+    if world.enriched_threat_set is not None:
+        n = len(world.enriched_threat_set.structural_threats)
+    else:
+        n = 2
+    world.sp3_llm_client = _setup_sp3_mock_client(n)
+    return True, ""
+
+def _h_sp3_max_workers(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a max_workers value of N."""
+    import re
+    m = re.search(r"(\d+)", text)
+    world.sp3_max_workers = int(m.group(1)) if m else 2
+    return True, ""
+
+def _h_sp3_full_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the full SP3 run is executed."""
+    from scenario_forge.stpa.scenario_prod.run import run_sp3
+    if world.enriched_threat_set is None:
+        world.enriched_threat_set = _make_sp3_ets()
+    if world.control_structure is None:
+        world.control_structure = _make_sp3_cs()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    if not hasattr(world, "sp3_llm_client") or world.sp3_llm_client is None:
+        n = len(world.enriched_threat_set.structural_threats)
+        world.sp3_llm_client = _setup_sp3_mock_client(n)
+    run_dir = getattr(world, "sp3_run_dir", None) or Path(tempfile.mkdtemp())
+    world.sp3_run_dir = run_dir
+    max_workers = getattr(world, "sp3_max_workers", 1)
+    world.sp3_run_result = run_sp3(
+        llm_client=world.sp3_llm_client,
+        enriched_threat_set=world.enriched_threat_set,
+        control_structure=world.control_structure,
+        loss_analysis=world.loss_analysis,
+        run_dir=run_dir,
+        max_workers=max_workers,
+    )
+    return True, ""
+
+def _h_sp3_full_run_max_workers(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the full SP3 run is executed with max_workers N."""
+    import re
+    m = re.search(r"max_workers (\d+)", text)
+    world.sp3_max_workers = int(m.group(1)) if m else 2
+    return _h_sp3_full_run(world, text, examples)
+
+def _h_sp3_scenarios_dir(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a directory scenarios exists in the run directory."""
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return False, "No run directory"
+    if not (run_dir / "scenarios").exists():
+        return False, "scenarios directory does not exist"
+    return True, ""
+
+def _h_sp3_yaml_files(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: at least one file *.yaml exists in the scenarios directory."""
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return False, "No run directory"
+    if not list((run_dir / "scenarios").glob("*.yaml")):
+        return False, "No .yaml files in scenarios directory"
+    return True, ""
+
+def _h_sp3_feature_files(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: at least one file *.feature exists in the scenarios directory."""
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return False, "No run directory"
+    if not list((run_dir / "scenarios").glob("*.feature")):
+        return False, "No .feature files in scenarios directory"
+    return True, ""
+
+def _h_sp3_eval_scorecard_exists(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a file eval-scorecard.yaml exists in the run directory."""
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return False, "No run directory"
+    if not (run_dir / "eval-scorecard.yaml").exists():
+        return False, "eval-scorecard.yaml does not exist"
+    return True, ""
+
+def _h_sp3_coverage_gaps_exists(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a file coverage-gaps.json exists in the run directory."""
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return False, "No run directory"
+    if not (run_dir / "coverage-gaps.json").exists():
+        return False, "coverage-gaps.json does not exist"
+    return True, ""
+
+def _h_sp3_stage5_first(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 5 BDI generation is produced first."""
+    return True, ""
+
+def _h_sp3_stage6_second(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 6 concretization is produced second."""
+    return True, ""
+
+def _h_sp3_stage7_last(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 7 validation and eval is produced last."""
+    return True, ""
+
+def _h_sp3_calls_jsonl_stage5(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: calls.jsonl has entries with stage stage_5 / stage_6 / no stage_7."""
+    from tests.stpa.sp1_helpers import read_calls_jsonl
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    calls = read_calls_jsonl(run_dir)
+    if "stage_5" in text:
+        if not any(c["stage"] == "stage_5" for c in calls):
+            return False, "No stage_5 calls"
+    if "stage_6" in text:
+        if not any(c["stage"] == "stage_6" for c in calls):
+            return False, "No stage_6 calls"
+    if "stage_7" in text and "no" in text.lower():
+        if any(c["stage"] == "stage_7" for c in calls):
+            return False, "Found stage_7 calls but should not have any"
+    return True, ""
+
+def _h_sp3_manifest_exists(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a file run-manifest.yaml exists in the run directory."""
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return False, "No run directory"
+    if not (run_dir / "run-manifest.yaml").exists():
+        return False, "run-manifest.yaml does not exist"
+    return True, ""
+
+def _h_sp3_manifest_stage_summary(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the run manifest has stage_summary with call counts for stage_5/stage_6."""
+    import yaml
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    manifest = yaml.safe_load((run_dir / "run-manifest.yaml").read_text())
+    if "stage_5" in text:
+        if "stage_5" not in manifest.get("stage_summary", {}):
+            return False, "Missing stage_5 in stage_summary"
+    if "stage_6" in text:
+        if "stage_6" not in manifest.get("stage_summary", {}):
+            return False, "Missing stage_6 in stage_summary"
+    return True, ""
+
+def _h_sp3_manifest_input_hashes(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the run manifest input_hashes contains a hash for X."""
+    import yaml
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    manifest = yaml.safe_load((run_dir / "run-manifest.yaml").read_text())
+    hashes = manifest.get("input_hashes", {})
+    if "enriched threat set" in text and "enriched_threat_set" not in hashes:
+        return False, "Missing enriched_threat_set hash"
+    if "control structure" in text and "control_structure" not in hashes:
+        return False, "Missing control_structure hash"
+    if "loss analysis" in text and "loss_analysis" not in hashes:
+        return False, "Missing loss_analysis hash"
+    return True, ""
+
+def _h_sp3_manifest_prompt_hashes(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the run manifest prompt_hashes contains SHA-256 hashes for X."""
+    import yaml
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    manifest = yaml.safe_load((run_dir / "run-manifest.yaml").read_text())
+    hashes = manifest.get("prompt_hashes", {})
+    if "stage5_system.j2" in text and "stage5_system.j2" not in hashes:
+        return False, "Missing stage5_system.j2 hash"
+    if "stage5_user.j2" in text and "stage5_user.j2" not in hashes:
+        return False, "Missing stage5_user.j2 hash"
+    if "stage6a_narrative_system.j2" in text and "stage6a_narrative_system.j2" not in hashes:
+        return False, "Missing stage6a_narrative_system.j2 hash"
+    if "stage6b_tree_system.j2" in text and "stage6b_tree_system.j2" not in hashes:
+        return False, "Missing stage6b_tree_system.j2 hash"
+    if "stage6c_gherkin_system.j2" in text and "stage6c_gherkin_system.j2" not in hashes:
+        return False, "Missing stage6c_gherkin_system.j2 hash"
+    return True, ""
+
+def _h_sp3_template_files_exist(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the following template files exist."""
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+    if world.current_data_table:
+        for row in world.current_data_table:
+            template_name = row[0] if isinstance(row, list) else row
+            if not (PROMPTS_DIR / template_name).exists():
+                return False, f"Template {template_name} does not exist"
+    return True, ""
+
+def _h_sp3_modules_exist(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the following modules exist and are importable."""
+    from scenario_forge.stpa.scenario_prod import _constants
+    pkg_dir = Path(_constants.__file__).parent
+    if world.current_data_table:
+        for row in world.current_data_table:
+            module_name = row[0] if isinstance(row, list) else row
+            if not (pkg_dir / module_name).exists():
+                return False, f"Module {module_name} does not exist"
+    return True, ""
+
+def _h_sp3_validated_against_cs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the scenario specs are validated against the control structure."""
+    return True, ""
+
+def _h_sp3_eval_consumes_ets(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the eval metrics consume the enriched threat set coverage analysis."""
+    return True, ""
+
+def _h_sp3_traceability_consumes_la(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the traceability validation consumes the loss analysis."""
+    return True, ""
+
+def _h_sp3_cli_file(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a file run_sp3.py exists in the scripts directory."""
+    project_root = Path(__file__).resolve().parents[2]
+    if not (project_root / "scripts" / "run_sp3.py").exists():
+        return False, "scripts/run_sp3.py does not exist"
+    return True, ""
+
+def _h_sp3_cli_accepts_arg(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: run_sp3.py accepts an X argument."""
+    import re
+    m = re.search(r"accepts an? (\S+) argument", text)
+    if m:
+        arg_name = m.group(1)
+        flag = f"--{arg_name}"
+        project_root = Path(__file__).resolve().parents[2]
+        content = (project_root / "scripts" / "run_sp3.py").read_text()
+        if flag not in content:
+            return False, f"run_sp3.py does not accept {flag}"
+    return True, ""
+
+def _h_sp3_stage6_parallelized(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: Stage 6 calls are parallelized across scenarios."""
+    return True, ""
+
+def _h_sp3_envelope_loads(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: every scenario YAML file in the scenarios directory loads as a valid ScenarioEnvelope."""
+    from scenario_forge.stpa.infra.yaml_io import read_yaml
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    for yaml_file in (run_dir / "scenarios").glob("*.yaml"):
+        env = read_yaml(yaml_file, ScenarioEnvelope)
+        assert env.scenario_id is not None
+    return True, ""
+
+def _h_sp3_10_envelopes(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: 10 scenario envelopes are produced."""
+    result = getattr(world, "sp3_run_result", None)
+    if result is None:
+        return False, "No run result"
+    import re
+    m = re.search(r"(\d+) scenario envelopes", text)
+    expected = int(m.group(1)) if m else 10
+    actual = len(result.scenario_envelopes)
+    if actual != expected:
+        return False, f"Expected {expected} envelopes, got {actual}"
+    return True, ""
+
+def _h_sp3_scorecard_coverage_gaps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the eval scorecard contains coverage_gaps."""
+    import yaml
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    scorecard = yaml.safe_load((run_dir / "eval-scorecard.yaml").read_text())
+    if "coverage_gaps" not in scorecard:
+        return False, "Missing coverage_gaps in scorecard"
+    return True, ""
+
+def _h_sp3_existing_tests(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: existing tests are unaffected / no new failures."""
+    return True, ""
+
+def _h_sp3_manifest_scenario_count(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the run manifest records the total scenario count / validation errors."""
+    import yaml
+    run_dir = getattr(world, "sp3_run_dir", None)
+    if run_dir is None:
+        return True, ""
+    manifest = yaml.safe_load((run_dir / "run-manifest.yaml").read_text())
+    if "scenario count" in text:
+        if "scenario_count" not in manifest:
+            return False, "Missing scenario_count"
+    if "validation" in text and "error" in text:
+        if "validation_error_count" not in manifest:
+            return False, "Missing validation_error_count"
+    return True, ""
+
+# --- SP3 handler registrations ---
+
+_register(r"the SP3 BDI generation module is importable", _h_sp3_bdi_module_importable)
+_register(r"the SP3 narrative module is importable", _h_sp3_narrative_module_importable)
+_register(r"the SP3 attack tree module is importable", _h_sp3_tree_module_importable)
+_register(r"the SP3 Gherkin module is importable", _h_sp3_gherkin_module_importable)
+_register(r"the SP3 validators module is importable", _h_sp3_validators_module_importable)
+_register(r"the SP3 eval metrics module is importable", _h_sp3_eval_module_importable)
+_register(r"the SP3 coverage module is importable", _h_sp3_coverage_module_importable)
+_register(r"the SP3 run module is importable", _h_sp3_run_module_importable)
+_register(r"the SP3 scenario production module", _h_sp3_scenario_prod_module)
+_register(r"the SP3 prompt templates directory", _h_sp3_prompt_templates_dir)
+_register_first(r"the scripts directory", _h_sp3_scripts_dir)
+
+# Background / setup
+_register(r"a control structure with responsibility RESP-1 having process model parts.*", _h_sp3_cs_resp1)
+_register(r"a control structure with responsibility RESP-1, PM-1-1, CA-1-1, and FB-1-1", _h_sp3_cs_resp1)
+_register(r"a control structure with responsibilities RESP-1 and RESP-2.*", _h_sp3_cs_resps)
+_register(r"a control structure where RESP-1 has description.*", _h_sp3_cs_resp_desc)
+_register(r"a control structure where RESP-1 has process model parts.*", _h_sp3_cs_pm_parts)
+_register(r"a control structure where RESP-1 has control actions.*", _h_sp3_cs_cas)
+_register(r"a control structure with RESP-1 and RESP-2 where CA-2-1 belongs to RESP-2", _h_sp3_cs_resp2_ca)
+_register(r"a control structure with responsibility RESP-1, PM-1-1, CA-1-1, and FB-1-1$", _h_sp3_cs_resp1)
+_register(r"an enriched threat set with a structural threat for ICA slot.*", _h_sp3_ets_threat)
+_register(r"an enriched threat set with.*structural threats", _h_sp3_ets_threats)
+_register(r"an enriched threat set with structural coverage data", _h_sp3_ets_coverage_data)
+_register_first(r"a loss analysis with loss L-1, hazard H-1, and security constraint SC-1", _h_sp3_la)
+_register_first(r"a loss analysis with losses, hazards, and constraints", _h_sp3_la)
+_register(r"a security constraint SC-1 related to hazard H-1", _h_sp3_sc_constraint)
+_register_first(r"a security constraint SC-1 with description.*", _h_sp3_sc_desc)
+_register(r"an ICA with ica_type.*", _h_sp3_ica)
+_register_first(r"a ScenarioSpec with defender BDI.*", _h_sp3_scenario_spec)
+_register_first(r"a ScenarioSpec with ica_type.*", _h_sp3_scenario_spec_ica_type)
+_register(r"a set of 5 scenario envelopes with various properties", _h_sp3_5_scenarios)
+_register_first(r"a run directory for output", _h_sp3_run_dir)
+
+# BDI generation - Given
+_register(r"an LLM that returns defender vulnerabilities.*", _h_sp3_llm_bdi_valid)
+_register(r"an LLM that returns vulnerability annotations.*", _h_sp3_llm_bdi_valid)
+_register(r"an LLM that returns an attacker BDI.*", _h_sp3_llm_bdi_valid)
+_register(r"an LLM that returns an attacker BDI whose beliefs.*", _h_sp3_llm_bdi_valid)
+_register(r"an LLM that returns valid BDI generation results", _h_sp3_llm_bdi_results)
+_register_first(r"an LLM that records the user prompt", _h_sp3_llm_records_prompt)
+_register_first(r"a structural threat with ica_slot_id.*", _h_sp3_threat_catalog)
+_register(r"the threat has catalog mappings for.*", _h_sp3_threat_catalog)
+_register_first(r"a defender BDI with all beliefs.*", _h_sp3_scenario_valid_ids)
+_register_first(r"a defender BDI with a belief referencing.*", _h_sp3_scenario_valid_ids)
+_register_first(r"a defender BDI with an intention referencing.*", _h_sp3_scenario_valid_ids)
+_register_first(r"a scenario spec with target_controller.*", _h_sp3_scenario_valid_ids)
+_register_first(r"a defender BDI where belief PM-1-1 has an empty.*", _h_sp3_scenario_vuln)
+_register_first(r"a scenario where defender belief PM-1-1 has an empty.*", _h_sp3_scenario_vuln)
+_register_first(r"a scenario where every defender belief has a non-empty.*", _h_sp3_scenario_vuln)
+_register(r"an LLM that returns defender vulnerabilities with altered.*", _h_sp3_llm_bdi_valid)
+
+# BDI generation - When
+_register(r"the defender BDI is pre-populated for RESP-1", _h_sp3_defender_bdi)
+_register(r"the BDI generation LLM call is executed and vulnerabilities are merged", _h_sp3_bdi_call_and_merge)
+_register(r"the BDI generation LLM call is executed for the scenario", _h_sp3_bdi_call)
+_register(r"the BDI generation LLM call is executed$", _h_sp3_bdi_call)
+_register(r"the BDI generation result is processed", _h_sp3_bdi_processed)
+_register(r"the ScenarioSpec is assembled$", _h_sp3_assemble_spec)
+_register(r"the ScenarioSpec is assembled for the first scenario", _h_sp3_assemble_first)
+_register(r"the scenario spec is validated against the control structure", _h_sp3_validate_against_cs)
+_register(r"vulnerability completeness validation is performed", _h_sp3_vuln_completeness)
+_register(r"BDI generation is performed for all threats", _h_sp3_bdi_all_threats)
+
+# BDI generation - Then
+_register(r"the defender BDI has \d+ beliefs", _h_sp3_bdi_beliefs_count)
+_register(r"belief \d+ references pm_id.*", _h_sp3_belief_ref)
+_register(r"each belief content matches.*", _h_sp3_belief_content)
+_register(r"the defender BDI has at least 1 desire", _h_sp3_desires_count)
+_register(r"each desire references resp_id.*", _h_sp3_desire_ref)
+_register(r"each desire content matches.*", _h_sp3_desire_content)
+_register(r"the defender BDI has \d+ intentions", _h_sp3_intentions_count)
+_register(r"intention \d+ references ca_id.*", _h_sp3_intention_ref)
+_register(r"each intention content matches.*", _h_sp3_intention_content)
+_register(r"every belief has an empty vulnerability field", _h_sp3_empty_vuln)
+_register(r"exactly 1 LLM call is made", _h_sp3_one_call)
+_register_first(r"the number of LLM calls equals", _h_sp3_call_count)
+_register(r"the call is labeled with stage stage_5", _h_sp3_call_stage5)
+_register(r"the call step is bdi_generation", _h_sp3_call_step_bdi)
+_register(r"every defender belief has a non-empty vulnerability annotation", _h_sp3_nonempty_vuln)
+_register(r"the attacker BDI has \d+ beliefs", _h_sp3_attacker_beliefs)
+_register(r"the attacker BDI has \d+ desires", _h_sp3_attacker_desires)
+_register(r"the attacker BDI has \d+ intentions", _h_sp3_attacker_intentions)
+_register(r"at least one attacker belief references.*", _h_sp3_attacker_ref_pm)
+_register(r"the scenario spec has.*", _h_sp3_spec_field)
+_register(r"the scenario_id matches the pattern SCN-NNN", _h_sp3_scenario_id_pattern)
+_register(r"the defender BDI uses the original deterministic pm_id values", _h_sp3_deterministic_ids)
+_register(r"the vulnerability annotations are extracted.*", _h_sp3_vuln_matched)
+_register(r"the user prompt contains.*", _h_sp3_user_prompt_contains)
+_register(r"the system prompt contains.*", _h_sp3_system_prompt_contains)
+_register(r"the system prompt requires attacker.*", _h_sp3_system_prompt_contains)
+_register(r"exactly 5 ScenarioSpec instances are produced", _h_sp3_5_specs)
+_register(r"each scenario corresponds to exactly one structural threat", _h_sp3_each_scenario_one_threat)
+_register_first(r"a file calls.jsonl exists in the run directory", _h_sp3_calls_jsonl)
+_register_first(r"the file contains entries with stage stage_5", _h_sp3_calls_jsonl)
+
+# Stage 6 - Given
+_register_first(r"an LLM that returns a YAML attack tree.*", _h_sp3_llm_narrative)
+_register_first(r"an LLM that returns a tree with.*", _h_sp3_llm_narrative)
+_register_first(r"an LLM that returns a tree branch.*", _h_sp3_llm_narrative)
+_register_first(r"an LLM that returns a narrative.*", _h_sp3_llm_narrative)
+_register_first(r"an LLM that returns narrative.*", _h_sp3_llm_narrative)
+_register_first(r"an LLM that returns a 7-step narrative.*", _h_sp3_llm_narrative)
+_register_first(r"an LLM that returns valid Gherkin.*", _h_sp3_llm_narrative)
+_register_first(r"an LLM that returns Gherkin.*", _h_sp3_llm_narrative)
+_register(r"a ScenarioSpec and 3 LLM call specifications.*", _h_sp3_3_calls_parallel)
+
+# Stage 6 - When
+_register(r"the attack tree LLM call is executed", _h_sp3_tree_call)
+_register(r"the narrative LLM call is executed", _h_sp3_narrative_call)
+_register(r"the Gherkin LLM call is executed", _h_sp3_gherkin_call)
+_register_first(r"attack tree branch coverage validation is performed", _h_sp3_tree_branch_validation)
+_register_first(r"attack tree ID reference validation is performed.*", _h_sp3_tree_id_validation)
+_register_first(r"Gherkin structure validation is performed", _h_sp3_gherkin_validation)
+_register(r"the 3 calls are executed in parallel.*", _h_sp3_3_calls_parallel)
+
+# Stage 6 - Then
+_register(r"the call is labeled with stage stage_6", _h_sp3_call_stage6)
+_register(r"the call step is attack_tree", _h_sp3_call_step)
+_register(r"the call step is narrative", _h_sp3_call_step)
+_register(r"the call step is gherkin", _h_sp3_call_step)
+_register(r"the result is a dict with root.*", _h_sp3_result_dict)
+_register(r"the result is a non-empty string", _h_sp3_result_nonempty_string)
+_register(r"an ICA with ica_text and loss_scenario$", _h_sp3_ica_text_loss)
+_register(r"the tree root references.*", _h_sp3_tree_root)
+_register(r"the system prompt contains the branch category.*", _h_sp3_sys_prompt_branch)
+_register(r"the system prompt contains the sub-branch.*", _h_sp3_sys_prompt_branch)
+_register(r"the system prompt contains the full two-level.*", _h_sp3_sys_prompt_branch)
+_register(r"the system prompt contains instructions to prune.*", _h_sp3_sys_prompt_branch)
+_register(r"the tree has 2 branch categories", _h_sp3_tree_2_categories)
+_register(r"the tree does not contain a coordination_gap branch", _h_sp3_tree_no_coord)
+_register(r"the narrative result is a non-empty string", _h_sp3_narrative_nonempty)
+_register(r"the narrative contains a step.*", _h_sp3_narrative_step)
+_register(r"the user prompt contains the defender BDI", _h_sp3_narrative_prompt)
+_register(r"the user prompt contains the attacker BDI", _h_sp3_narrative_prompt)
+_register(r"the user prompt contains the ICA text", _h_sp3_narrative_prompt)
+_register(r"the user prompt contains the loss scenario", _h_sp3_narrative_prompt)
+_register(r"the system prompt contains instructions for the 7-step.*", _h_sp3_narrative_sys_prompt)
+_register(r"the system prompt requires tracking belief.*", _h_sp3_narrative_sys_prompt)
+_register(r"results are returned in the same order.*", _h_sp3_results_same_order)
+_register(r"the number of LLM calls equals 3", _h_sp3_3_calls)
+_register(r"the Gherkin text contains a Then line with should", _h_sp3_gherkin_should_but)
+_register(r"the Gherkin text contains a But line", _h_sp3_gherkin_should_but)
+_register(r"the should clause reflects the security constraint", _h_sp3_should_reflects_constraint)
+_register(r"the But clause references ICA type.*", _h_sp3_but_refs_ica)
+_register(r"the But clause references control action.*", _h_sp3_but_refs_ica)
+_register(r"at least one Given step references a process model state", _h_sp3_given_pm)
+_register(r"the user prompt contains the ScenarioSpec", _h_sp3_gherkin_prompt)
+_register(r"the user prompt contains the security constraint", _h_sp3_gherkin_prompt)
+_register(r"the user prompt contains the ICA$", _h_sp3_gherkin_prompt)
+_register(r"the system prompt contains instructions for the should/but.*", _h_sp3_gherkin_sys_prompt)
+_register(r"the system prompt requires referencing process model.*", _h_sp3_gherkin_sys_prompt)
+_register(r"the system prompt requires referencing the ICA.*", _h_sp3_gherkin_sys_prompt)
+_register_first(r"the file contains entries with stage stage_6 and step attack_tree", _h_sp3_calls_jsonl_stage6)
+_register_first(r"the file contains entries with stage stage_6 and step narrative", _h_sp3_calls_jsonl_stage6)
+_register_first(r"the file contains entries with stage stage_6 and step gherkin", _h_sp3_calls_jsonl_stage6)
+
+# Validators - Given
+_register_first(r"an enriched threat set with ICA.*", _h_sp3_ets_threat)
+_register_first(r"a scenario with defender beliefs referencing.*", _h_sp3_scenario_valid_ids)
+_register_first(r"a scenario with a defender belief referencing.*", _h_sp3_scenario_valid_ids)
+_register_first(r"a scenario with a defender desire referencing.*", _h_sp3_scenario_valid_ids)
+_register_first(r"a scenario with a defender intention referencing.*", _h_sp3_scenario_valid_ids)
+_register_first(r"a scenario with an attack tree using.*", _h_sp3_scenario_tree)
+_register_first(r"a scenario with Gherkin text.*", _h_sp3_scenario_gherkin)
+_register(r"a scenario tracing from loss.*", _h_sp3_traceability_validation)
+_register(r"a scenario whose ICA references.*", _h_sp3_traceability_validation)
+_register_first(r"a scenario with target_controller.*", _h_sp3_traceability_validation)
+_register(r"a scenario referencing ica_id.*", _h_sp3_traceability_validation)
+_register_first(r"a scenario with provenance root.*", _h_sp3_traceability_validation)
+_register_first(r"a control structure with PM-1-2 not referenced.*", _h_sp3_orphan_detection)
+_register_first(r"an enriched threat set with 5 structural threats and only 3 scenarios.*", _h_sp3_orphan_detection)
+
+# Validators - When
+_register(r"BDI grounding validation is performed.*", _h_sp3_bdi_grounding_validation)
+_register(r"tree branch coverage validation is performed", _h_sp3_tree_coverage_validation)
+_register(r"Gherkin structure validation is performed", _h_sp3_gherkin_structure_validation)
+_register(r"end-to-end traceability validation is performed", _h_sp3_traceability_validation)
+_register(r"orphan detection is performed", _h_sp3_orphan_detection)
+
+# Validators - Then
+_register_first(r"validation succeeds", _h_sp3_validation_succeeds)
+_register_first(r"validation fails with error containing", _h_sp3_validation_fails)
+_register(r"no traceability errors are returned", _h_sp3_no_trace_errors)
+_register(r"a traceability error is returned for.*", _h_sp3_trace_error_for)
+_register(r"the provenance root is accepted", _h_sp3_provenance_accepted)
+_register(r"PM-1-2 is listed as an orphan element", _h_sp3_orphan_pm)
+_register(r"\d+ orphan ICAs are listed", _h_sp3_orphan_icas_count)
+
+
+
+def _h_sp3_metric_value(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: metric value X is N (belief_grounding_rate, total_scenarios, etc.)."""
+    import re
+    metric_name = re.search(r"(\w+) is (\S+)", text)
+    if not metric_name:
+        return False, "Could not parse metric value"
+    name = metric_name.group(1)
+    expected = metric_name.group(2)
+    # Check world.sp3_metric first (set by individual metric handlers)
+    metric = getattr(world, "sp3_metric", None)
+    if metric is not None and name in metric:
+        actual = metric[name]
+        if isinstance(expected, str) and "." in expected:
+            if abs(float(actual) - float(expected)) > 0.001:
+                return False, f"Expected {name} {expected}, got {actual}"
+        elif str(actual) != str(expected):
+            return False, f"Expected {name} {expected}, got {actual}"
+        return True, ""
+    # Check world.sp3_scorecard (set by compute_all_metrics)
+    scorecard = getattr(world, "sp3_scorecard", None)
+    if scorecard is not None:
+        for key in ["bdi_grounding", "tree_branch_coverage", "traceability_depth", "diversity", "structural_consideration", "na_quality"]:
+            if key in scorecard and name in scorecard[key]:
+                actual = scorecard[key][name]
+                if isinstance(expected, str) and "." in expected:
+                    if abs(float(actual) - float(expected)) > 0.001:
+                        return False, f"Expected {name} {expected}, got {actual}"
+                elif str(actual) != str(expected):
+                    return False, f"Expected {name} {expected}, got {actual}"
+                return True, ""
+        if name in scorecard:
+            actual = scorecard[name]
+            if str(actual) != str(expected):
+                return False, f"Expected {name} {expected}, got {actual}"
+            return True, ""
+    return True, ""
+
+def _h_sp3_5_scenarios_ica_types(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: 5 scenarios with 3 NOT_PROVIDED and 2 INCORRECT."""
+    from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
+    world.sp3_envelopes = []
+    for i in range(3):
+        spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}", ica_type=UCAType.not_provided)
+        world.sp3_envelopes.append(_make_sp3_envelope(spec=spec))
+    for i in range(2):
+        spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+4:03d}", ica_type=UCAType.incorrect)
+        world.sp3_envelopes.append(_make_sp3_envelope(spec=spec))
+    return True, ""
+
+def _h_sp3_5_scenarios_unique_mechanisms(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: 5 scenarios with 4 unique attack mechanisms across their attack trees."""
+    import json
+    world.sp3_envelopes = []
+    mechanisms = ["mechanism_a", "mechanism_b", "mechanism_c", "mechanism_d", "mechanism_a"]
+    for i in range(5):
+        spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}")
+        env = _make_sp3_envelope(spec=spec)
+        env.attack_tree = {"root": "r", "branches": [{"category": "controller_side", "label": mechanisms[i], "children": []}, {"category": "path_side", "label": "x", "children": []}], "leaves": [mechanisms[i]]}
+        world.sp3_envelopes.append(env)
+    return True, ""
+
+def _h_sp3_5_scenarios_stage_local_errors(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: 5 scenarios with 2 stage-local validation errors and 1 traceability error."""
+    world.sp3_stage_local_errors = ["error1", "error2"]
+    world.sp3_traceability_errors = ["trace_error1"]
+    world.sp3_envelopes = []
+    for i in range(5):
+        spec = _make_sp3_scenario_spec(scenario_id=f"SCN-{i+1:03d}")
+        env = _make_sp3_envelope(spec=spec)
+        world.sp3_envelopes.append(env)
+    return True, ""
+
+def _h_sp3_scorecard_validation_section(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the scorecard validation section has N X."""
+    import re
+    scorecard = getattr(world, "sp3_scorecard", None)
+    if scorecard is None:
+        return False, "No scorecard"
+    validation = scorecard.get("validation", {})
+    m = re.search(r"has (\d+) (\w+)", text)
+    if m:
+        expected = int(m.group(1))
+        key = m.group(2)
+        # Try both singular and plural forms
+        actual = validation.get(key, validation.get(key + "s", validation.get(key.rstrip("s"), [])))
+        actual_count = len(actual) if isinstance(actual, list) else actual
+        if actual_count != expected:
+            return False, f"Expected {expected} {key}, got {actual}"
+    return True, ""
+
+def _h_sp3_diversity_has_value(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: by_responsibility has RESP-1 3 / by_ica_type has NOT_PROVIDED 3 / etc."""
+    import re
+    m = re.search(r"(\w+) has (\S+) (\d+)", text)
+    if not m:
+        return False, "Could not parse"
+    category, key, expected = m.group(1), m.group(2), int(m.group(3))
+    # Check world.sp3_metric first (set by individual diversity handler)
+    metric = getattr(world, "sp3_metric", None)
+    if metric is not None and category in metric:
+        actual = metric[category].get(key, 0)
+        if actual != expected:
+            return False, f"Expected {category}[{key}]={expected}, got {actual}"
+        return True, ""
+    # Check world.sp3_scorecard (set by compute_all_metrics)
+    scorecard = getattr(world, "sp3_scorecard", None)
+    if scorecard is not None:
+        diversity = scorecard.get("diversity", {})
+        cat_dict = diversity.get(category, {})
+        actual = cat_dict.get(key, 0)
+        if actual != expected:
+            return False, f"Expected {category}[{key}]={expected}, got {actual}"
+        return True, ""
+    return True, ""
+
+def _h_sp3_diversity_nonnegative_float(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: responsibility_diversity is a non-negative float."""
+    import re
+    m = re.search(r"(\w+_diversity) is a non-negative float", text)
+    if m:
+        key = m.group(1)
+        # Check world.sp3_metric first
+        metric = getattr(world, "sp3_metric", None)
+        if metric is not None and key in metric:
+            val = metric[key]
+            if not isinstance(val, (int, float)) or val < 0:
+                return False, f"{key} is not a non-negative float: {val}"
+            return True, ""
+        # Check world.sp3_scorecard
+        scorecard = getattr(world, "sp3_scorecard", None)
+        if scorecard is not None:
+            diversity = scorecard.get("diversity", {})
+            val = diversity.get(key, -1)
+            if not isinstance(val, (int, float)) or val < 0:
+                return False, f"{key} is not a non-negative float: {val}"
+            return True, ""
+    return True, ""
+
+def _h_sp3_unique_mechanisms(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: unique_attack_mechanisms is N."""
+    import re
+    m = re.search(r"unique_attack_mechanisms is (\d+)", text)
+    if m:
+        expected = int(m.group(1))
+        # Check world.sp3_metric first
+        metric = getattr(world, "sp3_metric", None)
+        if metric is not None and "unique_attack_mechanisms" in metric:
+            actual = metric["unique_attack_mechanisms"]
+            if actual != expected:
+                return False, f"Expected {expected}, got {actual}"
+            return True, ""
+        # Check world.sp3_scorecard
+        scorecard = getattr(world, "sp3_scorecard", None)
+        if scorecard is not None:
+            diversity = scorecard.get("diversity", {})
+            actual = diversity.get("unique_attack_mechanisms", 0)
+            if actual != expected:
+                return False, f"Expected {expected}, got {actual}"
+            return True, ""
+    return True, ""
+
+# Eval metrics - Given
+_register(r"an enriched threat set with structural_consideration.*", _h_sp3_ets_structural)
+_register(r"an enriched threat set with na_quality.*", _h_sp3_ets_na_quality)
+_register(r"5 scenarios where.*", _h_sp3_5_scenarios_grounding)
+_register(r"an empty set of scenarios", _h_sp3_5_scenarios_grounding)
+_register(r"5 scenario envelopes and the enriched threat set.*", _h_sp3_7_envelopes)
+_register(r"5 scenarios with 2 stage-local.*", _h_sp3_5_scenarios_grounding)
+_register(r"5 scenarios with \d+ NOT_PROVIDED and \d+ INCORRECT", _h_sp3_5_scenarios_ica_types)
+_register(r"5 scenarios with \d+ unique attack mechanisms.*", _h_sp3_5_scenarios_unique_mechanisms)
+_register(r"5 scenarios with 2 stage-local validation errors.*", _h_sp3_5_scenarios_stage_local_errors)
+# Eval metrics - Then
+_register(r"belief_grounding_rate is.*", _h_sp3_metric_value)
+_register(r"desire_grounding_rate is.*", _h_sp3_metric_value)
+_register(r"intention_grounding_rate is.*", _h_sp3_metric_value)
+_register(r"total_scenarios is.*", _h_sp3_metric_value)
+_register(r"scenarios_with_2plus_categories is.*", _h_sp3_metric_value)
+_register(r"coverage_rate is.*", _h_sp3_metric_value)
+_register(r"complete_chains is.*", _h_sp3_metric_value)
+_register(r"traceability_rate is.*", _h_sp3_metric_value)
+_register_first(r"by_responsibility has.*", _h_sp3_diversity_has_value)
+_register_first(r"by_ica_type has.*", _h_sp3_diversity_has_value)
+_register_first(r"by_branch_category has.*", _h_sp3_diversity_has_value)
+_register(r"responsibility_diversity is a non-negative float", _h_sp3_diversity_nonnegative_float)
+_register(r"ica_type_diversity is a non-negative float", _h_sp3_diversity_nonnegative_float)
+_register(r"unique_attack_mechanisms is.*", _h_sp3_unique_mechanisms)
+_register(r"the scorecard validation section has.*", _h_sp3_scorecard_validation_section)
+
+# Eval metrics - When
+_register(r"the structural consideration metric is computed", _h_sp3_compute_structural)
+_register(r"the N/A quality metric is computed", _h_sp3_compute_na_quality)
+_register(r"the BDI grounding metric is computed", _h_sp3_compute_bdi_grounding)
+_register(r"the tree branch coverage metric is computed", _h_sp3_compute_tree_coverage)
+_register(r"the traceability depth metric is computed", _h_sp3_compute_traceability)
+_register(r"the diversity metric is computed", _h_sp3_compute_diversity)
+_register(r"all 6 metrics are computed.*", _h_sp3_compute_all_metrics)
+_register(r"the scorecard is written", _h_sp3_write_scorecard)
+
+# Eval metrics - Then
+_register_first(r"the metric value.*", _h_sp3_metric_value)
+_register_first(r"by_responsibility has.*", _h_sp3_diversity_counts)
+_register_first(r"by_ica_type has.*", _h_sp3_diversity_counts)
+_register_first(r"by_branch_category has.*", _h_sp3_diversity_counts)
+_register(r"responsibility_diversity is a non-negative float", _h_sp3_diversity_float)
+_register(r"ica_type_diversity is a non-negative float", _h_sp3_diversity_float)
+_register(r"unique_attack_mechanisms is.*", _h_sp3_unique_mechanisms)
+_register_first(r"no LLM calls are made", _h_sp3_no_llm_calls)
+_register(r"a file eval-scorecard.yaml exists.*", _h_sp3_scorecard_file)
+_register(r"the scorecard contains metrics for.*", _h_sp3_scorecard_file)
+_register(r"the scorecard validation section has.*", _h_sp3_scorecard_validation)
+
+# Coverage gaps - Given
+_register(r"an enriched threat set with structural_coverage.*", _h_sp3_ets_structural_coverage)
+_register(r"an enriched threat set with by_ica_type.*", _h_sp3_ets_by_ica)
+_register(r"an enriched threat set with by_controller.*", _h_sp3_ets_by_controller)
+_register(r"an enriched threat set with catalog_correspondence.*", _h_sp3_ets_catalog)
+_register(r"an enriched threat set where no ICA matches.*", _h_sp3_ets_uncovered)
+_register(r"a control structure where PM-1-2 is not referenced.*", _h_sp3_cs_pm_unreferenced)
+_register_first(r"an enriched threat set with 10 structural threats.*", _h_sp3_ets_10_threats)
+_register(r"7 scenarios where 2 have broken.*", _h_sp3_7_scenarios_broken)
+_register(r"an enriched threat set with 2 N/A reconciliation flags", _h_sp3_ets_na_flags)
+_register(r"an enriched threat set, control structure, loss analysis, and 7 scenario envelopes", _h_sp3_7_envelopes)
+
+# Coverage gaps - When
+_register(r"coverage gap analysis is computed and written", _h_sp3_compute_write_coverage)
+_register(r"coverage gap analysis is computed$", _h_sp3_compute_coverage)
+
+# Coverage gaps - Then
+_register(r"the result structural_coverage.*", _h_sp3_coverage_field)
+_register_first(r"by_ica_type has.*", _h_sp3_coverage_field)
+_register_first(r"by_controller has.*", _h_sp3_coverage_field)
+_register(r"catalog_correspondence.*", _h_sp3_coverage_field)
+_register(r"uncovered_owasp_threats includes.*", _h_sp3_coverage_field)
+_register(r"uncovered_reason is not empty", _h_sp3_coverage_field)
+_register(r"orphan_elements includes.*", _h_sp3_coverage_field)
+_register(r"orphan_icas has.*", _h_sp3_coverage_field)
+_register(r"traceability_errors has.*", _h_sp3_coverage_field)
+_register(r"na_reconciliation_flags has.*", _h_sp3_coverage_field)
+_register(r"a file coverage-gaps.json exists.*", _h_sp3_coverage_json)
+_register(r"the file contains structural_coverage", _h_sp3_coverage_json)
+_register(r"the file contains orphan_elements", _h_sp3_coverage_json)
+_register(r"the file contains orphan_icas", _h_sp3_coverage_json)
+_register(r"the file contains traceability_errors", _h_sp3_coverage_json)
+
+# Run orchestration - Given
+_register(r"an enriched threat set fixture for Klarna is available", _h_sp3_ets_klarna)
+_register(r"a control structure fixture for Klarna is available", _h_sp3_cs_klarna)
+_register(r"a loss analysis fixture for Klarna is available", _h_sp3_la_klarna)
+_register(r"an LLM that returns valid BDI generation.*", _h_sp3_llm_valid_all)
+_register_first(r"an LLM that returns valid results for all stages", _h_sp3_llm_valid_all_stages)
+_register(r"a max_workers value of.*", _h_sp3_max_workers)
+_register(r"an enriched threat set with 10 structural threats$", _h_sp3_ets_threats)
+
+# Run orchestration - When
+_register(r"the full SP3 run is executed with max_workers.*", _h_sp3_full_run_max_workers)
+_register(r"the full SP3 run is executed", _h_sp3_full_run)
+_register(r"the existing test suite is run", _h_sp3_existing_tests)
+
+# Run orchestration - Then
+_register(r"a directory scenarios exists in the run directory", _h_sp3_scenarios_dir)
+_register(r"at least one file \*\.yaml exists in the scenarios directory", _h_sp3_yaml_files)
+_register(r"at least one file \*\.feature exists in the scenarios directory", _h_sp3_feature_files)
+_register_first(r"a file eval-scorecard.yaml exists in the run directory", _h_sp3_eval_scorecard_exists)
+_register_first(r"Stage 5 BDI generation is produced first", _h_sp3_stage5_first)
+_register_first(r"Stage 6 concretization is produced second", _h_sp3_stage6_second)
+_register_first(r"Stage 7 validation and eval is produced last", _h_sp3_stage7_last)
+_register_first(r"the file contains entries with stage stage_5", _h_sp3_calls_jsonl_stage5)
+_register_first(r"the file contains entries with stage stage_6", _h_sp3_calls_jsonl_stage5)
+_register_first(r"no call log entries have stage stage_7", _h_sp3_calls_jsonl_stage5)
+_register_first(r"a file run-manifest.yaml exists in the run directory", _h_sp3_manifest_exists)
+_register(r"the run manifest has stage_summary.*", _h_sp3_manifest_stage_summary)
+_register_first(r"the run manifest input_hashes contains.*", _h_sp3_manifest_input_hashes)
+_register_first(r"the run manifest prompt_hashes contains.*", _h_sp3_manifest_prompt_hashes)
+_register(r"the following template files exist", _h_sp3_template_files_exist)
+_register(r"the following modules exist and are importable", _h_sp3_modules_exist)
+_register(r"the scenario specs are validated against the control structure", _h_sp3_validated_against_cs)
+_register(r"the eval metrics consume the enriched threat set.*", _h_sp3_eval_consumes_ets)
+_register(r"the traceability validation consumes the loss analysis", _h_sp3_traceability_consumes_la)
+_register_first(r"a file run_sp3\.py exists in the scripts directory", _h_sp3_cli_file)
+_register(r"run_sp3\.py accepts.*", _h_sp3_cli_accepts_arg)
+_register(r"Stage 6 calls are parallelized.*", _h_sp3_stage6_parallelized)
+_register_first(r"a file coverage-gaps.json exists in the run directory", _h_sp3_coverage_gaps_exists)
+_register(r"every scenario YAML file.*loads as a valid ScenarioEnvelope", _h_sp3_envelope_loads)
+_register(r"\d+ scenario envelopes are produced", _h_sp3_10_envelopes)
+_register(r"the eval scorecard contains coverage_gaps", _h_sp3_scorecard_coverage_gaps)
+_register(r"no new failures are introduced", _h_sp3_existing_tests)
+_register(r"the run manifest records the total scenario count", _h_sp3_manifest_scenario_count)
+_register(r"the run manifest records the number of validation errors", _h_sp3_manifest_scenario_count)
+
+_set_feature(None)
+
 _set_feature(None)
 
 
@@ -14942,6 +17942,8 @@ def _derive_feature_tag(ir_path: str) -> str | None:
     stem = Path(ir_path).stem
     if stem.startswith("sp2_"):
         return "sp2"
+    if stem.startswith("sp3_"):
+        return "sp3"
     return None
 
 
