@@ -150,6 +150,44 @@ def _setup_mock_client(num_threats: int = 2) -> MockLLMClient:
 class TestFullRun:
     """SP3-RUN-01 through SP3-RUN-20."""
 
+    def test_nested_run_dir_created(self):
+        """run_sp3 must create nested run_dir that doesn't exist yet."""
+        cs = _make_cs()
+        la = _make_loss_analysis()
+        ets = _make_ets(num_threats=1)
+        client = _setup_mock_client(1)
+
+        with TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "nested" / "deep" / "rundir"
+            result = run_sp3(
+                llm_client=client,
+                enriched_threat_set=ets,
+                control_structure=cs,
+                loss_analysis=la,
+                run_dir=run_dir,
+            )
+            assert len(result.scenario_envelopes) == 1
+            assert run_dir.exists()
+
+    def test_pre_existing_dirs_handled(self):
+        """run_sp3 must not fail when run_dir and scenarios/ already exist."""
+        cs = _make_cs()
+        la = _make_loss_analysis()
+        ets = _make_ets(num_threats=1)
+        client = _setup_mock_client(1)
+
+        with TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            (run_dir / "scenarios").mkdir(parents=True, exist_ok=True)
+            result = run_sp3(
+                llm_client=client,
+                enriched_threat_set=ets,
+                control_structure=cs,
+                loss_analysis=la,
+                run_dir=run_dir,
+            )
+            assert len(result.scenario_envelopes) == 1
+
     def test_produces_scenario_envelopes_and_scorecard(self):
         cs = _make_cs()
         la = _make_loss_analysis()

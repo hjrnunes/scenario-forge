@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=e0f7feddd6539dfa75861f3a7c565fc1376942aac34fdfe5fec1783a1924a1a3
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T10:49:25.739395Z","feature_name":"SP3 Stage 6 Call B — Attack tree","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp3_attack_tree.feature","background_hash":"51ef595ce212d9b5440fcaf572995eec3ed642faaab4697994f0ff764100a0da","implementation_hash":"unknown","scenarios":[{"index":3,"name":"SP3-TREE-04 hard template includes sub-branches under each category","scenario_hash":"d95adf540956b05b5d49d8e1065ca2e1514e6deed869fe512248adf78d48973e","mutation_count":18,"result":{"Total":18,"Killed":18,"Survived":0,"Errors":0},"tested_at":"2026-08-10T10:49:25.739395Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP3 Stage 6 Call B — Attack tree
   The attack tree uses a hard STPA two-level causal taxonomy with 3 branch
   categories: controller-side causes, path-side causes, and coordination gap.

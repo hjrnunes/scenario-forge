@@ -378,3 +378,7 @@ class TestGenerateScenarioId:
         assert generate_scenario_id(0) == "SCN-001"
         assert generate_scenario_id(9) == "SCN-010"
         assert generate_scenario_id(99) == "SCN-100"
+
+    def test_default_index_is_zero(self):
+        """Default index must be 0 so that the first scenario is SCN-001."""
+        assert generate_scenario_id() == "SCN-001"

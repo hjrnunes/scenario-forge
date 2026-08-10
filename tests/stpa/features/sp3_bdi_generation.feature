@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=6497c7b045be784f9dbc4b3452ed2159b86970bf9a7c4d80da600fecbe965073
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T10:49:08.738816Z","feature_name":"SP3 Stage 5 — Dual-BDI scenario specification","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp3_bdi_generation.feature","background_hash":"9031378c9d2d2724532b6ffb9a52128b1bebc278ec312c6c1e6dcd7dc960c6d5","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: SP3 Stage 5 — Dual-BDI scenario specification
   Stage 5 produces a ScenarioSpec per structural threat. The defender BDI is
   deterministically pre-populated from the control structure (PM→beliefs,

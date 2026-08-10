@@ -124,3 +124,8 @@ def build_gherkin_prompts(
     )
 
     return system_prompt, user_prompt
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T10:21:25Z","module_hash":"f5efaa5a10c4566a70833888daf882585e30e198dc24f7aa049a16761a0900ab","functions":[{"id":"func/generate_gherkin","name":"generate_gherkin","line":23,"end_line":68,"hash":"9c62469037b5a15c9627b0ee7ef126cf11915297c1736f16edea1609934bbfca"},{"id":"func/find_security_constraint","name":"find_security_constraint","line":71,"end_line":83,"hash":"84567bf4637b14b8cf301f46d81d9a7c5dba9cbf59bd92219ab128d599483bab"},{"id":"func/build_gherkin_prompts","name":"build_gherkin_prompts","line":86,"end_line":126,"hash":"c4146c83136223c8e6a4bd8137808d064797277be454d65a26d94e318d9de5f6"}]}
+# mutate4py-manifest-end

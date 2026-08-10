@@ -634,6 +634,13 @@ class TestShannonEntropyProperty:
         """All-zero counts gives entropy = 0."""
         assert _shannon_entropy({"a": 0, "b": 0}) == 0.0
 
+    def test_count_of_one_contributes(self):
+        """A category with count=1 must contribute to entropy."""
+        counts = {"a": 1, "b": 1}
+        entropy = _shannon_entropy(counts)
+        expected = round(1.0, 6)  # log2(2) = 1.0
+        assert abs(entropy - expected) < 1e-5
+
 
 # ---------------------------------------------------------------------------
 # Safe rate property tests

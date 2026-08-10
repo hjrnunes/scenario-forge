@@ -283,7 +283,18 @@ class TestTraceabilityDepth:
         ets = _make_enriched_threat_set()
         result = metric_traceability_depth([], ets, cs, la)
         assert result["total_scenarios"] == 0
+        assert result["complete_chains"] == 0
         assert result["traceability_rate"] == 0
+
+    def test_single_scenario_computed(self):
+        """A single scenario must be computed, not short-circuited."""
+        cs = _make_cs()
+        la = _make_loss_analysis()
+        ets = _make_enriched_threat_set()
+        env = _make_envelope(spec=_make_scenario_spec())
+        result = metric_traceability_depth([env], ets, cs, la)
+        assert result["total_scenarios"] == 1
+        assert result["complete_chains"] >= 0
 
 
 class TestDiversity:

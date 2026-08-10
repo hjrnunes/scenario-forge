@@ -228,6 +228,13 @@ class TestVulnerabilityCompleteness:
         assert not result.passed
         assert any("vulnerability" in e for e in result.errors)
 
+    def test_fails_on_whitespace_only_vulnerability(self):
+        """Whitespace-only vulnerability must be treated as empty."""
+        spec = _make_scenario_spec(vulnerability="   ")
+        result = validate_vulnerability_completeness(spec)
+        assert not result.passed
+        assert any("vulnerability" in e for e in result.errors)
+
     def test_passes_with_all_filled(self):
         spec = _make_scenario_spec(vulnerability="exploitable via injection")
         result = validate_vulnerability_completeness(spec)
@@ -405,6 +412,25 @@ class TestOrphanDetection:
         ets = _make_enriched_threat_set(threats=[threat])
         orphans = detect_orphan_elements(cs, ets)
         assert "PM-1-2" in orphans
+
+    def test_no_false_positive_orphans_for_referenced_elements(self):
+        """Referenced resp/ca must not be flagged as orphans."""
+        cs = _make_cs()
+        threat = _make_threat()
+        ets = _make_enriched_threat_set(threats=[threat])
+        orphans = detect_orphan_elements(cs, ets)
+        assert "RESP-1" not in orphans
+        assert "CA-1-1" not in orphans
+
+    def test_collects_ids_from_two_part_slot_id(self):
+        """A 2-part slot ID must still yield resp and ca references."""
+        cs = _make_cs()
+        threat = _make_threat()
+        threat = threat.model_copy(update={"ica_slot_id": "RESP-1:CA-1-1"})
+        ets = _make_enriched_threat_set(threats=[threat])
+        orphans = detect_orphan_elements(cs, ets)
+        assert "RESP-1" not in orphans
+        assert "CA-1-1" not in orphans
 
     def test_finds_orphan_icas(self):
         threats = [_make_threat(ica_id=f"RESP-1:CA-1-1:NOT_PROVIDED:{i}") for i in range(1, 6)]

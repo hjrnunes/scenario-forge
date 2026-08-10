@@ -287,3 +287,8 @@ def assemble_scenario_spec(
         catalog_context=threat.catalog_mappings,
         loss_scenario=threat.loss_scenario,
     )
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T10:38:57Z","module_hash":"242c523e26a60ac7f34fa981de08222a17f65c2117fa68f5c8818ee0c5f9c348","functions":[{"id":"func/generate_scenario_id","name":"generate_scenario_id","line":52,"end_line":61,"hash":"530efa395a985f80bec7697e91e2a58ea143f9407ee1e32542f30b6fc43b8348"},{"id":"func/parse_ica_slot_id","name":"parse_ica_slot_id","line":64,"end_line":84,"hash":"a414c48cebfc7adc3589764e920f3181d7eccc71a3a5f86880cb39b36b221670"},{"id":"func/populate_defender_bdi","name":"populate_defender_bdi","line":87,"end_line":132,"hash":"f1beb2a9519da247cf720b1a6f684bb3d46c2e8d8e3405337b0e9f6cfe66ec4f"},{"id":"func/_find_responsibility","name":"_find_responsibility","line":135,"end_line":145,"hash":"d049061f7dd1686e0e9cb5a856b073db342800b7a83098911ba067f75c94b415"},{"id":"func/generate_bdi","name":"generate_bdi","line":148,"end_line":198,"hash":"6a1d40e8c999019d59f36aae719523285c285291c06606948e2115d2686800ed"},{"id":"func/_build_bdi_prompts","name":"_build_bdi_prompts","line":201,"end_line":240,"hash":"b2b020f7bf29868f31347ce6232fd8c0d5365368978f06d6244bb214e1433866"},{"id":"func/assemble_scenario_spec","name":"assemble_scenario_spec","line":243,"end_line":289,"hash":"dc3abfa5cb86f9cfe4dab0414493baef561212a0fe62f7766e9291bc4fd916c9"}]}
+# mutate4py-manifest-end
