@@ -146,28 +146,90 @@ def _apply_gherkin_keyword_highlight(escaped: str) -> str:
 
 
 def _highlight_gherkin(text: str) -> str:
-    """Syntax-highlight Gherkin text.
+    """Render Gherkin as structured HTML with styled step rows.
 
-    Given=blue, When=purple, Then=green, But=red, And=indigo.
-    Comments (#) are muted; tags (@) are amber.
+    Parses Gherkin text line-by-line and produces flexbox step rows
+    with colored keyword labels (matching the non-STPA report style).
     """
-    lines = text.split("\n")
+    if not text:
+        return ""
+    lines = text.strip().split("\n")
     result: list[str] = []
+    in_docstring = False
+    docstring_lines: list[str] = []
+
     for line in lines:
-        escaped = _esc(line)
-        if escaped.strip().startswith("#"):
-            result.append(f'<span class="gherkin-comment">{escaped}</span>')
+        stripped = line.strip()
+
+        if stripped.startswith('"""') and not in_docstring:
+            in_docstring = True
+            remainder = stripped[3:]
+            docstring_lines = [remainder] if remainder else []
             continue
-        if escaped.strip().startswith("@"):
-            result.append(f'<span class="gherkin-tag">{escaped}</span>')
+        if in_docstring:
+            if stripped.endswith('"""'):
+                remainder = stripped[:-3]
+                if remainder:
+                    docstring_lines.append(remainder)
+                ds_text = "\n".join(docstring_lines).strip()
+                result.append(f'<div class="step-docstring">"""\n{_esc(ds_text)}\n"""</div>')
+                in_docstring = False
+                docstring_lines = []
+            else:
+                docstring_lines.append(stripped)
             continue
-        escaped = _apply_gherkin_keyword_highlight(escaped)
-        if "&quot;&quot;&quot;" in escaped:
-            escaped = escaped.replace(
-                "&quot;&quot;&quot;",
-                '<span class="gherkin-string">&quot;&quot;&quot;</span>',
+
+        if stripped.startswith("@"):
+            result.append(f'<div class="gherkin-tag-line">{_esc(stripped)}</div>')
+            continue
+        if stripped.startswith("#"):
+            result.append(f'<div class="gherkin-comment-line">{_esc(stripped)}</div>')
+            continue
+        if not stripped:
+            continue
+
+        keyword = None
+        step_text = stripped
+        step_class = ""
+
+        for kw, cls in [
+            ("Feature:", ""),
+            ("Background:", ""),
+            ("Scenario:", ""),
+            ("Scenario Outline:", ""),
+            ("Given ", "step-given"),
+            ("When ", "step-when"),
+            ("And ", "step-and"),
+            ("Then ", "step-then"),
+            ("But ", "step-but"),
+            ("* ", "step-star"),
+        ]:
+            if stripped.startswith(kw):
+                keyword = kw.strip().rstrip(":")
+                step_text = stripped[len(kw):].strip()
+                step_class = cls
+                break
+
+        if not keyword:
+            result.append(
+                f'<div style="padding:4px 14px 4px 70px;font-size:13px;color:var(--text-secondary);">{_esc(stripped)}</div>'
             )
-        result.append(escaped)
+            continue
+
+        if keyword in ("Feature", "Background", "Scenario", "Scenario Outline"):
+            result.append(
+                f'<div style="padding:10px 0 6px;font-size:14px;font-weight:700;color:var(--text-primary);">'
+                f'<span style="color:var(--accent);">{_esc(keyword)}:</span> {_esc(step_text)}</div>'
+            )
+            continue
+
+        result.append(
+            f'<div class="feature-step {step_class}">'
+            f'<span class="step-keyword">{_esc(keyword)}</span> '
+            f'<span class="step-text">{_esc(step_text)}</span>'
+            f'</div>'
+        )
+
     return "\n".join(result)
 
 
@@ -223,7 +285,7 @@ body {
   color: var(--text-primary);
   line-height: 1.6;
 }
-.container { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+.container { max-width: 1400px; margin: 0 auto; padding: 40px 24px 80px; }
 
 /* Hero */
 .hero {
@@ -293,7 +355,7 @@ body {
   color: var(--text-secondary); font-size: 11px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border);
 }
-.data-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.data-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; word-break: break-word; overflow-wrap: break-word; }
 .data-table tr:hover td { background: var(--bg-card-hover); }
 
 /* Zone chips */
@@ -335,18 +397,39 @@ body {
 /* Narrative */
 .narrative-text { font-size: 13px; line-height: 1.7; color: var(--text-secondary); white-space: pre-wrap; }
 
-/* Attack tree */
+/* Attack tree — expandable node rendering */
 .attack-tree { font-size: 13px; }
-.attack-tree-node {
+.attack-tree > details > summary,
+.attack-tree > .tree-leaf {
+  margin-left: 0;
+}
+.attack-tree details {
   margin-left: 20px; border-left: 2px solid var(--border); padding-left: 14px;
   margin-bottom: 4px;
 }
-.attack-tree-node.connector::before {
-  content: ''; display: inline-block; width: 10px; height: 2px;
-  background: var(--border); margin-left: -14px; margin-right: 4px; vertical-align: middle;
+.attack-tree details > summary {
+  cursor: pointer; padding: 8px 12px; list-style: none;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.attack-tree details > summary::-webkit-details-marker { display: none; }
+.attack-tree details > summary::before {
+  content: '\25B6'; font-size: 8px; color: var(--text-muted); transition: transform 0.2s;
+}
+.attack-tree details[open] > summary::before { transform: rotate(90deg); }
+.attack-tree .tree-leaf {
+  margin-left: 20px; border-left: 2px solid var(--border);
+  padding: 8px 12px 8px 16px; margin-bottom: 4px;
+  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
 }
 .tree-node-label { color: var(--text-primary); }
-.tree-node-details { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.tree-node-details { font-size: 11px; color: var(--text-muted); margin-top: 4px; width: 100%; padding-left: 40px; }
+.cat-badge {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+  border-radius: 4px; font-size: 10px; font-weight: 600;
+}
+.cat-badge.controller_side { background: rgba(59,130,246,0.2); color: #60a5fa; }
+.cat-badge.path_side { background: rgba(34,197,94,0.2); color: #4ade80; }
+.cat-badge.coordination_gap { background: rgba(249,115,22,0.2); color: #fb923c; }
 .gate-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 28px; height: 20px; padding: 0 6px; border-radius: 4px;
@@ -360,22 +443,36 @@ body {
 .cat-coordination_gap { border-left-color: var(--orange); }
 .tree-empty { font-size: 13px; color: var(--text-muted); font-style: italic; padding: 12px; }
 
-/* Gherkin highlighting */
-.step-given { color: #3b82f6; font-weight: 700; }
-.step-when { color: #8b5cf6; font-weight: 700; }
-.step-then { color: #22c55e; font-weight: 700; }
-.step-but { color: #ef4444; font-weight: 700; }
-.step-and { color: #6366f1; font-weight: 700; }
-.step-star { color: #f59e0b; font-weight: 700; }
-.gherkin-keyword { color: #60a5fa; font-weight: 700; }
-.gherkin-tag { color: #f59e0b; }
-.gherkin-string { color: #a78bfa; }
-.gherkin-comment { color: #4b5563; font-style: italic; }
+/* Gherkin behavior spec — structured step rendering */
+.feature-spec { font-size: 13px; }
 .gherkin-block {
   background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px;
-  padding: 14px; font-family: monospace; font-size: 12px; line-height: 1.6;
-  white-space: pre-wrap; word-break: break-word; overflow-x: auto;
+  padding: 14px; line-height: 1.6; overflow-x: auto;
 }
+.feature-step {
+  padding: 10px 14px; border-radius: 6px; margin-bottom: 6px;
+  display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+}
+.step-keyword {
+  font-weight: 700; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.3px; min-width: 60px; flex-shrink: 0;
+}
+.step-text { color: var(--text-primary); flex: 1; min-width: 200px; }
+.step-given { background: rgba(59,130,246,0.08); border-left: 3px solid #3b82f6; }
+.step-given .step-keyword { color: #3b82f6; }
+.step-when { background: rgba(139,92,246,0.08); border-left: 3px solid #8b5cf6; }
+.step-when .step-keyword { color: #8b5cf6; }
+.step-then { background: rgba(34,197,94,0.08); border-left: 3px solid #22c55e; }
+.step-then .step-keyword { color: #22c55e; }
+.step-but { background: rgba(239,68,68,0.08); border-left: 3px solid #ef4444; }
+.step-but .step-keyword { color: #ef4444; }
+.step-and { background: rgba(99,102,241,0.08); border-left: 3px solid #6366f1; }
+.step-and .step-keyword { color: #6366f1; }
+.step-star { background: rgba(245,158,11,0.08); border-left: 3px solid #f59e0b; }
+.step-star .step-keyword { color: #f59e0b; }
+.step-docstring { padding: 8px 14px; font-size: 12px; color: var(--text-muted); font-style: italic; white-space: pre-wrap; }
+.gherkin-tag-line { padding: 4px 14px; font-size: 12px; color: #f59e0b; }
+.gherkin-comment-line { padding: 4px 14px; font-size: 12px; color: #4b5563; font-style: italic; }
 
 /* YAML highlighting */
 .yaml-key { color: #60a5fa; }
@@ -700,13 +797,20 @@ def _build_sp1_capability_section(capability_profile: Any, kc_display: dict[str,
     if kcs:
         parts.append('    <div class="kc-list" style="margin-top:12px;">')
         for kc in kcs:
-            label = (kc_display or {}).get(kc, kc)
-            parts.append(
-                f'      <div class="kc-item" style="margin-bottom:4px;">'
-                f'<code style="color:var(--accent);font-weight:600;">{_esc(kc)}</code>'
-                f' — <span style="color:var(--text-secondary);font-size:12px;">{_esc(label)}</span>'
-                f'</div>'
-            )
+            label = (kc_display or {}).get(kc, "")
+            if label and label != kc:
+                parts.append(
+                    f'      <div class="kc-item" style="margin-bottom:4px;">'
+                    f'<code style="color:var(--accent);font-weight:600;">{_esc(kc)}</code>'
+                    f' — <span style="color:var(--text-secondary);font-size:12px;">{_esc(label)}</span>'
+                    f'</div>'
+                )
+            else:
+                parts.append(
+                    f'      <div class="kc-item" style="margin-bottom:4px;">'
+                    f'<code style="color:var(--accent);font-weight:600;">{_esc(kc)}</code>'
+                    f'</div>'
+                )
         parts.append('    </div>')
     parts.append('</div>')
     return "\n".join(parts)
@@ -874,7 +978,7 @@ def _has_tree_content(root: str, branches: list, leaves: list) -> bool:
 
 
 def _build_attack_tree_visual(tree_dict: dict | None) -> str:
-    """Build a visual attack tree from nested dict structure.
+    """Build a visual attack tree using expandable details nodes.
 
     The tree dict has:
       - root: str (the root goal)
@@ -893,9 +997,10 @@ def _build_attack_tree_visual(tree_dict: dict | None) -> str:
 
     if root:
         parts.append(
-            f'  <div class="attack-tree-node connector">'
-            f'<span class="gate-badge gate-or">OR</span>'
-            f'<span class="tree-node-label">{_esc(root)}</span></div>'
+            f'  <details open><summary>'
+            f'<span class="gate-badge gate-or">&or;</span>'
+            f'<span class="tree-node-label">{_esc(root)}</span>'
+            f'</summary>'
         )
 
     for branch in branches:
@@ -903,30 +1008,41 @@ def _build_attack_tree_visual(tree_dict: dict | None) -> str:
 
     for leaf in leaves:
         parts.append(
-            f'  <div class="attack-tree-node connector">'
-            f'<span class="gate-badge gate-leaf">LEAF</span>'
+            f'  <div class="tree-leaf">'
+            f'<span class="gate-badge gate-leaf">&bull;</span>'
             f'<span class="tree-node-label">{_esc(leaf)}</span></div>'
         )
 
+    if root:
+        parts.append('  </details>')
+
     parts.append('</div>')
     return "\n".join(parts)
+
+
+_CAT_DISPLAY = {
+    "controller_side": "Controller",
+    "path_side": "Path",
+    "coordination_gap": "Coordination",
+}
 
 
 def _build_tree_branch_node(branch: dict) -> list[str]:
     """Build HTML for a single branch node with its children."""
     category = branch.get("category", "")
     label = branch.get("label", "")
-    cat_class = f"cat-{category}" if category else ""
+    cat_display = _CAT_DISPLAY.get(category, category)
     parts: list[str] = [
-        f'  <div class="attack-tree-node connector {cat_class}" '
-        f'data-category="{_esc(category)}">'
-        f'<span class="gate-badge gate-and">AND</span>'
+        f'  <details open><summary>'
+        f'<span class="gate-badge gate-and">&and;</span>'
+        f'<span class="cat-badge {category}">{_esc(cat_display)}</span>'
         f'<span class="tree-node-label">{_esc(label)}</span>'
+        f'</summary>'
     ]
     children = branch.get("children", []) or []
     for child in children:
         parts.extend(_render_tree_child(child))
-    parts.append('  </div>')
+    parts.append('  </details>')
     return parts
 
 
@@ -939,19 +1055,20 @@ def _render_tree_child(child: dict) -> list[str]:
 
     if children:
         parts.append(
-            f'  <div class="attack-tree-node connector">'
+            f'  <details open><summary>'
             f'<span class="tree-node-label">{_esc(label)}</span>'
+            f'</summary>'
         )
         for sub in children:
             parts.extend(_render_tree_child(sub))
-        parts.append('  </div>')
+        parts.append('  </details>')
     else:
         details_html = ""
         if details:
             details_html = f'<div class="tree-node-details">{_esc(details)}</div>'
         parts.append(
-            f'  <div class="attack-tree-node connector">'
-            f'<span class="gate-badge gate-leaf">LEAF</span>'
+            f'  <div class="tree-leaf">'
+            f'<span class="gate-badge gate-leaf">&bull;</span>'
             f'<span class="tree-node-label">{_esc(label)}</span>'
             f'{details_html}</div>'
         )
