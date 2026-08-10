@@ -8,6 +8,7 @@ controller_side, path_side, coordination_gap.
 from __future__ import annotations
 
 import json
+import re
 import yaml
 from pathlib import Path
 
@@ -20,6 +21,12 @@ from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 from ._constants import PROMPTS_DIR
 
 __all__ = ["generate_attack_tree", "build_attack_tree_prompts", "parse_attack_tree"]
+
+# Matches markdown code fences: ```json ... ``` or ```yaml ... ``` or ``` ... ```
+_CODE_FENCE_RE = re.compile(
+    r"```(?:[a-zA-Z]+)?\s*\n(.*?)\n\s*```",
+    re.DOTALL,
+)
 
 
 def generate_attack_tree(
@@ -76,7 +83,8 @@ def generate_attack_tree(
 def parse_attack_tree(content) -> dict | None:
     """Parse LLM response content into an attack tree dict.
 
-    Handles dicts, JSON strings, and YAML strings.
+    Handles dicts, JSON strings, and YAML strings. Strips markdown
+    code fences (```json ... ``` or ```yaml ... ```) before parsing.
 
     Args:
         content: The LLM response content (string or dict).
@@ -88,7 +96,20 @@ def parse_attack_tree(content) -> dict | None:
         return content
     if not isinstance(content, str):
         return None
-    return _parse_tree_text(content)
+    return _parse_tree_text(_strip_code_fences(content))
+
+
+def _strip_code_fences(text: str) -> str:
+    """Extract content from markdown code fences.
+
+    If the text contains a fenced block (```json ... ``` or ```yaml ... ```
+    or ``` ... ```), return the inner content. Otherwise return the
+    original text unchanged.
+    """
+    match = _CODE_FENCE_RE.search(text)
+    if match:
+        return match.group(1).strip()
+    return text
 
 
 def _parse_tree_text(text: str) -> dict | None:

@@ -298,6 +298,37 @@ class TestAttackTree:
         """YAML that parses to a list (not dict) returns None."""
         assert parse_attack_tree("- a\n- b\n") is None
 
+    def test_parse_attack_tree_json_in_code_fence(self):
+        """JSON wrapped in markdown code fence is parsed correctly."""
+        tree = {"root": "r", "branches": [], "leaves": []}
+        fenced = f"```json\n{json.dumps(tree)}\n```"
+        assert parse_attack_tree(fenced) == tree
+
+    def test_parse_attack_tree_yaml_in_code_fence(self):
+        """YAML wrapped in markdown code fence is parsed correctly."""
+        fenced = "```yaml\nroot: r\nbranches: []\nleaves: []\n```"
+        result = parse_attack_tree(fenced)
+        assert result is not None
+        assert result["root"] == "r"
+
+    def test_parse_attack_tree_bare_code_fence(self):
+        """Content in a bare code fence (no language tag) is parsed."""
+        tree = {"root": "r", "branches": [], "leaves": []}
+        fenced = f"```\n{json.dumps(tree)}\n```"
+        assert parse_attack_tree(fenced) == tree
+
+    def test_parse_attack_tree_fence_with_surrounding_prose(self):
+        """Code fence surrounded by explanatory prose is parsed correctly."""
+        text = "Here is the attack tree:\n\n```yaml\nroot: r\nbranches: []\nleaves: []\n```\n\nHope this helps!"
+        result = parse_attack_tree(text)
+        assert result is not None
+        assert result["root"] == "r"
+
+    def test_parse_attack_tree_no_fence_unchanged(self):
+        """Text without code fences is parsed unchanged."""
+        tree = {"root": "r", "branches": [], "leaves": []}
+        assert parse_attack_tree(json.dumps(tree)) == tree
+
     def test_generate_attack_tree_llm_error(self):
         """LLM failure returns (None, error_message)."""
         spec = _make_scenario_spec()
