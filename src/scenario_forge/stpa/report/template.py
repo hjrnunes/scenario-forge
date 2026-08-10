@@ -356,6 +356,7 @@ body {
   text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border);
 }
 .data-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; word-break: break-word; overflow-wrap: break-word; }
+.data-table td:first-child { white-space: nowrap; word-break: normal; overflow-wrap: normal; }
 .data-table tr:hover td { background: var(--bg-card-hover); }
 
 /* Zone chips */
@@ -413,7 +414,7 @@ body {
 }
 .attack-tree details > summary::-webkit-details-marker { display: none; }
 .attack-tree details > summary::before {
-  content: '\25B6'; font-size: 8px; color: var(--text-muted); transition: transform 0.2s;
+  content: '\\25B6'; font-size: 8px; color: var(--text-muted); transition: transform 0.2s;
 }
 .attack-tree details[open] > summary::before { transform: rotate(90deg); }
 .attack-tree .tree-leaf {
@@ -1209,12 +1210,15 @@ def _build_scenario_envelope_body(envelope: Any) -> list[str]:
     attack_tree = getattr(envelope, "attack_tree", None)
     tab_contents.append(("attack_tree", _build_attack_tree_visual(attack_tree)))
 
-    # Gherkin tab
-    gherkin_text = getattr(envelope, "gherkin_raw", None) or ""
+    # Gherkin tab — prefer the structured spec's rendered feature text
+    # (guaranteed valid Gherkin syntax); gherkin_raw is the raw LLM
+    # response (often YAML), used only when the spec failed to parse.
+    gherkin_text = ""
+    gs = getattr(envelope, "gherkin_spec", None)
+    if gs is not None and hasattr(gs, "to_feature_text") and getattr(gs, "feature", ""):
+        gherkin_text = gs.to_feature_text()
     if not gherkin_text:
-        gs = getattr(envelope, "gherkin_spec", None)
-        if gs is not None and hasattr(gs, "to_feature_text"):
-            gherkin_text = gs.to_feature_text()
+        gherkin_text = getattr(envelope, "gherkin_raw", None) or ""
     if gherkin_text:
         highlighted = _highlight_gherkin(gherkin_text)
         tab_contents.append(("gherkin",

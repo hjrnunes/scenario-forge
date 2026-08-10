@@ -838,13 +838,28 @@ class TestGherkinSpecValidationThenActualBut:
 
 
 class TestEnvelopeGherkinTextHelper:
-    """JPKW-16: _envelope_gherkin_text extracts text correctly."""
+    """JPKW-16: _envelope_gherkin_text extracts text correctly.
 
-    def test_jpkw_16_prefers_raw_when_available(self):
+    Prefers the structured spec's rendered feature text (guaranteed valid
+    Gherkin syntax) over gherkin_raw (the raw LLM response, which may be
+    YAML rather than Gherkin). Falls back to gherkin_raw only when the
+    spec failed to parse (empty feature name).
+    """
+
+    def test_jpkw_16_prefers_spec_text_when_spec_parsed(self):
         from scenario_forge.stpa.scenario_prod.run import _envelope_gherkin_text
 
-        envelope = _make_envelope(gherkin_raw="Feature: Raw text\n")
-        assert _envelope_gherkin_text(envelope) == "Feature: Raw text\n"
+        envelope = _make_envelope(gherkin_raw="feature: Raw text\nscenario: X\n")
+        assert _envelope_gherkin_text(envelope) == _make_gherkin_spec().to_feature_text()
+
+    def test_jpkw_16_falls_back_to_raw_when_spec_not_parsed(self):
+        from scenario_forge.stpa.scenario_prod.run import _envelope_gherkin_text
+
+        envelope = _make_envelope(
+            gherkin_spec=_make_gherkin_spec(feature=""),
+            gherkin_raw="feature: Raw text\nscenario: X\n",
+        )
+        assert _envelope_gherkin_text(envelope) == "feature: Raw text\nscenario: X\n"
 
     def test_jpkw_16_falls_back_to_spec_when_no_raw(self):
         from scenario_forge.stpa.scenario_prod.run import _envelope_gherkin_text

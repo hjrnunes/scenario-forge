@@ -526,14 +526,16 @@ def _extend_validation_errors(
 def _envelope_gherkin_text(envelope: ScenarioEnvelope) -> str:
     """Extract Gherkin feature text from an envelope.
 
-    Prefers ``gherkin_raw``; falls back to ``gherkin_spec.to_feature_text()``
-    when the spec is a :class:`GherkinSpec`, or empty string otherwise.
+    Prefers ``gherkin_spec.to_feature_text()`` when the spec was
+    successfully parsed (non-empty ``feature`` name) — this is guaranteed
+    valid Gherkin ``.feature`` syntax. Falls back to ``gherkin_raw`` (the
+    raw LLM response, which may be YAML rather than Gherkin) only when
+    spec parsing failed, or to an empty string when neither is available.
     """
-    return envelope.gherkin_raw or (
-        envelope.gherkin_spec.to_feature_text()
-        if isinstance(envelope.gherkin_spec, GherkinSpec)
-        else ""
-    )
+    spec = envelope.gherkin_spec
+    if isinstance(spec, GherkinSpec) and spec.feature:
+        return spec.to_feature_text()
+    return envelope.gherkin_raw or ""
 
 
 def _write_scenario_artifacts(
