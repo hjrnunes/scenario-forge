@@ -589,6 +589,29 @@ class TestInputValidation:
         result = runner.invoke(app, ["stpa-run", "--use-case", "x", "--risk-extraction", "y"])
         assert result.exit_code != 0
 
+    def test_cli_abort_exits_nonzero(self):
+        """CLI exits with code 1 when pipeline aborts due to missing artifacts."""
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            uc = _write_use_case(tmp)
+            risk = _write_risk_extraction(tmp)
+            out = tmp / "output-abort"
+
+            # SP1 returns result with control_structure=None and doesn't write it
+            sp1_result = _make_mock_sp1_result(with_control_structure=False)
+            mocks = _patch_all_stages(sp1_result=sp1_result)
+            try:
+                runner = CliRunner()
+                result = runner.invoke(app, [
+                    "stpa-run", "--use-case", str(uc),
+                    "--risk-extraction", str(risk), "--output-dir", str(out),
+                ])
+                assert result.exit_code == 1, (
+                    f"expected exit code 1 for abort, got {result.exit_code}"
+                )
+            finally:
+                _stop_patches(mocks)
+
 
 # ---------------------------------------------------------------------------
 # SP1 execution tests (STPA-RUN-SP1-*)

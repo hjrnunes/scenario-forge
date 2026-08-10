@@ -573,7 +573,7 @@ def stpa_run_cmd(
     from scenario_forge.stpa.pipeline import run_stpa_pipeline
 
     try:
-        run_stpa_pipeline(
+        result = run_stpa_pipeline(
             use_case_path=use_case,
             risk_extraction_path=str(risk_extraction),
             output_dir=output_dir,
@@ -586,11 +586,20 @@ def stpa_run_cmd(
             max_workers=max_workers,
             resume=resume,
         )
-
     except FileNotFoundError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1)
-
     except Exception as exc:
         typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+    # Abort-level errors (missing critical artifacts) stop the pipeline
+    # early.  Degrade-level errors (stage_errors from individual stages
+    # that still produced artifacts) allow the pipeline to continue and
+    # exit with code 0.
+    abort_errors = [
+        e for e in result.stage_errors if "stopping pipeline" in e
+    ]
+    if abort_errors:
+        typer.echo(f"Error: {abort_errors[0]}", err=True)
         raise typer.Exit(code=1)
