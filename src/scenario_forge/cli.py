@@ -482,3 +482,41 @@ def eval_cmd(
             msg += f"\n  Caused by: {exc.__cause__}"
         typer.echo(msg, err=True)
         raise typer.Exit(code=1)
+
+
+@app.command(name="stpa-report")
+def stpa_report_cmd(
+    output_dir: Path = typer.Option(
+        ...,
+        help="Directory containing combined SP1+SP2+SP3 STPA artifacts.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write report HTML to this path (default: <output-dir>/stpa-report.html).",
+    ),
+) -> None:
+    """Generate a self-contained HTML report from STPA pipeline output.
+
+    Reads SP1 (loss analysis, capability profile, control structure),
+    SP2 (ICA enumeration, enriched threats), SP3 (scenarios, eval scorecard),
+    and infrastructure (calls.jsonl, run-manifest.yaml) artifacts from a
+    single combined output directory.
+    """
+    from scenario_forge.stpa.report import generate_report
+
+    try:
+        if not output_dir.exists():
+            typer.echo(f"Error: output directory not found: {output_dir}", err=True)
+            raise typer.Exit(code=1)
+
+        result_path = generate_report(output_dir, output)
+        typer.echo(f"STPA report written to: {result_path}")
+
+    except Exception as exc:
+        msg = f"\nError: {exc}"
+        if exc.__cause__:
+            msg += f"\n  Caused by: {exc.__cause__}"
+        typer.echo(msg, err=True)
+        raise typer.Exit(code=1)
