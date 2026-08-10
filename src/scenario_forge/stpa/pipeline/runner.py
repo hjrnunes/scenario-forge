@@ -105,35 +105,30 @@ def run_stpa_pipeline(
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    sp1_result: SP1RunResult | None = None
-    sp2_result: SP2RunResult | None = None
-    sp3_result: SP3RunResult | None = None
-
     # --- Step 1: SP1 ---
-    skip_sp1 = resume and _sp1_artifacts_exist(output_dir)
-    if skip_sp1:
-        logger.info("Resume: SP1 artifacts exist, skipping SP1")
-    else:
-        sp1_result = _run_sp1_stage(
-            use_case_path=use_case_path,
-            risk_extraction_path=risk_extraction_path,
-            output_dir=output_dir,
-            profile=profile,
-            sp1_profile=sp1_profile,
-            profiles_file=profiles_file,
-            capability_profile_path=capability_profile_path,
-            max_workers=max_workers,
-            stage_errors=stage_errors,
-        )
+    skip_sp1 = _maybe_skip_stage(
+        resume, _sp1_artifacts_exist(output_dir), "SP1",
+    )
+    sp1_result = _run_sp1_stage(
+        skip=skip_sp1,
+        use_case_path=use_case_path,
+        risk_extraction_path=risk_extraction_path,
+        output_dir=output_dir,
+        profile=profile,
+        sp1_profile=sp1_profile,
+        profiles_file=profiles_file,
+        capability_profile_path=capability_profile_path,
+        max_workers=max_workers,
+        stage_errors=stage_errors,
+    )
 
     # Load SP1 artifacts from disk (needed for SP2/SP3 and for resume)
     control_structure = _load_sp1_artifact(
         output_dir, "control-structure.yaml", ControlStructure,
     )
-    if control_structure is None and not skip_sp1:
-        _abort_missing_artifact(
-            "SP1", "control-structure.yaml", stage_errors, output_dir,
-        )
+    if _abort_if_missing(
+        control_structure, skip_sp1, "SP1", "control-structure.yaml", stage_errors,
+    ):
         return STPARunResult(sp1_result=sp1_result, stage_errors=stage_errors)
 
     capability_profile = _load_sp1_artifact(
@@ -144,30 +139,29 @@ def run_stpa_pipeline(
     )
 
     # --- Step 2: SP2 ---
-    skip_sp2 = resume and _sp2_artifacts_exist(output_dir)
-    if skip_sp2:
-        logger.info("Resume: SP2 artifacts exist, skipping SP2")
-    elif control_structure is not None:
-        sp2_result = _run_sp2_stage(
-            output_dir=output_dir,
-            control_structure=control_structure,
-            capability_profile=capability_profile,
-            loss_analysis=loss_analysis,
-            profile=profile,
-            sp2_profile=sp2_profile,
-            profiles_file=profiles_file,
-            max_workers=max_workers,
-            stage_errors=stage_errors,
-        )
+    skip_sp2 = _maybe_skip_stage(
+        resume, _sp2_artifacts_exist(output_dir), "SP2",
+    )
+    sp2_result = _run_sp2_stage(
+        skip=skip_sp2,
+        output_dir=output_dir,
+        control_structure=control_structure,
+        capability_profile=capability_profile,
+        loss_analysis=loss_analysis,
+        profile=profile,
+        sp2_profile=sp2_profile,
+        profiles_file=profiles_file,
+        max_workers=max_workers,
+        stage_errors=stage_errors,
+    )
 
     # Load SP2 artifacts from disk
     enriched_threat_set = _load_sp1_artifact(
         output_dir, "enriched-threats.yaml", EnrichedThreatSet,
     )
-    if enriched_threat_set is None and not skip_sp2:
-        _abort_missing_artifact(
-            "SP2", "enriched-threats.yaml", stage_errors, output_dir,
-        )
+    if _abort_if_missing(
+        enriched_threat_set, skip_sp2, "SP2", "enriched-threats.yaml", stage_errors,
+    ):
         return STPARunResult(
             sp1_result=sp1_result,
             sp2_result=sp2_result,
@@ -175,22 +169,22 @@ def run_stpa_pipeline(
         )
 
     # --- Step 3: SP3 ---
-    skip_sp3 = resume and _sp3_artifacts_exist(output_dir)
-    if skip_sp3:
-        logger.info("Resume: SP3 artifacts exist, skipping SP3")
-    elif enriched_threat_set is not None and control_structure is not None:
-        sp3_result = _run_sp3_stage(
-            output_dir=output_dir,
-            enriched_threat_set=enriched_threat_set,
-            control_structure=control_structure,
-            loss_analysis=loss_analysis,
-            profile=profile,
-            sp3_profile=sp3_profile,
-            profiles_file=profiles_file,
-            capability_profile_path=capability_profile_path,
-            max_workers=max_workers,
-            stage_errors=stage_errors,
-        )
+    skip_sp3 = _maybe_skip_stage(
+        resume, _sp3_artifacts_exist(output_dir), "SP3",
+    )
+    sp3_result = _run_sp3_stage(
+        skip=skip_sp3,
+        output_dir=output_dir,
+        enriched_threat_set=enriched_threat_set,
+        control_structure=control_structure,
+        loss_analysis=loss_analysis,
+        profile=profile,
+        sp3_profile=sp3_profile,
+        profiles_file=profiles_file,
+        capability_profile_path=capability_profile_path,
+        max_workers=max_workers,
+        stage_errors=stage_errors,
+    )
 
     # --- Step 4: Report (always) ---
     report_path = _generate_report(output_dir)
@@ -262,12 +256,42 @@ def _validate_profiles_file(
 
 
 # ---------------------------------------------------------------------------
+# Stage skip / abort helpers
+# ---------------------------------------------------------------------------
+
+
+def _maybe_skip_stage(
+    resume: bool, artifacts_exist: bool, stage_name: str,
+) -> bool:
+    """Return True if the stage should be skipped (resume + artifacts on disk)."""
+    if resume and artifacts_exist:
+        logger.info("Resume: %s artifacts exist, skipping %s", stage_name, stage_name)
+        return True
+    return False
+
+
+def _abort_if_missing(
+    artifact: object | None,
+    skip: bool,
+    stage: str,
+    artifact_name: str,
+    stage_errors: list[str],
+) -> bool:
+    """Return True if the pipeline should abort due to a missing critical artifact."""
+    if artifact is None and not skip:
+        _abort_missing_artifact(stage, artifact_name, stage_errors)
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # SP1
 # ---------------------------------------------------------------------------
 
 
 def _run_sp1_stage(
     *,
+    skip: bool,
     use_case_path: str,
     risk_extraction_path: str,
     output_dir: Path,
@@ -277,8 +301,10 @@ def _run_sp1_stage(
     capability_profile_path: Path | None,
     max_workers: int,
     stage_errors: list[str],
-) -> SP1RunResult:
-    """Run SP1 and render calls.html."""
+) -> SP1RunResult | None:
+    """Run SP1 and render calls.html, or return None when skipping."""
+    if skip:
+        return None
     llm_client, profile_name = resolve_llm_client(
         profile, sp1_profile, profiles_file,
     )
@@ -316,8 +342,9 @@ def _run_sp1_stage(
 
 def _run_sp2_stage(
     *,
+    skip: bool,
     output_dir: Path,
-    control_structure: ControlStructure,
+    control_structure: ControlStructure | None,
     capability_profile: CapabilityProfile | None,
     loss_analysis: LossAnalysis | None,
     profile: str | None,
@@ -325,8 +352,12 @@ def _run_sp2_stage(
     profiles_file: str,
     max_workers: int,
     stage_errors: list[str],
-) -> SP2RunResult:
-    """Run SP2 using SP1 artifacts loaded from disk."""
+) -> SP2RunResult | None:
+    """Run SP2 using SP1 artifacts, or return None when skipping/unavailable."""
+    if skip:
+        return None
+    if control_structure is None:
+        return None
     llm_client, _ = resolve_llm_client(profile, sp2_profile, profiles_file)
 
     logger.info("Starting SP2 pipeline...")
@@ -353,9 +384,10 @@ def _run_sp2_stage(
 
 def _run_sp3_stage(
     *,
+    skip: bool,
     output_dir: Path,
-    enriched_threat_set: EnrichedThreatSet,
-    control_structure: ControlStructure,
+    enriched_threat_set: EnrichedThreatSet | None,
+    control_structure: ControlStructure | None,
     loss_analysis: LossAnalysis | None,
     profile: str | None,
     sp3_profile: str | None,
@@ -363,8 +395,14 @@ def _run_sp3_stage(
     capability_profile_path: Path | None,
     max_workers: int,
     stage_errors: list[str],
-) -> SP3RunResult:
-    """Run SP3 using SP1/SP2 artifacts loaded from disk."""
+) -> SP3RunResult | None:
+    """Run SP3 using SP1/SP2 artifacts, or return None when skipping/unavailable."""
+    if skip:
+        return None
+    if enriched_threat_set is None:
+        return None
+    if control_structure is None:
+        return None
     llm_client, _ = resolve_llm_client(profile, sp3_profile, profiles_file)
 
     # Pass capability_profile to SP3 only when --capability-profile was
@@ -442,7 +480,6 @@ def _abort_missing_artifact(
     stage: str,
     artifact_name: str,
     stage_errors: list[str],
-    output_dir: Path,
 ) -> None:
     """Log an error and record a stage error for a missing critical artifact."""
     msg = f"{stage} did not produce {artifact_name}; stopping pipeline"
@@ -547,14 +584,10 @@ def _print_sp2_summary(
     print("")
     print("--- SP2: Threat Enumeration ---")
 
-    ica_enumeration = None
-    enriched_threat_set: EnrichedThreatSet | None = None
-
     if sp2_result is not None:
         ica_enumeration = sp2_result.ica_enumeration
         enriched_threat_set = sp2_result.enriched_threat_set
     else:
-        # Resume: load from disk
         ica_enumeration = _load_sp1_artifact(
             output_dir, "ica-enumeration.yaml", ICAEnumeration,
         )
@@ -562,26 +595,37 @@ def _print_sp2_summary(
             output_dir, "enriched-threats.yaml", EnrichedThreatSet,
         )
 
-    if ica_enumeration is not None:
-        total = len(ica_enumeration.slots)
-        na = sum(1 for s in ica_enumeration.slots if s.is_na)
-        print(f"  Total slots:        {total}")
-        print(f"  N/A slots:          {na}")
-        if total:
-            print(f"  Fill rate:          {(total - na) / total:.1%}")
-        else:
-            print("  Fill rate:          N/A")
-    else:
-        print("  ICA Enumeration:    DEGRADED — not produced")
+    _print_ica_summary(ica_enumeration)
+    _print_enriched_threats_summary(enriched_threat_set)
 
-    if enriched_threat_set is not None:
-        threats = enriched_threat_set.structural_threats
-        print(f"  Structural threats: {len(threats)}")
-        mapped = sum(1 for t in threats if t.catalog_mappings)
-        print(f"  Mapped:             {mapped}")
-        print(f"  Unmapped:           {len(threats) - mapped}")
+
+def _print_ica_summary(ica_enumeration: object | None) -> None:
+    """Print ICA enumeration metrics or a degraded message."""
+    if ica_enumeration is None:
+        print("  ICA Enumeration:    DEGRADED — not produced")
+        return
+    total = len(ica_enumeration.slots)
+    na = sum(1 for s in ica_enumeration.slots if s.is_na)
+    print(f"  Total slots:        {total}")
+    print(f"  N/A slots:          {na}")
+    if total:
+        print(f"  Fill rate:          {(total - na) / total:.1%}")
     else:
+        print("  Fill rate:          N/A")
+
+
+def _print_enriched_threats_summary(
+    enriched_threat_set: EnrichedThreatSet | None,
+) -> None:
+    """Print enriched threat set metrics or a degraded message."""
+    if enriched_threat_set is None:
         print("  Enriched Threat Set: DEGRADED — not produced")
+        return
+    threats = enriched_threat_set.structural_threats
+    print(f"  Structural threats: {len(threats)}")
+    mapped = sum(1 for t in threats if t.catalog_mappings)
+    print(f"  Mapped:             {mapped}")
+    print(f"  Unmapped:           {len(threats) - mapped}")
 
 
 def _print_sp3_summary(sp3_result: SP3RunResult | None) -> None:

@@ -1926,3 +1926,353 @@ class TestLLMConfig:
         """read_use_case raises FileNotFoundError for missing file."""
         with pytest.raises(FileNotFoundError, match="Use-case file not found"):
             read_use_case("nonexistent-file.txt")
+
+    def test_read_use_case_resolves_relative_path_reference(self):
+        """read_use_case follows a relative path reference inside the file."""
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            real_uc = tmp / "real-use-case.txt"
+            real_uc.write_text("The real use case content", encoding="utf-8")
+            ref_file = tmp / "use-case.txt"
+            ref_file.write_text("real-use-case.txt\n", encoding="utf-8")
+            text = read_use_case(str(ref_file))
+            assert text == "The real use case content"
+
+    def test_read_use_case_resolves_absolute_path_reference(self):
+        """read_use_case follows an absolute path reference inside the file."""
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            real_uc = tmp / "real-use-case.md"
+            real_uc.write_text("Absolute path content", encoding="utf-8")
+            ref_file = tmp / "use-case.txt"
+            ref_file.write_text(str(real_uc), encoding="utf-8")
+            text = read_use_case(str(ref_file))
+            assert text == "Absolute path content"
+
+    def test_read_use_case_unresolved_reference_raises(self):
+        """read_use_case raises FileNotFoundError for unresolved path reference."""
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            ref_file = tmp / "use-case.txt"
+            ref_file.write_text("nonexistent-uc.txt", encoding="utf-8")
+            with pytest.raises(FileNotFoundError, match="references unresolved path"):
+                read_use_case(str(ref_file))
+
+    def test_read_use_case_resolves_from_cwd(self, monkeypatch):
+        """read_use_case resolves a path reference from cwd when not in source dir."""
+        with TemporaryDirectory() as tmpdir:
+            cwd_dir = Path(tmpdir) / "cwd"
+            cwd_dir.mkdir()
+            real_uc = cwd_dir / "cwd-use-case.txt"
+            real_uc.write_text("CWD resolved content", encoding="utf-8")
+
+            source_dir = Path(tmpdir) / "source"
+            source_dir.mkdir()
+            ref_file = source_dir / "use-case.txt"
+            ref_file.write_text("cwd-use-case.txt", encoding="utf-8")
+
+            monkeypatch.chdir(cwd_dir)
+            text = read_use_case(str(ref_file))
+            assert text == "CWD resolved content"
+
+
+# ---------------------------------------------------------------------------
+# Summary edge-case tests
+# ---------------------------------------------------------------------------
+
+
+class TestSummaryEdgeCases:
+    """Cover degraded/empty paths in summary printing functions."""
+
+    def test_sp1_summary_degraded_loss_analysis(self, capsys):
+        """SP1 summary prints DEGRADED when loss_analysis is None but CS exists."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp1_summary
+
+        sp1_result = _make_mock_sp1_result(with_loss_analysis=False)
+        _print_sp1_summary(sp1_result, Path("/tmp"))
+        captured = capsys.readouterr()
+        assert "Loss Analysis:    DEGRADED" in captured.out
+        assert "Responsibilities:" in captured.out
+
+    def test_sp1_summary_degraded_control_structure(self, capsys):
+        """SP1 summary prints DEGRADED when control_structure is None."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp1_summary
+
+        sp1_result = _make_mock_sp1_result(with_control_structure=False)
+        _print_sp1_summary(sp1_result, Path("/tmp"))
+        captured = capsys.readouterr()
+        assert "Control Structure: DEGRADED" in captured.out
+        assert "Losses:" in captured.out
+
+    def test_sp1_summary_resume_loads_from_disk(self, capsys):
+        """SP1 summary loads artifacts from disk when result is None (resume)."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp1_summary
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            _write_sp1_artifacts(tmp)
+            _print_sp1_summary(None, tmp)
+            captured = capsys.readouterr()
+            assert "Losses:" in captured.out
+            assert "Responsibilities:" in captured.out
+
+    def test_sp1_summary_resume_degraded_when_disk_empty(self, capsys):
+        """SP1 summary prints DEGRADED when resume has no artifacts on disk."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp1_summary
+
+        with TemporaryDirectory() as tmpdir:
+            _print_sp1_summary(None, Path(tmpdir))
+            captured = capsys.readouterr()
+            assert "Loss Analysis:    DEGRADED" in captured.out
+            assert "Control Structure: DEGRADED" in captured.out
+
+    def test_sp2_summary_degraded_ica(self, capsys):
+        """SP2 summary prints DEGRADED for ICA when it is None."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp2_summary
+
+        sp2_result = _make_mock_sp2_result(with_ica_enumeration=False)
+        _print_sp2_summary(sp2_result, Path("/tmp"))
+        captured = capsys.readouterr()
+        assert "ICA Enumeration:    DEGRADED" in captured.out
+
+    def test_sp2_summary_degraded_enriched_threats(self, capsys):
+        """SP2 summary prints DEGRADED for enriched threats when None."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp2_summary
+
+        sp2_result = _make_mock_sp2_result(with_enriched_threats=False)
+        _print_sp2_summary(sp2_result, Path("/tmp"))
+        captured = capsys.readouterr()
+        assert "Enriched Threat Set: DEGRADED" in captured.out
+
+    def test_sp2_summary_resume_loads_from_disk(self, capsys):
+        """SP2 summary loads artifacts from disk when result is None (resume)."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp2_summary
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            _write_sp2_artifacts(tmp)
+            _print_sp2_summary(None, tmp)
+            captured = capsys.readouterr()
+            assert "Total slots:" in captured.out
+            assert "Structural threats:" in captured.out
+
+    def test_sp2_summary_resume_degraded_when_disk_empty(self, capsys):
+        """SP2 summary prints DEGRADED when resume has no SP2 artifacts on disk."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp2_summary
+
+        with TemporaryDirectory() as tmpdir:
+            _print_sp2_summary(None, Path(tmpdir))
+            captured = capsys.readouterr()
+            assert "ICA Enumeration:    DEGRADED" in captured.out
+            assert "Enriched Threat Set: DEGRADED" in captured.out
+
+    def test_sp2_summary_ica_zero_slots_fill_rate_na(self, capsys):
+        """ICA summary prints N/A fill rate when there are zero slots."""
+        from scenario_forge.stpa.pipeline.runner import _print_ica_summary
+        from scenario_forge.stpa.models.ica_enumeration import ICAEnumeration
+
+        _print_ica_summary(ICAEnumeration(slots=[]))
+        captured = capsys.readouterr()
+        assert "Fill rate:          N/A" in captured.out
+
+    def test_sp3_summary_skipped(self, capsys):
+        """SP3 summary prints SKIPPED when result is None."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp3_summary
+
+        _print_sp3_summary(None)
+        captured = capsys.readouterr()
+        assert "SKIPPED" in captured.out
+
+    def test_sp3_summary_no_eval_scorecard(self, capsys):
+        """SP3 summary omits eval metrics when scorecard is falsy."""
+        from scenario_forge.stpa.pipeline.runner import _print_sp3_summary
+
+        result = _make_mock_sp3_result()
+        result.eval_scorecard = None
+        _print_sp3_summary(result)
+        captured = capsys.readouterr()
+        assert "Eval metrics:" not in captured.out
+
+    def test_eval_metrics_summary_non_dict_metrics(self, capsys):
+        """_print_eval_metrics_summary returns early when metrics is not a dict."""
+        from scenario_forge.stpa.pipeline.runner import _print_eval_metrics_summary
+
+        _print_eval_metrics_summary({"metrics": "not-a-dict"})
+        captured = capsys.readouterr()
+        assert "Eval metrics:" not in captured.out
+
+    def test_eval_metrics_summary_empty_metrics(self, capsys):
+        """_print_eval_metrics_summary prints nothing when metrics dict is empty."""
+        from scenario_forge.stpa.pipeline.runner import _print_eval_metrics_summary
+
+        _print_eval_metrics_summary({"metrics": {}})
+        captured = capsys.readouterr()
+        assert "Eval metrics:" not in captured.out
+
+    def test_eval_metrics_summary_scalar_metric(self, capsys):
+        """_print_eval_metrics_summary skips metrics without a rate key."""
+        from scenario_forge.stpa.pipeline.runner import _print_eval_metrics_summary
+
+        _print_eval_metrics_summary({"metrics": {"score": 0.5}})
+        captured = capsys.readouterr()
+        assert "Eval metrics:" not in captured.out
+
+    def test_eval_metrics_summary_with_rate(self, capsys):
+        """_print_eval_metrics_summary prints rates for metrics with a rate key."""
+        from scenario_forge.stpa.pipeline.runner import _print_eval_metrics_summary
+
+        _print_eval_metrics_summary(
+            {"metrics": {"consistency": {"rate": 0.95}, "plausibility": {"rate": 0.8}}},
+        )
+        captured = capsys.readouterr()
+        assert "consistency=95.0%" in captured.out
+        assert "plausibility=80.0%" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Resume edge-case tests
+# ---------------------------------------------------------------------------
+
+
+class TestResumeEdgeCases:
+    """Cover edge cases where resume skips a stage but artifacts can't load."""
+
+    def test_resume_skips_sp1_but_sp2_unreachable(self):
+        """Resume skips SP1 (artifacts exist) but control-structure can't load.
+
+        SP2 guard-check stops SP2 from running (no CS).  Then the SP2
+        abort fires because enriched-threats.yaml is also missing and
+        SP2 was not skipped, so the pipeline stops before the report.
+        """
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            uc = _write_use_case(tmp)
+            risk = _write_risk_extraction(tmp)
+            out = tmp / "output"
+            out.mkdir()
+            # Write SP1 artifact files but make control-structure.yaml corrupt
+            _write_sp1_artifacts(out)
+            (out / "control-structure.yaml").write_text(
+                "invalid: yaml: [", encoding="utf-8",
+            )
+
+            mocks = _patch_all_stages()
+            try:
+                result = run_stpa_pipeline(
+                    use_case_path=str(uc),
+                    risk_extraction_path=str(risk),
+                    output_dir=out,
+                    resume=True,
+                )
+                # SP1 skipped, SP2 guard-stopped (CS is None), then SP2
+                # abort fires (enriched-threats missing, not skipped)
+                mocks["sp1"].assert_not_called()
+                mocks["sp2"].assert_not_called()
+                assert result.report_path is None
+                assert any("enriched-threats" in e for e in result.stage_errors)
+            finally:
+                _stop_patches(mocks)
+
+    def test_resume_skips_all_but_sp3_guard_stops(self):
+        """Resume skips SP1+SP2 but corrupted enriched-threats stops SP3.
+
+        SP2 is skipped (artifact files exist) but enriched-threats.yaml
+        is corrupt, so enriched_threat_set loads as None.  No abort
+        fires (skip_sp2=True).  SP3 guard-check returns None without
+        calling run_sp3.  Report is still generated.
+        """
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            uc = _write_use_case(tmp)
+            risk = _write_risk_extraction(tmp)
+            out = tmp / "output"
+            out.mkdir()
+            _write_sp1_artifacts(out)
+            # Write SP2 artifact files but corrupt enriched-threats.yaml
+            (out / "ica-enumeration.yaml").write_text(
+                "slots: []\n", encoding="utf-8",
+            )
+            (out / "enriched-threats.yaml").write_text(
+                "invalid: yaml: content: [", encoding="utf-8",
+            )
+
+            mocks = _patch_all_stages()
+            try:
+                result = run_stpa_pipeline(
+                    use_case_path=str(uc),
+                    risk_extraction_path=str(risk),
+                    output_dir=out,
+                    resume=True,
+                )
+                mocks["sp1"].assert_not_called()
+                mocks["sp2"].assert_not_called()
+                mocks["sp3"].assert_not_called()
+                assert result.report_path is not None
+            finally:
+                _stop_patches(mocks)
+
+    def test_resume_sp3_guard_stops_on_missing_control_structure(self):
+        """SP3 guard returns None when control_structure is None but ETS exists.
+
+        SP1 skipped (control-structure.yaml corrupt → CS=None).
+        SP2 skipped (enriched-threats.yaml valid → ETS=not None).
+        No abort fires (both stages skipped).  SP3 guard-check sees
+        CS=None and returns None without calling run_sp3.
+        """
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            uc = _write_use_case(tmp)
+            risk = _write_risk_extraction(tmp)
+            out = tmp / "output"
+            out.mkdir()
+            _write_sp1_artifacts(out)
+            (out / "control-structure.yaml").write_text(
+                "invalid: yaml: [", encoding="utf-8",
+            )
+            _write_sp2_artifacts(out)
+
+            mocks = _patch_all_stages()
+            try:
+                result = run_stpa_pipeline(
+                    use_case_path=str(uc),
+                    risk_extraction_path=str(risk),
+                    output_dir=out,
+                    resume=True,
+                )
+                mocks["sp1"].assert_not_called()
+                mocks["sp2"].assert_not_called()
+                mocks["sp3"].assert_not_called()
+                assert result.report_path is not None
+            finally:
+                _stop_patches(mocks)
+
+    def test_sp3_stage_errors_propagated(self):
+        """SP3 stage_errors are collected into the pipeline result."""
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            uc = _write_use_case(tmp)
+            risk = _write_risk_extraction(tmp)
+            out = tmp / "output"
+
+            sp3_result = _make_mock_sp3_result(stage_errors=["SP3 degraded"])
+            mocks = _patch_all_stages(sp3_result=sp3_result)
+            try:
+                def sp1_side_effect(**kwargs):
+                    _write_sp1_artifacts(kwargs["run_dir"])
+                    return mocks["sp1_result"]
+
+                def sp2_side_effect(**kwargs):
+                    _write_sp2_artifacts(kwargs["run_dir"])
+                    return mocks["sp2_result"]
+
+                mocks["sp1"].side_effect = sp1_side_effect
+                mocks["sp2"].side_effect = sp2_side_effect
+
+                result = run_stpa_pipeline(
+                    use_case_path=str(uc),
+                    risk_extraction_path=str(risk),
+                    output_dir=out,
+                )
+                assert "SP3 degraded" in result.stage_errors
+            finally:
+                _stop_patches(mocks)
