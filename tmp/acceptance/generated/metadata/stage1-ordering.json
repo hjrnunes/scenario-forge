@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "stage1 ordering",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/stage1_ordering.json",
+  "implementation_hash": "sha256:ac9982de16e5f0fd8ddd4f34530868aa6122cacc298525586540511b0e8dc0fe",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "stage1_ordering_acceptance_test.py"
+  ]
+}
