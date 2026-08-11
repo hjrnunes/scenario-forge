@@ -155,7 +155,6 @@ class World:
         self.sp1_sanitized_findings: Any = None
         self.sp1_sanitized_remedy: str | None = None
         self.sp1_original_remedy: str | None = None
-        self.sp1_repaired_set: Any = None
         self.sp1_repair_warnings: list[str] = []
         self.sp1_revision_prompt: str | None = None
         self.sp1_sanitize_called: bool = False
@@ -4407,8 +4406,6 @@ from scenario_forge.stpa.system_model.control_structure import (
     RequirementSet as _SP1RequirementSet,
     _assemble_with_fallback as _sp1_assemble_with_fallback,
     _add_coordination_links_with_fallback as _sp1_add_coordination_links,
-    _sanitize_for_fallback as _sp1_sanitize_for_fallback,
-    _extract_resp_num as _sp1_extract_resp_num,
 )
 # Backward-compatible aliases for step handlers that still reference the
 # old ConnectionSet name.  In the new 4-call Stage 2, Call 3 produces a
@@ -4440,7 +4437,6 @@ def _sp1_merge_connection_set(
     return cs
 
 
-_sp1_merge_with_fallback = _sp1_assemble_with_fallback
 from scenario_forge.stpa.system_model.critic import (
     run_completeness_critic as _sp1_run_critic,
     run_revision as _sp1_run_revision,
@@ -11102,89 +11098,64 @@ def _fc_resp_set_single_resp_with_cp() -> dict:
 
 # ============= sp1_merge_fallback_sanitize handlers =============
 
-def _h_san_resp_set_with_invalid_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the ResponsibilitySet has a <element_type> <element_id> with <ref_field> {type: <ref_type>, id: <ref_id>}.
+def _san_set_element_ref(
+    world: World, element_type: str, element_id: str, ref: ElementRef
+) -> tuple[bool, str]:
+    """Set an ElementRef on a ProcessModelPart, ControlAction, or FeedbackChannel.
 
     After the Stage 2 restructure, ProcessModelParts live in the
     ResponsibilitySet (Call 2a) while ControlActions and FeedbackChannels
     live in the ControlElementSet (Call 2b).  Route the lookup accordingly.
     """
-    # Parse: "the ResponsibilitySet has a ProcessModelPart PM-1-1 with feedback_source {type: controlled_process, id: FB-1-1}"
+    if element_type == "ProcessModelPart":
+        rs = world.sp1_responsibility_set
+        if rs is None:
+            return False, "No ResponsibilitySet available"
+        for resp in rs.responsibilities:
+            for pm in resp.process_model_parts:
+                if pm.pm_id == element_id:
+                    pm.feedback_source = ref
+                    return True, ""
+        return False, f"Element {element_type} {element_id} not found in ResponsibilitySet"
+    # ControlAction / FeedbackChannel live in the ControlElementSet (Call 2b)
+    ces = world.sp1_control_element_set
+    if ces is None:
+        ces = _SP1ControlElementSet.model_validate(_sp1_valid_control_element_set_dict())
+        world.sp1_control_element_set = ces
+    if element_type == "ControlAction":
+        for ca in ces.control_actions:
+            if ca.ca_id == element_id:
+                ca.target = ref
+                return True, ""
+    elif element_type == "FeedbackChannel":
+        for fb in ces.feedback_channels:
+            if fb.fb_id == element_id:
+                fb.source = ref
+                return True, ""
+    return False, f"Element {element_type} {element_id} not found in ControlElementSet"
+
+
+def _h_san_resp_set_with_invalid_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ResponsibilitySet has a <element_type> <element_id> with <ref_field> {type: <ref_type>, id: <ref_id>}."""
     m = re.search(
         r"the ResponsibilitySet has a (\w+) (\S+) with (\w+) \{type: (\w+), id: ([^}]+)\}",
         text,
     )
     if not m:
         return False, f"Could not parse invalid ref step from: {text}"
-    element_type, element_id, ref_field, ref_type, ref_id = m.groups()
-    # Build the ElementRef
+    element_type, element_id, _ref_field, ref_type, ref_id = m.groups()
     ref = ElementRef(type=ReferenceType(ref_type), id=ref_id.strip())
-    if element_type == "ProcessModelPart":
-        rs = world.sp1_responsibility_set
-        if rs is None:
-            return False, "No ResponsibilitySet available"
-        for resp in rs.responsibilities:
-            for pm in resp.process_model_parts:
-                if pm.pm_id == element_id:
-                    pm.feedback_source = ref
-                    return True, ""
-        return False, f"Element {element_type} {element_id} not found in ResponsibilitySet"
-    # ControlAction / FeedbackChannel live in the ControlElementSet (Call 2b)
-    ces = world.sp1_control_element_set
-    if ces is None:
-        ces = _SP1ControlElementSet.model_validate(_sp1_valid_control_element_set_dict())
-        world.sp1_control_element_set = ces
-    if element_type == "ControlAction":
-        for ca in ces.control_actions:
-            if ca.ca_id == element_id:
-                ca.target = ref
-                return True, ""
-    elif element_type == "FeedbackChannel":
-        for fb in ces.feedback_channels:
-            if fb.fb_id == element_id:
-                fb.source = ref
-                return True, ""
-    return False, f"Element {element_type} {element_id} not found in ControlElementSet"
+    return _san_set_element_ref(world, element_type, element_id, ref)
 
 
 def _h_san_resp_set_with_valid_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the ResponsibilitySet has a <element_type> <element_id> with <ref_field> pointing to CP-1.
-
-    After the Stage 2 restructure, ProcessModelParts live in the
-    ResponsibilitySet (Call 2a) while ControlActions and FeedbackChannels
-    live in the ControlElementSet (Call 2b).  Route the lookup accordingly.
-    """
+    """Handle: the ResponsibilitySet has a <element_type> <element_id> with <ref_field> pointing to CP-1."""
     m = re.search(r"the ResponsibilitySet has a (\w+) (\S+) with (\w+) pointing to (\S+)", text)
     if not m:
         return False, f"Could not parse valid ref step from: {text}"
-    element_type, element_id, ref_field, target_id = m.groups()
+    element_type, element_id, _ref_field, target_id = m.groups()
     ref = ElementRef(type=ReferenceType.controlled_process, id=target_id.strip())
-    if element_type == "ProcessModelPart":
-        rs = world.sp1_responsibility_set
-        if rs is None:
-            return False, "No ResponsibilitySet available"
-        for resp in rs.responsibilities:
-            for pm in resp.process_model_parts:
-                if pm.pm_id == element_id:
-                    pm.feedback_source = ref
-                    return True, ""
-        return False, f"Element {element_type} {element_id} not found in ResponsibilitySet"
-    # ControlAction / FeedbackChannel live in the ControlElementSet (Call 2b)
-    ces = world.sp1_control_element_set
-    if ces is None:
-        ces = _SP1ControlElementSet.model_validate(_sp1_valid_control_element_set_dict())
-        world.sp1_control_element_set = ces
-    if element_type == "ControlAction":
-        for ca in ces.control_actions:
-            if ca.ca_id == element_id:
-                ca.target = ref
-                return True, ""
-    elif element_type == "FeedbackChannel":
-        for fb in ces.feedback_channels:
-            if fb.fb_id == element_id:
-                fb.source = ref
-                return True, ""
-    return False, f"Element {element_type} {element_id} not found in ControlElementSet"
+    return _san_set_element_ref(world, element_type, element_id, ref)
 
 
 def _h_san_llm_merge_failure(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -21615,34 +21586,37 @@ def _h_ar_sp1_assembly_error(world: World, text: str, examples: dict) -> tuple[b
     return True, ""
 
 
+# ---------------------------------------------------------------------------
+# Feature-scoped registrations: acceptance-refresh-only step shapes.
+#
+# Patterns that are unique to the acceptance-refresh features (stage2-
+# coordination-analysis and stage2-assembly-fallback) are registered here
+# with _set_feature("acceptance_refresh") so they only match when the
+# current IR file belongs to that feature.  Shared step shapes that also
+# appear in refreshed SP1 features are registered globally below to avoid
+# duplicating the same (pattern, handler) pair in both blocks.
+# ---------------------------------------------------------------------------
 _set_feature("acceptance_refresh")
-_register_first(r"the control_structure module (?:does not )?export", _h_ar_module_export)
 _register_first(r"the `CoordinationAnalysis` model (?:does not )?declare", _h_ar_model_field)
-_register_first(r"a ResponsibilitySet from Call 2a with responsibilities", _h_ar_responsibility_set)
-_register_first(r"(?:an LLM that returns a )?ControlElementSet from Call 2b with", _h_ar_control_element_set)
 _register_first(r"(?:an LLM that returns a )?(?:valid )?CoordinationAnalysis", _h_ar_coordination_analysis)
-_register_first(r"an LLM that returns valid responses for (?:Stage 2 calls 1, 2a, and 2b|all four Stage 2 calls)", _h_ar_stage2_calls_ready)
 _register_first(r"Stage 2 Call 3 coordination derivation is run", _h_ar_call3_run)
-_register_first(r"the Stage 2 assembly with fallback is executed", _h_ar_assemble)
 _register_first(r"the Stage 2 coordination link addition with fallback is executed", _h_ar_add_coordination)
-_register_first(r"Stage 2 control structure derivation is run", _h_ar_stage2_run)
-_register_first(r"Stage 2 calls 1 through 3 are run in sequence", _h_ar_call_sequence)
 _register_first(r"a CoordinationAnalysis model is produced", _h_ar_coordination_produced)
 _register_first(r"the CoordinationAnalysis contains coordination link CL-1", _h_ar_coordination_contains_link)
 _register_first(r"the CoordinationAnalysis integrity_findings list is not empty", _h_ar_integrity_findings)
 _register_first(r"the CoordinationAnalysis contains no coordination links", _h_ar_no_coordination_links)
 _register_first(r"the ControlStructure contains (?:responsibility|controlled process)", _h_ar_control_structure_element)
 _register_first(r"CL-1 has source RESP-1 and target RESP-2", _h_ar_link_source_target)
-_register_first(r"the Call 3 user prompt contains the assembled responsibilities and controlled processes", _h_ar_call3_prompt)
 _register_first(r"the warnings list includes a warning naming step", _h_ar_warnings_include)
 _register_first(r"no assembly failure is logged", _h_ar_no_assembly_failure)
-_register_first(r"no call log entry has step", _h_ar_no_log_step)
 _register_first(r"the SP1RunResult stage_errors contains the assemble_control_structure failure", _h_ar_sp1_assembly_error)
 _set_feature(None)
 
-# The refreshed SP1 features share these Stage 2 step shapes with the
-# acceptance-refresh feature.  Keep them global, but use namespaced prompt
-# wording so SP2/SP3 handlers cannot shadow one another.
+# ---------------------------------------------------------------------------
+# Global registrations: shared Stage 2 step shapes used by both the
+# acceptance-refresh features and the refreshed SP1 features.
+# Registered globally (tag=None) so they match for every feature.
+# ---------------------------------------------------------------------------
 def _h_ar_named_prompts_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
     match = re.search(r"the (SP2|SP3) prompts directory contains `([^`]+)`", text)
     if not match:
