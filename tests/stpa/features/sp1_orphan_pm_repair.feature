@@ -1,6 +1,6 @@
-# mutation-stamp: sha256=b441d31cfca7f9a659d3acd6c5987438713169a97953b8ecddcec53f5cd59c31
+# mutation-stamp: sha256=2797e6ae73010e0dae3c83a87db98f24c56944e1fd15255d24be476335c5c93e
 # acceptance-mutation-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T22:07:12.415819Z","feature_name":"SP1 orphan PM repair and PM-FB correspondence","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_orphan_pm_repair.feature","background_hash":"c6df38b85fa703573d71d942f46439097f2759d8b0123031e17deef752748362","implementation_hash":"unknown","scenarios":[]}
+# {"version":1,"tested_at":"2026-08-11T21:22:56.817433Z","feature_name":"SP1 orphan PM repair and PM-FB correspondence","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_orphan_pm_repair.feature","background_hash":"c6df38b85fa703573d71d942f46439097f2759d8b0123031e17deef752748362","implementation_hash":"sha256:b96e22d4b98f7d0fa2f452960ef767f0b0c7deeea2f25e864cd4656037ec38c4","scenarios":[]}
 # acceptance-mutation-manifest-end
 
 Feature: SP1 orphan PM repair and PM-FB correspondence

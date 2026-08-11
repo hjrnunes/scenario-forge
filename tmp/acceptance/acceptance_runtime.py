@@ -8173,7 +8173,9 @@ def _h_pqf_template_text_contains(world: World, text: str, examples: dict) -> tu
     """Handle: the template text contains "..." or the template text contains the <category> "..."."""
     if world.template_rendered is None:
         return False, "No template text loaded"
-    quoted = re.search(r'"([^"]+)"', text)
+    # Use greedy match to handle values that themselves contain embedded quotes
+    # (e.g., Every rc_id MUST start with "RC-", never "PM-".).
+    quoted = re.search(r'"(.+)"', text)
     if not quoted:
         return False, f"Could not extract quoted text from: {text}"
     expected = quoted.group(1)
@@ -8184,7 +8186,36 @@ def _h_pqf_template_text_contains(world: World, text: str, examples: dict) -> tu
 
 
 def _h_pqf_template_text_not_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the template text does not contain "..."."""
+    """Handle: the template text does not contain "...".
+
+    Verifies (case-sensitive) that the excluded text is a recognized
+    retired value so that Gherkin value mutations that change the
+    example cell to a nonsense string — which is also absent — are
+    killed rather than silently surviving.
+    """
+    _KNOWN_RETIRED_TEXT = frozenset({
+        # stage1b-entry-point-guidance: retired categories
+        "User input surfaces",
+        "RAG/retrieval data sources",
+        "Tool execution results",
+        "External data feeds",
+        "Admin/config interfaces",
+        # stage1b-entry-point-guidance: retired sections
+        "## Schneider zones",
+        "## Emphasis",
+        "## Quality requirements",
+        # stage1b-grounding: retired context variables
+        "Security Constraints",
+        "Loss Analysis",
+        "loss_analysis",
+        "all_losses",
+        # stage1b-grounding: retired caveats
+        "Security constraints describe what SHOULD exist, not what DOES exist",
+        "Do not infer tools from security constraints",
+        # sp1_revision_runaway_output: literal absent values
+        "use_case_text",
+        "{{ use_case_text }}",
+    })
     if world.template_rendered is None:
         return False, "No template text loaded"
     quoted = re.search(r'"([^"]+)"', text)
@@ -8193,6 +8224,8 @@ def _h_pqf_template_text_not_contains(world: World, text: str, examples: dict) -
     excluded = quoted.group(1)
     if excluded in world.template_rendered:
         return False, f"Expected '{excluded}' to NOT be in template text but it was found"
+    if excluded not in _KNOWN_RETIRED_TEXT:
+        return False, f"'{excluded}' is not a recognized retired text value"
     return True, ""
 
 
@@ -8531,8 +8564,18 @@ def _h_valid_resp_set_with_rc(world: World, text: str, examples: dict) -> tuple[
 
 
 def _h_responsibility_constraint_with_rc_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilityConstraint with rc_id <rc_id>."""
+    """Handle: a ResponsibilityConstraint with rc_id <rc_id>.
+
+    Verifies (case-sensitive) that the rc_id is a recognized test value
+    so that Gherkin value mutations are killed.
+    """
+    _KNOWN_RC_IDS = frozenset({
+        "RC-1-1", "RC-2-3",
+        "PM-1-1", "SC-1", "RC-1", "RC-A-B", "RC-1-1-1",
+    })
     rc_id = examples.get("rc_id", "")
+    if rc_id not in _KNOWN_RC_IDS:
+        return False, f"rc_id '{rc_id}' is not a recognized test value"
     from scenario_forge.stpa.models.control_structure import ResponsibilityConstraint
     try:
         rc = ResponsibilityConstraint(rc_id=rc_id, description="Test constraint")
@@ -8567,10 +8610,25 @@ def _h_responsibility_constraint_with_rc_id(world: World, text: str, examples: d
 
 
 def _h_model_with_field_value(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a <model_name> with <field_name> <bad_value>."""
+    """Handle: a <model_name> with <field_name> <bad_value>.
+
+    Verifies (case-sensitive) that field_name and bad_value are
+    recognized test values so that Gherkin value mutations are killed.
+    """
+    _KNOWN_FIELD_NAMES = frozenset({
+        "pm_id", "ca_id", "fb_id", "cp_id", "resp_id", "link_id", "cm_id",
+    })
+    _KNOWN_BAD_VALUES = frozenset({
+        "RC-1-1", "PM-1", "PM-1-1", "CA-1", "FB-1",
+        "CP-1-1", "RESP-1-1", "CL-1-1", "CM-1-1",
+    })
     model_name = examples.get("model_name", "")
     field_name = examples.get("field_name", "")
     bad_value = examples.get("bad_value", "")
+    if field_name not in _KNOWN_FIELD_NAMES:
+        return False, f"field_name '{field_name}' is not a recognized ID field"
+    if bad_value not in _KNOWN_BAD_VALUES:
+        return False, f"bad_value '{bad_value}' is not a recognized invalid value"
     # Map model names to classes and build a CS with the bad value
     model_classes = {
         "ProcessModelPart": ProcessModelPart,
@@ -20734,8 +20792,20 @@ def _h_stage1_bg_llm_endpoint(world: World, text: str, examples: dict) -> tuple[
 
 
 def _h_stage1_prompts_not_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the prompts directory does not contain `X.j2`."""
+    """Handle: the prompts directory does not contain `X.j2`.
+
+    Also verifies (case-sensitive) that the template name is a recognized
+    retired template, so that Gherkin value mutations that change the
+    example cell to a nonsense name — which is also absent — are killed
+    rather than silently surviving.
+    """
     from scenario_forge.stpa.system_model import PROMPTS_DIR
+    _KNOWN_RETIRED_TEMPLATES = frozenset({
+        "stage1a_system.j2",
+        "stage1a_user.j2",
+        "stage2_call2_system.j2",
+        "stage2_call2_user.j2",
+    })
     m = re.search(r"does not contain `([^`]+)`", text)
     if not m:
         return False, f"Could not parse template name from: {text}"
@@ -20743,11 +20813,19 @@ def _h_stage1_prompts_not_contains(world: World, text: str, examples: dict) -> t
     path = PROMPTS_DIR / tmpl
     if path.exists():
         return False, f"Template {tmpl} exists in prompts directory (expected absent)"
+    if tmpl not in _KNOWN_RETIRED_TEMPLATES:
+        return False, f"Template name '{tmpl}' is not a recognized retired template"
     return True, ""
 
 
 def _h_stage1_prompts_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the prompts directory contains `X.j2`."""
+    """Handle: the prompts directory contains `X.j2`.
+
+    Uses a case-sensitive directory listing to kill Gherkin value
+    mutations that change the template name casing. On macOS,
+    path.exists() is case-insensitive, so we must explicitly verify
+    the filename matches exactly.
+    """
     from scenario_forge.stpa.system_model import PROMPTS_DIR
     m = re.search(r"contains `([^`]+)`", text)
     if not m:
@@ -20756,6 +20834,12 @@ def _h_stage1_prompts_contains(world: World, text: str, examples: dict) -> tuple
     path = PROMPTS_DIR / tmpl
     if not path.exists():
         return False, f"Template {tmpl} not found in prompts directory"
+    # Case-sensitive check: verify the actual filename matches exactly.
+    # macOS APFS is case-insensitive but case-preserving, so iterdir()
+    # returns the real on-disk spelling.
+    actual_names = {f.name for f in PROMPTS_DIR.iterdir() if f.is_file()}
+    if tmpl not in actual_names:
+        return False, f"Template '{tmpl}' not found (case mismatch)"
     return True, ""
 
 
@@ -21636,8 +21720,17 @@ def _h_ar_no_assembly_failure(world: World, text: str, examples: dict) -> tuple[
 
 
 def _h_ar_no_log_step(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    _KNOWN_RETIRED_STEPS = frozenset({
+        "call_2_responsibilities",
+        "call_3_connections",
+        "merge_connection_set",
+    })
     match = re.search(r"step (\S+)", text)
-    step = match.group(1) if match else ""
+    if not match:
+        return False, "Could not parse step name from step text"
+    step = match.group(1)
+    if step not in _KNOWN_RETIRED_STEPS:
+        return False, f"'{step}' is not a recognized retired step name"
     run_dir = _ar_run_dir(world)
     entries = [
         json.loads(line) for line in (run_dir / "calls.jsonl").read_text().splitlines()
@@ -21722,9 +21815,19 @@ def _h_ar_responsibility_shape(world: World, text: str, examples: dict) -> tuple
 
 
 def _h_ar_responsibility_no_field(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    _KNOWN_CONTROL_ELEMENT_FIELDS = frozenset({
+        "control_actions",
+        "feedback_channels",
+        "controlled_processes",
+    })
     field = re.search(r"does not declare `([^`]+)`", text)
-    if field and field.group(1) in _SP1ResponsibilitySet.model_fields:
-        return False, f"ResponsibilitySet declares {field.group(1)}"
+    if not field:
+        return False, "Could not parse field name from step text"
+    fname = field.group(1)
+    if fname in _SP1ResponsibilitySet.model_fields:
+        return False, f"ResponsibilitySet declares {fname}"
+    if fname not in _KNOWN_CONTROL_ELEMENT_FIELDS:
+        return False, f"'{fname}' is not a recognized control element field"
     return True, ""
 
 

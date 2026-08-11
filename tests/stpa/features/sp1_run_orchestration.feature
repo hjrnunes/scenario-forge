@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=25000e787e58e793e0d13b990c274f0530dd96c5593e04261b8338bd87db763f
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-11T21:22:22.206365Z","feature_name":"SP1 — Run orchestration","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_run_orchestration.feature","background_hash":"93a4ff32b850b092ffae476f5b2cf2ed3be0d0926c0e21bf8b7b001706738bd9","implementation_hash":"sha256:41587085eef4c3d4b30f0520d1fae1ca4de0de3e1e2fbe563d189e929f80188f","scenarios":[{"index":8,"name":"SP1-RUN-09 prompt templates exist for all stages","scenario_hash":"f14610730a1eb7310adfa91a71a567b9be0eee3c820ee5bd5c1d6938106b5e92","mutation_count":18,"result":{"Total":18,"Killed":18,"Survived":0,"Errors":0},"tested_at":"2026-08-11T21:22:22.206365Z"},{"index":9,"name":"SP1-RUN-09b templates retired by the Stage 1 and Stage 2 restructures are absent","scenario_hash":"4874b28276a023828cfe26f57e31252a0ff94115a9d8b6757b5e7d6eb4b81631","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-11T21:21:13.721816Z"},{"index":11,"name":"SP1-RUN-11 internal models are defined","scenario_hash":"e92a54a218f0074708a5dfb436c471b82bbe015dd6635844c5e54445e6bb4ca9","mutation_count":5,"result":{"Total":5,"Killed":5,"Survived":0,"Errors":0},"tested_at":"2026-08-11T21:21:13.721816Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Run orchestration
   The SP1 run orchestrates Stages 1a, 1b, and 2 in sequence. Stage 1a produces
   LossAnalysis, Stage 1b produces CapabilityProfile (or loads a pre-built one
