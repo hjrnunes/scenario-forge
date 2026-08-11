@@ -74,27 +74,17 @@ def derive_loss_analysis(
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
     # --- Call 1: risk_derivation ---
-    risk_system = loader.render_prompt("stage1a_risk_system.j2")
-    risk_user = loader.render_prompt(
-        "stage1a_risk_user.j2",
+    risk_draft = _run_stage1a_call(
+        llm_client=llm_client,
+        loader=loader,
+        system_template="stage1a_risk_system.j2",
+        user_template="stage1a_risk_user.j2",
+        run_dir=run_dir,
+        step=STEP_RISK,
+        temperature=temperature,
         use_case_text=use_case_text,
         risk_cards=risk_cards,
     )
-
-    risk_draft, _, error_msg = safe_llm_call(
-        llm_client=llm_client,
-        system_prompt=risk_system,
-        user_prompt=risk_user,
-        response_format=LossAnalysisDraft,
-        run_dir=run_dir,
-        stage=STAGE,
-        step=STEP_RISK,
-        temperature=temperature,
-    )
-    if error_msg is not None:
-        raise StageError(stage=STAGE, step=STEP_RISK, message=error_msg)
-
-    assert risk_draft is not None  # safe_llm_call guarantees this on success
 
     # --- Compute next IDs for gap analysis ---
     next_loss_num = _max_id_num(
@@ -110,9 +100,14 @@ def derive_loss_analysis(
     existing_losses = risk_draft.risk_card_losses + risk_draft.use_case_losses
     kc_subcodes = capability_profile.kc_subcodes if capability_profile else []
 
-    gap_system = loader.render_prompt("stage1a_gap_system.j2")
-    gap_user = loader.render_prompt(
-        "stage1a_gap_user.j2",
+    gap_draft = _run_stage1a_call(
+        llm_client=llm_client,
+        loader=loader,
+        system_template="stage1a_gap_system.j2",
+        user_template="stage1a_gap_user.j2",
+        run_dir=run_dir,
+        step=STEP_GAP,
+        temperature=temperature,
         use_case_text=use_case_text,
         existing_losses=existing_losses,
         existing_hazards=risk_draft.hazards,
@@ -123,25 +118,46 @@ def derive_loss_analysis(
         kc_subcodes=kc_subcodes,
     )
 
-    gap_draft, _, error_msg = safe_llm_call(
-        llm_client=llm_client,
-        system_prompt=gap_system,
-        user_prompt=gap_user,
-        response_format=LossAnalysisDraft,
-        run_dir=run_dir,
-        stage=STAGE,
-        step=STEP_GAP,
-        temperature=temperature,
-    )
-    if error_msg is not None:
-        raise StageError(stage=STAGE, step=STEP_GAP, message=error_msg)
-
-    assert gap_draft is not None
-
     # --- Merge and validate ---
     merged = _merge_drafts(risk_draft, gap_draft)
     write_yaml(merged, run_dir / "loss-analysis.yaml")
     return merged
+
+
+def _run_stage1a_call(
+    *,
+    llm_client: LLMClient,
+    loader: TemplateLoader,
+    system_template: str,
+    user_template: str,
+    run_dir: Path,
+    step: str,
+    temperature: float,
+    **template_vars: object,
+) -> LossAnalysisDraft:
+    """Render prompts, call the LLM, and return a validated draft.
+
+    Shared by the risk_derivation and gap_analysis calls.  Raises
+    :class:`StageError` if the LLM call fails.
+    """
+    system_prompt = loader.render_prompt(system_template)
+    user_prompt = loader.render_prompt(user_template, **template_vars)
+
+    draft, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=LossAnalysisDraft,
+        run_dir=run_dir,
+        stage=STAGE,
+        step=step,
+        temperature=temperature,
+    )
+    if error_msg is not None:
+        raise StageError(stage=STAGE, step=step, message=error_msg)
+
+    assert draft is not None  # safe_llm_call guarantees this on success
+    return draft
 
 
 def _max_id_num(ids: list[str], prefix: str) -> int:
@@ -177,36 +193,19 @@ def _merge_drafts(
         list(risk_draft.security_constraints) + list(gap_draft.security_constraints)
     )
 
-    # --- Renumber loss IDs ---
-    loss_id_map: dict[str, str] = {}
-    for i, loss in enumerate(all_risk_losses, 1):
-        loss_id_map[loss.loss_id] = f"L-{i}"
-        loss.loss_id = f"L-{i}"
-    offset = len(all_risk_losses)
-    for i, loss in enumerate(all_uc_losses, 1):
-        loss_id_map[loss.loss_id] = f"L-{offset + i}"
-        loss.loss_id = f"L-{offset + i}"
+    # --- Renumber loss IDs (risk losses first, then use-case losses) ---
+    loss_id_map = _renumber_items(all_risk_losses, "loss_id", "L-")
+    loss_id_map.update(
+        _renumber_items(all_uc_losses, "loss_id", "L-", start=len(all_risk_losses) + 1)
+    )
 
-    # --- Renumber hazard IDs ---
-    hazard_id_map: dict[str, str] = {}
-    for i, hazard in enumerate(all_hazards, 1):
-        hazard_id_map[hazard.hazard_id] = f"H-{i}"
-        hazard.hazard_id = f"H-{i}"
-
-    # --- Renumber constraint IDs ---
-    for i, sc in enumerate(all_constraints, 1):
-        sc.constraint_id = f"SC-{i}"
+    # --- Renumber hazard and constraint IDs ---
+    hazard_id_map = _renumber_items(all_hazards, "hazard_id", "H-")
+    _renumber_items(all_constraints, "constraint_id", "SC-")
 
     # --- Update cross-references ---
-    for hazard in all_hazards:
-        hazard.related_losses = [
-            loss_id_map.get(ref, ref) for ref in hazard.related_losses
-        ]
-
-    for sc in all_constraints:
-        sc.related_hazards = [
-            hazard_id_map.get(ref, ref) for ref in sc.related_hazards
-        ]
+    _remap_references(all_hazards, "related_losses", loss_id_map)
+    _remap_references(all_constraints, "related_hazards", hazard_id_map)
 
     return LossAnalysis(
         risk_card_losses=all_risk_losses,
@@ -214,6 +213,41 @@ def _merge_drafts(
         hazards=all_hazards,
         security_constraints=all_constraints,
     )
+
+
+def _renumber_items(
+    items: list[object],
+    id_attr: str,
+    prefix: str,
+    *,
+    start: int = 1,
+) -> dict[str, str]:
+    """Renumber items sequentially, returning an old-ID → new-ID map.
+
+    Mutates each item's ``id_attr`` in place to ``{prefix}{index}`` where
+    index starts at *start* and increments by 1.
+    """
+    id_map: dict[str, str] = {}
+    for i, item in enumerate(items, start):
+        old_id = getattr(item, id_attr)
+        new_id = f"{prefix}{i}"
+        id_map[old_id] = new_id
+        setattr(item, id_attr, new_id)
+    return id_map
+
+
+def _remap_references(
+    items: list[object],
+    ref_attr: str,
+    id_map: dict[str, str],
+) -> None:
+    """Replace each cross-reference in ``ref_attr`` using ``id_map``.
+
+    References not found in the map are preserved unchanged.
+    """
+    for item in items:
+        refs = getattr(item, ref_attr)
+        setattr(item, ref_attr, [id_map.get(ref, ref) for ref in refs])
 
 
 # mutate4py-manifest-begin
