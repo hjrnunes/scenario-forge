@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=6a68f0fe4173fc2043610adb9ef1ab865fdbc3f0d8fab67776b7838f5ac4ab89
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-11T16:22:07.478226Z","feature_name":"Stage 2 Call 3 Coordination and Integrity","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/features/stage2-restructure/stage2-call3.feature","background_hash":"3ce4ce047c4808724701c3d5045ba13b821552e7e8a42e47ce48aacf8a16b50b","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 # stage2-call3
 Feature: Stage 2 Call 3 Coordination and Integrity
   Call 3 is redefined as coordination-only plus integrity verification.

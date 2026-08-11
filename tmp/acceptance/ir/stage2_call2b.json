@@ -1,0 +1,88 @@
+{
+  "name" : "Stage 2 Call 2b Control Actions Feedback and Constraints",
+  "scenarios" : [ {
+    "name" : "New stage2_call2b templates are present",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompts directory contains `<template>`",
+      "parameters" : [ "template" ]
+    } ],
+    "examples" : [ {
+      "template" : "stage2_call2b_system.j2"
+    }, {
+      "template" : "stage2_call2b_user.j2"
+    } ]
+  }, {
+    "name" : "Call 2b produces a call-log entry with step call_2b_control_elements",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "`calls.jsonl` contains a call entry with `stage` `stage_2` and `step` `call_2b_control_elements`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Every process model part has at least one feedback channel updating it",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "every `pm_id` in `control-structure.yaml` appears in at least one `updates` field of a feedback channel"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Each responsibility has at least as many feedback channels as process model parts",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "for every responsibility in `control-structure.yaml` the feedback channel count is greater than or equal to the process model part count"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Call 2b system prompt states the PM-FB invariant",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompt template `stage2_call2b_system.j2` contains `at least one feedback channel`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompt template `stage2_call2b_system.j2` contains `at least N feedback channels`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Call 2b user prompt includes responsibilities from Call 2a",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompt template `stage2_call2b_user.j2` contains `responsibilities`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompt template `stage2_call2b_user.j2` contains `responsibility_constraints`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompt template `stage2_call2b_user.j2` contains `process_model_parts`"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "a use-case file and a risk-extraction file are available"
+  }, {
+    "keyword" : "And",
+    "text" : "an LLM endpoint is configured"
+  } ]
+}

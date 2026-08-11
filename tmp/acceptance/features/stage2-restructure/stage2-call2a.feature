@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=44b8261b1841d9937206a9f501e1ebaf2848493fbd7034488e2bb03c50d13762
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-11T16:22:06.376388Z","feature_name":"Stage 2 Call 2a Responsibilities and Process Model","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/features/stage2-restructure/stage2-call2a.feature","background_hash":"3ce4ce047c4808724701c3d5045ba13b821552e7e8a42e47ce48aacf8a16b50b","implementation_hash":"unknown","scenarios":[{"index":0,"name":"Old stage2_call2 templates are absent","scenario_hash":"e5a30f8a4cf1d86175a6dbe3de0c292c38104bb95ce6bb28f1788e515eea3d74","mutation_count":2,"result":{"Total":2,"Killed":2,"Survived":0,"Errors":0},"tested_at":"2026-08-11T16:22:06.376388Z"},{"index":1,"name":"New stage2_call2a templates are present","scenario_hash":"0c3fbf96993f4da93e5dc0608ff1b8c9c431104a511eb4db0fe4753ff28a59ea","mutation_count":2,"result":{"Total":2,"Killed":2,"Survived":0,"Errors":0},"tested_at":"2026-08-11T16:22:06.376388Z"}]}
+# acceptance-mutation-manifest-end
+
 # stage2-call2a
 Feature: Stage 2 Call 2a Responsibilities and Process Model
   The current single Call 2 (responsibilities + PM + CA + FB + CP) is split

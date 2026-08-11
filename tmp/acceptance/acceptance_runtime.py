@@ -4401,11 +4401,43 @@ from scenario_forge.stpa.system_model.profile import (
 from scenario_forge.stpa.system_model.control_structure import (
     derive_control_structure as _sp1_derive_control_structure,
     ResponsibilitySet as _SP1ResponsibilitySet,
-    ConnectionSet as _SP1ConnectionSet,
-    ConnectionAssignment as _SP1ConnectionAssignment,
-    merge_connection_set as _sp1_merge_connection_set,
-    _merge_with_fallback as _sp1_merge_with_fallback,
+    ControlElementSet as _SP1ControlElementSet,
+    CoordinationAnalysis as _SP1CoordinationAnalysis,
+    RequirementSet as _SP1RequirementSet,
+    _assemble_with_fallback as _sp1_assemble_with_fallback,
+    _add_coordination_links_with_fallback as _sp1_add_coordination_links,
 )
+# Backward-compatible aliases for step handlers that still reference the
+# old ConnectionSet name.  In the new 4-call Stage 2, Call 3 produces a
+# CoordinationAnalysis (coordination links + integrity findings).
+_SP1ConnectionSet = _SP1CoordinationAnalysis
+
+
+def _sp1_merge_connection_set(
+    responsibility_set,
+    connection_set,
+    run_dir=None,
+    model="test-model",
+):
+    """Backward-compatible wrapper for the old merge_connection_set.
+
+    In the new 4-call Stage 2, the old ConnectionSet is split into
+    ControlElementSet (Call 2b) and CoordinationAnalysis (Call 3).
+    This wrapper assembles a ControlStructure from a ResponsibilitySet
+    and a CoordinationAnalysis (treating it as the old ConnectionSet).
+    """
+    from pathlib import Path as _Path
+    rd = run_dir if run_dir is not None else _Path(_tempfile.mkdtemp(prefix="sp1_merge_"))
+    # Build a minimal ControlElementSet from the connection_set's CPs
+    cps = getattr(connection_set, "controlled_processes", [])
+    ces = _SP1ControlElementSet(controlled_processes=cps)
+    cs, _w = _sp1_assemble_with_fallback(responsibility_set, ces, rd, model)
+    # Add coordination links if present
+    cs, _cw = _sp1_add_coordination_links(cs, connection_set, rd, model)
+    return cs
+
+
+_sp1_merge_with_fallback = _sp1_assemble_with_fallback
 from scenario_forge.stpa.system_model.critic import (
     run_completeness_critic as _sp1_run_critic,
     run_revision as _sp1_run_revision,
@@ -4650,6 +4682,29 @@ def _sp1_valid_resp_set_dict() -> dict:
     }
 
 
+def _sp1_valid_resp_set_2a_dict() -> dict:
+    """Valid ResponsibilitySet for Call 2a — RCs and PMs only, no CAs/FBs.
+
+    In the new 4-call Stage 2, Call 2a produces responsibilities with
+    only responsibility_constraints and process_model_parts.  CAs, FBs,
+    and CPs are produced by Call 2b (ControlElementSet).
+    """
+    return {
+        "responsibilities": [
+            {
+                "resp_id": "RESP-1", "description": "Authorization controller",
+                "responsibility_constraints": [{"rc_id": "RC-1-1", "description": "Must confirm"}],
+                "process_model_parts": [{"pm_id": "PM-1-1", "description": "User intent state"}],
+            },
+            {
+                "resp_id": "RESP-2", "description": "Data controller",
+                "responsibility_constraints": [{"rc_id": "RC-2-1", "description": "Protect data"}],
+                "process_model_parts": [{"pm_id": "PM-2-1", "description": "Data state"}],
+            },
+        ],
+    }
+
+
 def _sp1_valid_cs_dict() -> dict:
     rs = _sp1_valid_resp_set_dict()
     return {
@@ -4660,70 +4715,81 @@ def _sp1_valid_cs_dict() -> dict:
 
 
 def _sp1_valid_connection_set_dict() -> dict:
-    """Valid ConnectionSet for Call 3 — matches the merge test helper."""
+    """Valid CoordinationAnalysis for Call 3 — matches the assembly test helper.
+
+    In the new 4-call Stage 2, Call 3 produces a CoordinationAnalysis
+    (coordination links + integrity findings).  This dict is backward-
+    compatible with step handlers that expect the old ConnectionSet shape
+    but only access coordination_links and controlled_processes.
+    """
     return {
         "coordination_links": [
             {"link_id": "CL-1", "source": "RESP-1", "target": "RESP-2", "shared_pm": "PM-1-1",
              "coordination_mechanism": {"cm_id": "CM-1", "description": "Mechanism", "payload": "data"},
              "description": "Link"},
+        ],
+        "integrity_findings": [],
+    }
+
+
+def _sp1_valid_control_element_set_dict() -> dict:
+    """Valid ControlElementSet for Call 2b — CAs, FBs, and CPs."""
+    return {
+        "control_actions": [
+            {"ca_id": "CA-1-1", "description": "Execute action",
+             "target": {"type": "controlled_process", "id": "CP-1"}},
+            {"ca_id": "CA-2-1", "description": "Send response"},
+        ],
+        "feedback_channels": [
+            {"fb_id": "FB-1-1", "description": "Action result", "updates": "PM-1-1",
+             "source": {"type": "controlled_process", "id": "CP-1"}},
+            {"fb_id": "FB-2-1", "description": "Response delivery", "updates": "PM-2-1",
+             "source": {"type": "responsibility", "id": "RESP-2"}},
         ],
         "controlled_processes": [
             {"cp_id": "CP-1", "description": "External service"},
         ],
-        "connection_assignments": [
-            {"element_id": "FB-1-1", "source": {"type": "controlled_process", "id": "CP-1"}},
-            {"element_id": "CA-1-1", "target": {"type": "controlled_process", "id": "CP-1"}},
-        ],
     }
 
 
+def _sp1_valid_coordination_analysis_dict() -> dict:
+    """Valid CoordinationAnalysis for Call 3."""
+    return _sp1_valid_connection_set_dict()
+
+
 def _sp1_valid_connection_set_no_assignments_dict() -> dict:
-    """ConnectionSet with only coordination links, no assignments."""
+    """CoordinationAnalysis with only coordination links, no CPs or assignments."""
     return {
         "coordination_links": [
             {"link_id": "CL-1", "source": "RESP-1", "target": "RESP-2", "shared_pm": "PM-1-1",
              "coordination_mechanism": {"cm_id": "CM-1", "description": "Mechanism", "payload": "data"},
              "description": "Link"},
         ],
-        "controlled_processes": [],
-        "connection_assignments": [],
+        "integrity_findings": [],
     }
 
 
 def _sp1_valid_connection_set_cp_only_dict() -> dict:
-    """ConnectionSet with only a controlled process, no links or assignments."""
+    """CoordinationAnalysis with no links (CPs come from Call 2b now)."""
     return {
         "coordination_links": [],
-        "controlled_processes": [
-            {"cp_id": "CP-1", "description": "External service"},
-        ],
-        "connection_assignments": [],
+        "integrity_findings": [],
     }
 
 
 def _sp1_valid_connection_set_fb_assignment_dict() -> dict:
-    """ConnectionSet with assignment for FB-1-1 setting source to CP-1."""
+    """CoordinationAnalysis with no links (FB assignments come from Call 2b now)."""
     return {
         "coordination_links": [],
-        "controlled_processes": [
-            {"cp_id": "CP-1", "description": "External service"},
-        ],
-        "connection_assignments": [
-            {"element_id": "FB-1-1", "source": {"type": "controlled_process", "id": "CP-1"}},
-        ],
+        "integrity_findings": [],
     }
 
 
 def _sp1_valid_connection_set_ca_assignment_dict() -> dict:
-    """ConnectionSet with assignment for CA-1-1 setting target to CP-1."""
+    """CoordinationAnalysis with no links (CA assignments come from Call 2b now)."""
     return {
         "coordination_links": [],
-        "controlled_processes": [
-            {"cp_id": "CP-1", "description": "External service"},
-        ],
-        "connection_assignments": [
-            {"element_id": "CA-1-1", "target": {"type": "controlled_process", "id": "CP-1"}},
-        ],
+        "integrity_findings": [],
     }
 
 
@@ -4790,7 +4856,8 @@ def _sp1_setup_full_mock_client(
     client.set_response_for(_SP1LossAnalysisDraft, _sp1_valid_la_dict())
     client.set_response_for(_SP1Stage1Profile, _sp1_valid_stage1_profile_dict())
     client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
-    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_2a_dict())
+    client.set_response_for(_SP1ControlElementSet, _sp1_valid_control_element_set_dict())
     client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
     client.set_response_for(ControlStructure, _sp1_valid_cs_dict())
     if critic_findings is not None:
@@ -5383,7 +5450,7 @@ def _h_sp1_s2_call2_run(world: World, text: str, examples: dict) -> tuple[bool, 
 
 
 def _h_sp1_s2_call3_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: Stage 2 Call 3 connections derivation is run."""
+    """Handle: Stage 2 Call 3 coordination derivation is run."""
     run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_s2_"))
     world.sp1_run_dir = run_dir
     client = world.sp1_mock_client or _SP1MockLLM()
@@ -5396,7 +5463,7 @@ def _h_sp1_s2_call3_run(world: World, text: str, examples: dict) -> tuple[bool, 
     )
     try:
         world.sp1_connection_set = _SP1ConnectionSet.model_validate(content)
-        _sp1_log_llm_call(result, client.model, run_dir, "stage_2", "call_3_connections")
+        _sp1_log_llm_call(result, client.model, run_dir, "stage_2", "call_3_coordination")
         # If a ResponsibilitySet is available, merge to produce a ControlStructure
         # (backward compatibility for older feature tests that expect a CS from Call 3).
         if world.sp1_responsibility_set is not None:
@@ -5449,7 +5516,8 @@ def _h_sp1_s2_calls_1_3_run(world: World, text: str, examples: dict) -> tuple[bo
     client = world.sp1_mock_client or _SP1MockLLM()
     world.sp1_mock_client = client
     client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
-    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_2a_dict())
+    client.set_response_for(_SP1ControlElementSet, _sp1_valid_control_element_set_dict())
     client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
     la = world.loss_analysis or _sp1_make_loss_analysis_with_constraints()
     # Call 1
@@ -5472,7 +5540,7 @@ def _h_sp1_s2_calls_1_3_run(world: World, text: str, examples: dict) -> tuple[bo
     )
     try:
         world.sp1_requirement_set = _SP1RequirementSet.model_validate(_sp1_valid_req_set_dict())
-        world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(_sp1_valid_resp_set_dict())
+        world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(_sp1_valid_resp_set_2a_dict())
         world.sp1_connection_set = _SP1ConnectionSet.model_validate(_sp1_valid_connection_set_dict())
         world.control_structure = _sp1_merge_connection_set(
             world.sp1_responsibility_set, world.sp1_connection_set,
@@ -5489,7 +5557,8 @@ def _h_sp1_s2_full_run(world: World, text: str, examples: dict) -> tuple[bool, s
     client = world.sp1_mock_client or _SP1MockLLM()
     world.sp1_mock_client = client
     client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
-    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_2a_dict())
+    client.set_response_for(_SP1ControlElementSet, _sp1_valid_control_element_set_dict())
     # Use ConnectionSet for Call 3 (new schema), fall back to ControlStructure
     # for older tests that registered a ControlStructure response.
     if _SP1ConnectionSet not in client._response_map:
@@ -6101,7 +6170,9 @@ def _h_sp1_run_full(world: World, text: str, examples: dict) -> tuple[bool, str]
         if _GDRequirementSet not in client._response_map and _GDRequirementSet not in client._invalid_types and _GDRequirementSet not in client._exception_types:
             client.set_response_for(_GDRequirementSet, _sp1_valid_req_set_dict())
         if _GDResponsibilitySet not in client._response_map and _GDResponsibilitySet not in client._invalid_types and _GDResponsibilitySet not in client._exception_types:
-            client.set_response_for(_GDResponsibilitySet, _sp1_valid_resp_set_dict())
+            client.set_response_for(_GDResponsibilitySet, _sp1_valid_resp_set_2a_dict())
+        if _SP1ControlElementSet not in client._response_map and _SP1ControlElementSet not in client._invalid_types and _SP1ControlElementSet not in client._exception_types:
+            client.set_response_for(_SP1ControlElementSet, _sp1_valid_control_element_set_dict())
         if _SP1ConnectionSet not in client._response_map and _SP1ConnectionSet not in client._invalid_types and _SP1ConnectionSet not in client._exception_types:
             client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
         if ControlStructure not in client._response_map and ControlStructure not in client._invalid_types and ControlStructure not in client._exception_types:
@@ -7285,7 +7356,10 @@ def _h_gd_full_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
             client.set_response_for(_GDRequirementSet, _sp1_valid_req_set_dict())
     if _GDResponsibilitySet not in client._invalid_types and _GDResponsibilitySet not in client._exception_types:
         if _GDResponsibilitySet not in client._response_map:
-            client.set_response_for(_GDResponsibilitySet, _sp1_valid_resp_set_dict())
+            client.set_response_for(_GDResponsibilitySet, _sp1_valid_resp_set_2a_dict())
+    if _SP1ControlElementSet not in client._invalid_types and _SP1ControlElementSet not in client._exception_types:
+        if _SP1ControlElementSet not in client._response_map:
+            client.set_response_for(_SP1ControlElementSet, _sp1_valid_control_element_set_dict())
     if _SP1ConnectionSet not in client._invalid_types and _SP1ConnectionSet not in client._exception_types:
         if _SP1ConnectionSet not in client._response_map:
             client.set_response_for(_SP1ConnectionSet, _sp1_valid_connection_set_dict())
@@ -7554,23 +7628,41 @@ def _h_connset_contains_cl(world: World, text: str, examples: dict) -> tuple[boo
 
 
 def _h_connset_contains_cp(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the ConnectionSet contains controlled process CP-1."""
-    if world.sp1_connection_set is None:
-        return False, "No ConnectionSet available"
-    cp_ids = {cp.cp_id for cp in world.sp1_connection_set.controlled_processes}
+    """Handle: the ControlStructure contains controlled process CP-1."""
+    cs = world.control_structure
+    if cs is None:
+        # Fall back to connection_set for backward compat
+        if world.sp1_connection_set is None:
+            return False, "No ControlStructure or ConnectionSet available"
+        cp_ids = {cp.cp_id for cp in getattr(world.sp1_connection_set, "controlled_processes", [])}
+    else:
+        cp_ids = {cp.cp_id for cp in cs.controlled_processes}
     if "CP-1" not in cp_ids:
         return False, f"Expected CP-1 but got: {cp_ids}"
     return True, ""
 
 
 def _h_connset_contains_assignment(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the ConnectionSet contains connection assignment for element FB-1-1."""
-    if world.sp1_connection_set is None:
-        return False, "No ConnectionSet available"
-    element_ids = {a.element_id for a in world.sp1_connection_set.connection_assignments}
-    if "FB-1-1" not in element_ids:
-        return False, f"Expected FB-1-1 assignment but got: {element_ids}"
-    return True, ""
+    """Handle: the ControlStructure has FB-1-1 with a source reference.
+
+    In the new 4-call Stage 2, connection assignments are replaced by
+    direct ElementRef fields on CAs (target) and FBs (source).
+    """
+    cs = world.control_structure
+    if cs is None:
+        if world.sp1_connection_set is None:
+            return False, "No ControlStructure or ConnectionSet available"
+        # Old-style: check connection_assignments
+        element_ids = {a.element_id for a in getattr(world.sp1_connection_set, "connection_assignments", [])}
+        if "FB-1-1" not in element_ids:
+            return False, f"Expected FB-1-1 assignment but got: {element_ids}"
+        return True, ""
+    # New-style: check FB sources in the control structure
+    for resp in cs.responsibilities:
+        for fb in resp.feedback_channels:
+            if fb.fb_id == "FB-1-1" and fb.source is not None:
+                return True, ""
+    return False, "FB-1-1 has no source reference in the ControlStructure"
 
 
 def _h_connset_fb_source_cp1(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -7741,7 +7833,8 @@ def _h_mf_llm_call1_call2(world: World, text: str, examples: dict) -> tuple[bool
     client = world.sp1_mock_client or _SP1MockLLM()
     world.sp1_mock_client = client
     client.set_response_for(_SP1RequirementSet, _sp1_valid_req_set_dict())
-    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_dict())
+    client.set_response_for(_SP1ResponsibilitySet, _sp1_valid_resp_set_2a_dict())
+    client.set_response_for(_SP1ControlElementSet, _sp1_valid_control_element_set_dict())
     return True, ""
 
 
@@ -10934,8 +11027,9 @@ from scenario_forge.stpa.system_model.critic import (
     strip_empty_responsibilities as _fc_strip_empty,
 )
 from scenario_forge.stpa.system_model.control_structure import (
-    _merge_with_fallback as _fc_merge_with_fallback,
+    _assemble_with_fallback as _fc_merge_with_fallback,
     ResponsibilitySet as _FCResponsibilitySet,
+    ControlElementSet as _FCControlElementSet,
 )
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR as _FC_PROMPTS_DIR
 
@@ -11042,20 +11136,14 @@ def _h_san_llm_merge_failure(world: World, text: str, examples: dict) -> tuple[b
         CoordinationLink as _CL,
         CoordinationMechanism as _CM,
     )
-    from scenario_forge.stpa.system_model.control_structure import ConnectionSet as _CS
+    from scenario_forge.stpa.system_model.control_structure import ControlElementSet as _CS
     world.san_connection_set = _CS(
-        coordination_links=[
-            _CL(
-                link_id="CL-1",
-                source="RESP-99",
-                target="RESP-88",
-                shared_pm="PM-99-1",
-                coordination_mechanism=_CM(cm_id="CM-1", description="M", payload="d"),
-                description="Bad link",
-            ),
+        control_actions=[
+            ControlAction(ca_id="CA-99-1", description="Bad CA",
+                target=ElementRef(type=ReferenceType.controlled_process, id="CP-99")),
         ],
+        feedback_channels=[],
         controlled_processes=[],
-        connection_assignments=[],
     )
     return True, ""
 
@@ -11070,9 +11158,8 @@ def _h_san_merge_executed(world: World, text: str, examples: dict) -> tuple[bool
     if world.san_merge_failure_triggered and world.san_connection_set is not None:
         cs = world.san_connection_set
     else:
-        # Use a valid connection set (for Sanitize-10 normal path)
-        from scenario_forge.stpa.system_model.control_structure import ConnectionSet as _CS
-        cs = _SP1ConnectionSet.model_validate(_sp1_valid_connection_set_dict())
+        # Use a valid ControlElementSet (for Sanitize-10 normal path)
+        cs = _FCControlElementSet.model_validate(_sp1_valid_control_element_set_dict())
     try:
         world.control_structure, world.san_merge_warnings = _fc_merge_with_fallback(
             rs, cs, run_dir, "test-model",
@@ -12154,7 +12241,7 @@ import tempfile as _bf2_tempfile
 from scenario_forge.stpa.infra.llm_helpers import safe_llm_call as _bf2_safe_llm_call
 from scenario_forge.stpa.system_model.control_structure import (
     derive_control_structure as _bf2_derive_control_structure,
-    _call_2_responsibilities as _bf2_call_2_resp,
+    _call_2a_responsibilities as _bf2_call_2_resp,
 )
 from scenario_forge.stpa.system_model.critic import (
     RevisionDelta as _bf2_RevisionDelta,
@@ -12224,8 +12311,8 @@ def _h_bf2_loss_analysis_available(world: World, text: str, examples: dict) -> t
 def _h_bf2_function_signature_inspected(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the <function_name> function signature is inspected."""
     # Store the function for subsequent assertion
-    if "_call_2_responsibilities" in text:
-        world.sp1_component_name = "_call_2_responsibilities"
+    if "_call_2a_responsibilities" in text:
+        world.sp1_component_name = "_call_2a_responsibilities"
     elif "derive_control_structure" in text:
         world.sp1_component_name = "derive_control_structure"
     elif "safe_llm_call" in text:
@@ -12241,7 +12328,7 @@ def _h_bf2_function_accepts_param(world: World, text: str, examples: dict) -> tu
     if func_name is None:
         return False, "No function signature inspected"
 
-    if func_name == "_call_2_responsibilities":
+    if func_name == "_call_2a_responsibilities":
         func = _bf2_call_2_resp
     elif func_name == "derive_control_structure":
         func = _bf2_derive_control_structure
@@ -13498,7 +13585,7 @@ _register_first(r"repair_orphan_pms is called before Call 3 connections are deri
 _register_first(r"the STPA system model control_structure module is importable", _h_bf2_cs_module_importable)
 _register_first(r"a capability profile with zones_active", _h_bf2_capability_profile_with_zones)
 _register_first(r"a loss analysis is available$", _h_bf2_loss_analysis_available)
-_register_first(r"the _call_2_responsibilities function signature is inspected", _h_bf2_function_signature_inspected)
+_register_first(r"the _call_2a_responsibilities function signature is inspected", _h_bf2_function_signature_inspected)
 _register_first(r"the derive_control_structure function signature is inspected", _h_bf2_function_signature_inspected)
 _register_first(r"the function accepts a capability_profile parameter", _h_bf2_function_accepts_param)
 _register_first(r"an LLM that returns valid Stage 2 responses for all three calls", _h_bf2_llm_valid_stage2_responses)
@@ -21060,6 +21147,25 @@ _register(r"the prompts directory contains", _h_stage1_prompts_contains)
 _register(r"the `Stage1Profile` model does not declare", _h_stage1_model_no_declare)
 _register(r"the prompt template .* contains the text", _h_stage1_template_contains_text)
 _register(r"the prompt template .* does not contain", _h_stage1_template_not_contains)
+
+
+def _h_template_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the prompt template `X.j2` contains `Y`."""
+    from scenario_forge.stpa.system_model import PROMPTS_DIR
+    m = re.search(r"template `([^`]+\.j2)` contains `([^`]+)`", text)
+    if not m:
+        return False, f"Could not parse from: {text}"
+    tmpl_name, expected_text = m.group(1), m.group(2)
+    path = PROMPTS_DIR / tmpl_name
+    if not path.exists():
+        return False, f"Template {tmpl_name} not found"
+    content = path.read_text(encoding="utf-8")
+    if expected_text not in content:
+        return False, f"Template {tmpl_name} does not contain '{expected_text}'"
+    return True, ""
+
+
+_register(r"the prompt template .* contains `", _h_template_contains)
 # Pipeline Given steps
 _register(r"the risk-extraction file contains zero risk cards", _h_stage1_given_zero_risk_cards)
 _register(r"a pre-built `capability-profile.yaml` file is available", _h_stage1_given_prebuilt_profile)
