@@ -888,3 +888,50 @@ class TestCallLogOrderingAndProfileSkip:
             # With no profile, kc_subcodes should be empty
             # The template may still render the section header but with no values
             pass
+
+    def test_gap_call_starts_after_highest_risk_ids(self, tmp_path):
+        """Gap prompts receive the next number for every merged ID family."""
+        from tests.stpa.sp1_helpers import MockLLMClient, valid_gap_draft_dict
+
+        risk = {
+            "risk_card_losses": [
+                {
+                    "loss_id": "L-4",
+                    "description": "Risk loss",
+                    "provenance": "risk_card",
+                    "source_risk_cards": ["atlas-001"],
+                }
+            ],
+            "use_case_losses": [],
+            "hazards": [
+                {
+                    "hazard_id": "H-7",
+                    "description": "Risk hazard",
+                    "related_losses": ["L-4"],
+                }
+            ],
+            "security_constraints": [
+                {
+                    "constraint_id": "SC-9",
+                    "description": "Risk constraint",
+                    "related_hazards": ["H-7"],
+                }
+            ],
+        }
+        client = MockLLMClient()
+        client.set_response_for(
+            LossAnalysisDraft,
+            [risk, valid_gap_draft_dict()],
+        )
+
+        derive_loss_analysis(
+            llm_client=client,
+            use_case_text="Test use case",
+            risk_cards=[],
+            run_dir=tmp_path,
+        )
+
+        gap_prompt = client.calls[1].user_prompt
+        assert "L-5" in gap_prompt
+        assert "H-8" in gap_prompt
+        assert "SC-10" in gap_prompt
