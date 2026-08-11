@@ -305,7 +305,10 @@ def _assemble_with_fallback(
     the failure is logged to ``calls.jsonl`` and a fallback ControlStructure
     is built from the ResponsibilitySet alone (without coordination links).
 
-    The fallback path first sanitizes invalid ElementRefs via
+    Before falling back, the Call 2b control actions and feedback channels
+    are assigned onto the Call 2a responsibilities via
+    ``_assign_elements_to_responsibilities`` so they are preserved on the
+    degraded path. The fallback path then sanitizes invalid ElementRefs via
     ``_sanitize_for_fallback``. If sanitization still fails (e.g. duplicate
     IDs), a further-degraded path strips ALL ElementRefs.
 
@@ -335,11 +338,43 @@ def _assemble_with_fallback(
         )
         warnings = [f"{STAGE}/assemble_control_structure: {error_msg}"]
 
+        # Enrich Call 2a responsibilities with Call 2b control actions and
+        # feedback channels before sanitization/stripping. Without this, the
+        # fallback tiers silently discard all CAs and FBs (the
+        # ``responsibility_set.responsibilities`` passed in only carry RCs
+        # and PM parts). The enriched list is built once and reused for both
+        # tiers; each tier deep-copies it internally, so there is no risk of
+        # cross-tier mutation.
+        #
+        # ``resp_by_num`` keeps the FIRST occurrence of each resp number so
+        # that, when the ResponsibilitySet has duplicate resp_ids, the CAs
+        # and FBs land on the same responsibility that the strip tier keeps
+        # (``_strip_all_element_refs`` deduplicates by resp_id keeping the
+        # first occurrence). The sanitize tier always fails on duplicates
+        # (validation rejects duplicate resp_ids), so only the strip tier
+        # produces a result in that case.
+        enriched_resps = copy.deepcopy(responsibility_set.responsibilities)
+        resp_by_num: dict[int, Responsibility] = {}
+        for resp in enriched_resps:
+            resp_by_num.setdefault(_extract_resp_num(resp.resp_id), resp)
+        _assign_elements_to_responsibilities(
+            control_element_set.control_actions,
+            "ca_id",
+            resp_by_num,
+            "control_actions",
+        )
+        _assign_elements_to_responsibilities(
+            control_element_set.feedback_channels,
+            "fb_id",
+            resp_by_num,
+            "feedback_channels",
+        )
+
         # First fallback: sanitize invalid ElementRefs
         try:
             sanitized_resps, sanitized_cps, sanitize_warnings = (
                 _sanitize_for_fallback(
-                    responsibility_set.responsibilities,
+                    enriched_resps,
                     control_element_set.controlled_processes,
                 )
             )
@@ -353,7 +388,7 @@ def _assemble_with_fallback(
             # Further-degraded fallback: strip ALL ElementRefs
             stripped_resps, stripped_cps, strip_warnings = (
                 _strip_all_element_refs(
-                    responsibility_set.responsibilities,
+                    enriched_resps,
                     control_element_set.controlled_processes,
                 )
             )

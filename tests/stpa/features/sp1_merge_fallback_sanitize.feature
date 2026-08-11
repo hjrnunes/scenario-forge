@@ -1,12 +1,3 @@
-# mutation-excluded: scenario-forge-32aa — 7 of 16 scenario instances are
-# intentionally red (Sanitize-01 ex2/3, Sanitize-04 ex2/3, Sanitize-06 ex1,
-# Sanitize-11 ex1/2) because _assemble_with_fallback silently discards all
-# control_actions and feedback_channels on the degraded path. Gherkin
-# mutation on already-failing scenarios is not meaningful (a mutant cannot
-# be killed by a test that fails regardless). Excluded pending fix of
-# scenario-forge-32aa (P1).
-# Do NOT reintroduce the _h_ar_assemble workaround reverted in 87e08de.
-
 Feature: SP1 — Sanitize invalid ElementRefs in assembly fallback path
   Neither the ResponsibilitySet from Call 2a nor the ControlElementSet from
   Call 2b has a model validator, so the LLM can produce ElementRef values

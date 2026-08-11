@@ -1,0 +1,255 @@
+{
+  "name" : "SP1 — Sanitize invalid ElementRefs in assembly fallback path",
+  "scenarios" : [ {
+    "name" : "Sanitize-01 fallback nullifies unresolvable ElementRef in each ref field",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2a with responsibility RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a <element_type> <element_id> with <ref_field> {type: <ref_type>, id: <ref_id>}",
+      "parameters" : [ "element_type", "element_id", "ref_field", "ref_type", "ref_id" ]
+    }, {
+      "keyword" : "And",
+      "text" : "a ControlElementSet from Call 2b with an unresolvable feedback source reference"
+    }, {
+      "keyword" : "When",
+      "text" : "the Stage 2 assembly with fallback is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a ControlStructure model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "the <element_type> <element_id> <ref_field> is None",
+      "parameters" : [ "element_type", "element_id", "ref_field" ]
+    }, {
+      "keyword" : "And",
+      "text" : "the pipeline does not crash"
+    } ],
+    "examples" : [ {
+      "element_type" : "ProcessModelPart",
+      "element_id" : "PM-1-1",
+      "ref_field" : "feedback_source",
+      "ref_type" : "controlled_process",
+      "ref_id" : "FB-1-1"
+    }, {
+      "element_type" : "ControlAction",
+      "element_id" : "CA-1-1",
+      "ref_field" : "target",
+      "ref_type" : "responsibility",
+      "ref_id" : "RESP-99"
+    }, {
+      "element_type" : "FeedbackChannel",
+      "element_id" : "FB-1-1",
+      "ref_field" : "source",
+      "ref_type" : "controlled_process",
+      "ref_id" : "CP-99"
+    } ]
+  }, {
+    "name" : "Sanitize-04 valid ElementRefs are preserved during sanitization",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2a with responsibility RESP-1 and a ControlElementSet from Call 2b with controlled process CP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a <element_type> <element_id> with <ref_field> pointing to CP-1",
+      "parameters" : [ "element_type", "element_id", "ref_field" ]
+    }, {
+      "keyword" : "And",
+      "text" : "a ControlElementSet from Call 2b with an unresolvable feedback source reference"
+    }, {
+      "keyword" : "When",
+      "text" : "the Stage 2 assembly with fallback is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the <element_type> <element_id> <ref_field> is preserved and not nullified",
+      "parameters" : [ "element_type", "element_id", "ref_field" ]
+    } ],
+    "examples" : [ {
+      "element_type" : "ProcessModelPart",
+      "element_id" : "PM-1-1",
+      "ref_field" : "feedback_source"
+    }, {
+      "element_type" : "ControlAction",
+      "element_id" : "CA-1-1",
+      "ref_field" : "target"
+    }, {
+      "element_type" : "FeedbackChannel",
+      "element_id" : "FB-1-1",
+      "ref_field" : "source"
+    } ]
+  }, {
+    "name" : "Sanitize-05 sanitized fallback ControlStructure passes foundation validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2a with responsibility RESP-1 and a ControlElementSet from Call 2b with controlled process CP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a ProcessModelPart PM-1-1 with feedback_source {type: controlled_process, id: INVALID-1}"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a ControlAction CA-1-1 with target {type: controlled_process, id: INVALID-2}"
+    }, {
+      "keyword" : "And",
+      "text" : "a ControlElementSet from Call 2b with an unresolvable feedback source reference"
+    }, {
+      "keyword" : "When",
+      "text" : "the Stage 2 assembly with fallback is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the control structure passes foundation validation"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Sanitize-06 stripped references are logged in warnings",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2a with responsibility RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a ProcessModelPart PM-1-1 with feedback_source {type: controlled_process, id: FB-1-1}"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a ControlAction CA-1-1 with target {type: responsibility, id: RESP-99}"
+    }, {
+      "keyword" : "And",
+      "text" : "a ControlElementSet from Call 2b with an unresolvable feedback source reference"
+    }, {
+      "keyword" : "When",
+      "text" : "the Stage 2 assembly with fallback is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the warnings list includes a warning about the stripped feedback_source for PM-1-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the warnings list includes a warning about the stripped target for CA-1-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Sanitize-07 fallback does not crash with completely invalid ElementRef values",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2a with responsibility RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a ProcessModelPart PM-1-1 with feedback_source {type: controlled_process, id: FB-1-1}"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a ControlAction CA-1-1 with target {type: controlled_process, id: CA-2-1}"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a FeedbackChannel FB-1-1 with source {type: responsibility, id: PM-3-1}"
+    }, {
+      "keyword" : "And",
+      "text" : "a ControlElementSet from Call 2b with an unresolvable feedback source reference"
+    }, {
+      "keyword" : "When",
+      "text" : "the Stage 2 assembly with fallback is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a ControlStructure model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "the pipeline does not crash"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Sanitize-08 further-degraded path strips ALL ElementRefs when sanitization still fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2a with responsibility RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a ProcessModelPart PM-1-1 with feedback_source {type: controlled_process, id: FB-1-1}"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has duplicate responsibility RESP-1 causing validation failure even after sanitization"
+    }, {
+      "keyword" : "And",
+      "text" : "a ControlElementSet from Call 2b with an unresolvable feedback source reference"
+    }, {
+      "keyword" : "When",
+      "text" : "the Stage 2 assembly with fallback is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a ControlStructure model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "all feedback_source fields are None"
+    }, {
+      "keyword" : "And",
+      "text" : "all control_action target fields are None"
+    }, {
+      "keyword" : "And",
+      "text" : "all feedback_channel source fields are None"
+    }, {
+      "keyword" : "And",
+      "text" : "the pipeline does not crash"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Sanitize-09 sanitized fallback preserves Call 2a responsibilities and Call 2b controlled processes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2a with responsibilities RESP-1 and RESP-2 and a ControlElementSet from Call 2b with controlled process CP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the ResponsibilitySet has a ProcessModelPart PM-1-1 with feedback_source {type: controlled_process, id: INVALID-1}"
+    }, {
+      "keyword" : "And",
+      "text" : "a ControlElementSet from Call 2b with an unresolvable feedback source reference"
+    }, {
+      "keyword" : "When",
+      "text" : "the Stage 2 assembly with fallback is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the ControlStructure contains <element_kind> <element_id>",
+      "parameters" : [ "element_kind", "element_id" ]
+    } ],
+    "examples" : [ {
+      "element_kind" : "responsibility",
+      "element_id" : "RESP-1"
+    }, {
+      "element_kind" : "responsibility",
+      "element_id" : "RESP-2"
+    }, {
+      "element_kind" : "controlled process",
+      "element_id" : "CP-1"
+    } ]
+  }, {
+    "name" : "Sanitize-10 normal assembly success path produces no warnings",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a valid ResponsibilitySet from Call 2a with responsibilities RESP-1 and RESP-2"
+    }, {
+      "keyword" : "And",
+      "text" : "a ControlElementSet from Call 2b with controlled process CP-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the Stage 2 assembly with fallback is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a ControlStructure model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "the control structure passes foundation validation"
+    }, {
+      "keyword" : "And",
+      "text" : "the warnings list is empty"
+    }, {
+      "keyword" : "And",
+      "text" : "no sanitization warnings are present"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a use-case description is available"
+  }, {
+    "keyword" : "And",
+    "text" : "a run directory for output and call logging"
+  } ]
+}
