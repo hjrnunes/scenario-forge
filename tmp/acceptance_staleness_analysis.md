@@ -68,8 +68,24 @@ Do not fix these here; they belong to SP3/Stage 6 work items.
 
 In-scope: **16 tests** (Categories B + C + D). After this work item:
 
-- `uv run pytest tmp/acceptance/generated/ -q` → **9 failed, 61 passed**
-  (9 = 7 Category A LLM-endpoint + 2 Category E pre-existing)
+- `uv run pytest tmp/acceptance/generated/ -q` → **10 failed, 60 passed**
+  (10 = 7 Category A LLM-endpoint + 2 Category E pre-existing + 1 genuine
+  source defect, below)
+
+### Category F — genuine source regression uncovered by this refresh
+
+`sp1_merge_fallback_sanitize` (7 scenarios) is **expected to stay red** until
+`scenario-forge-32aa` (P1) is fixed. The Stage 2 restructure left
+`_assemble_with_fallback` discarding every control action and feedback channel on
+the degraded path (it carries `controlled_processes` over from the Call 2b
+`ControlElementSet` but not `control_actions`/`feedback_channels`), so a single
+invalid LLM reference costs the whole control loop rather than just the bad
+reference. Repro: `tmp/probe_fallback.py`.
+
+This red test is correct and load-bearing. A workaround that masked it by
+reimplementing the merge inside `_h_ar_assemble` was deliberately reverted in
+`87e08de`; **do not reintroduce it** and do not "fix" this test by changing the
+handler.
 
 ## Symbol/name mapping reference
 
