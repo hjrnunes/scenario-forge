@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=294ec7d477cf520003678df6317258c6c743ec7986edfc3fca60b65068575a3a
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-11T20:51:00.963577Z","feature_name":"Stage 2 Assembly and Coordination Fallback","feature_path":"../acceptance/features/acceptance-refresh/stage2-assembly-fallback.feature","background_hash":"735aa2fb84d842e36739cddaa352d803bb5db74f82b7bdfb5669285595f71d21","implementation_hash":"unknown","scenarios":[{"index":1,"name":"stage2-assembly-fallback-02 fallback preserves elements from both calls","scenario_hash":"1bb422a557655b2bbea9fc7bc6fc27d4f924c20198cc05ae1dc5e8c520afa3aa","mutation_count":6,"result":{"Total":6,"Killed":6,"Survived":0,"Errors":0},"tested_at":"2026-08-11T20:51:00.963577Z"}]}
+# acceptance-mutation-manifest-end
+
 # stage2-assembly-fallback
 Feature: Stage 2 Assembly and Coordination Fallback
   The single ConnectionSet merge is replaced by two independent, separately
