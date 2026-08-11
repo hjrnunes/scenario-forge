@@ -117,20 +117,26 @@ def _assign_elements_to_responsibilities(
             getattr(resp, target_attr).append(element)
 
 
-def _assemble_control_structure(
+def _enrich_responsibilities(
     responsibility_set: ResponsibilitySet,
     control_element_set: ControlElementSet,
-) -> ControlStructure:
-    """Merge Call 2a (responsibilities + RCs + PMs) and Call 2b (CAs + FBs + CPs).
+) -> list[Responsibility]:
+    """Deep-copy responsibilities and assign Call 2b CAs/FBs onto them by ID prefix.
 
-    Matches CAs and FBs to responsibilities by ID prefix (CA-X-Y → RESP-X,
-    FB-X-Y → RESP-X). Produces and validates the final ControlStructure.
+    Returns a deep-copied list of the Call 2a responsibilities with the
+    Call 2b ``control_actions`` and ``feedback_channels`` appended to the
+    matching responsibility by ID prefix (CA-X-Y → RESP-X, FB-X-Y → RESP-X).
+
+    ``resp_by_num`` keeps the FIRST occurrence of each responsibility number.
+    This is only observable on the fallback strip tier (which deduplicates
+    by resp_id keeping the first occurrence); the normal assembly path
+    rejects duplicate resp_ids during ControlStructure validation, so the
+    assignment destination is discarded before any result is returned.
     """
-    responsibilities = copy.deepcopy(responsibility_set.responsibilities)
-    resp_by_num = {
-        _extract_resp_num(resp.resp_id): resp for resp in responsibilities
-    }
-
+    enriched = copy.deepcopy(responsibility_set.responsibilities)
+    resp_by_num: dict[int, Responsibility] = {}
+    for resp in enriched:
+        resp_by_num.setdefault(_extract_resp_num(resp.resp_id), resp)
     _assign_elements_to_responsibilities(
         control_element_set.control_actions,
         "ca_id",
@@ -143,7 +149,21 @@ def _assemble_control_structure(
         resp_by_num,
         "feedback_channels",
     )
+    return enriched
 
+
+def _assemble_control_structure(
+    responsibility_set: ResponsibilitySet,
+    control_element_set: ControlElementSet,
+) -> ControlStructure:
+    """Merge Call 2a (responsibilities + RCs + PMs) and Call 2b (CAs + FBs + CPs).
+
+    Matches CAs and FBs to responsibilities by ID prefix (CA-X-Y → RESP-X,
+    FB-X-Y → RESP-X). Produces and validates the final ControlStructure.
+    """
+    responsibilities = _enrich_responsibilities(
+        responsibility_set, control_element_set
+    )
     controlled_processes = copy.deepcopy(control_element_set.controlled_processes)
 
     return ControlStructure(
@@ -307,8 +327,8 @@ def _assemble_with_fallback(
 
     Before falling back, the Call 2b control actions and feedback channels
     are assigned onto the Call 2a responsibilities via
-    ``_assign_elements_to_responsibilities`` so they are preserved on the
-    degraded path. The fallback path then sanitizes invalid ElementRefs via
+    ``_enrich_responsibilities`` so they are preserved on the degraded
+    path. The fallback path then sanitizes invalid ElementRefs via
     ``_sanitize_for_fallback``. If sanitization still fails (e.g. duplicate
     IDs), a further-degraded path strips ALL ElementRefs.
 
@@ -345,29 +365,8 @@ def _assemble_with_fallback(
         # and PM parts). The enriched list is built once and reused for both
         # tiers; each tier deep-copies it internally, so there is no risk of
         # cross-tier mutation.
-        #
-        # ``resp_by_num`` keeps the FIRST occurrence of each resp number so
-        # that, when the ResponsibilitySet has duplicate resp_ids, the CAs
-        # and FBs land on the same responsibility that the strip tier keeps
-        # (``_strip_all_element_refs`` deduplicates by resp_id keeping the
-        # first occurrence). The sanitize tier always fails on duplicates
-        # (validation rejects duplicate resp_ids), so only the strip tier
-        # produces a result in that case.
-        enriched_resps = copy.deepcopy(responsibility_set.responsibilities)
-        resp_by_num: dict[int, Responsibility] = {}
-        for resp in enriched_resps:
-            resp_by_num.setdefault(_extract_resp_num(resp.resp_id), resp)
-        _assign_elements_to_responsibilities(
-            control_element_set.control_actions,
-            "ca_id",
-            resp_by_num,
-            "control_actions",
-        )
-        _assign_elements_to_responsibilities(
-            control_element_set.feedback_channels,
-            "fb_id",
-            resp_by_num,
-            "feedback_channels",
+        enriched_resps = _enrich_responsibilities(
+            responsibility_set, control_element_set
         )
 
         # First fallback: sanitize invalid ElementRefs
