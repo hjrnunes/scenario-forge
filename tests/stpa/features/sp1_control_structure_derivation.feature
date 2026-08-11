@@ -4,12 +4,15 @@
 # acceptance-mutation-manifest-end
 
 Feature: SP1 Stage 2 — Control Structure derivation
-  Stage 2 applies Poh's Behavioral Design Process in three sequential LLM
-  calls: Call 1 derives requirements from security constraints, Call 2
-  derives responsibilities with PM/CA/FB elements and controlled processes,
-  and Call 3 identifies coordination links and assembles the final
-  ControlStructure. Each call produces a structured internal model that
-  feeds the next.
+  Stage 2 runs four sequential LLM calls, each producing a structured
+  internal model that feeds the next: Call 1 derives requirements from
+  security constraints (RequirementSet), Call 2a derives responsibilities
+  with responsibility constraints and process model parts
+  (ResponsibilitySet), Call 2b derives control actions, feedback channels,
+  and controlled processes (ControlElementSet), and Call 3 derives
+  coordination links and integrity findings (CoordinationAnalysis).
+  Assembly of Call 2a and Call 2b — not an LLM call — produces the
+  ControlStructure.
 
   Background:
     Given the STPA system model module is importable
@@ -57,76 +60,99 @@ Feature: SP1 Stage 2 — Control Structure derivation
     And the call log entry step is call_1_requirements
 
   # SP1-S2-06
-  Scenario: SP1-S2-06 Call 2 produces a valid ResponsibilitySet
-    Given an LLM that returns a valid ResponsibilitySet JSON with responsibilities RESP-1 and RESP-2 and controlled process CP-1
-    When Stage 2 Call 2 responsibilities derivation is run
+  Scenario: SP1-S2-06 Call 2a produces a valid ResponsibilitySet
+    Given an LLM that returns a valid ResponsibilitySet JSON with responsibilities RESP-1 and RESP-2
+    When Stage 2 Call 2a responsibilities derivation is run
     Then a ResponsibilitySet model is produced
-    And each responsibility has at least one process model part, one control action, and one feedback channel
+    And each responsibility has at least one responsibility constraint and one process model part
 
   # SP1-S2-07
-  Scenario: SP1-S2-07 controlled processes are identified in Call 2
-    Given an LLM that returns a ResponsibilitySet with controlled process CP-1 referenced by a feedback source
-    When Stage 2 Call 2 responsibilities derivation is run
-    Then the ResponsibilitySet contains controlled process CP-1
+  Scenario Outline: SP1-S2-07 Call 2a does not emit control elements
+    Given an LLM that returns a valid ResponsibilitySet JSON with responsibilities RESP-1 and RESP-2
+    When Stage 2 Call 2a responsibilities derivation is run
+    Then the `ResponsibilitySet` model does not declare `<control_element_field>`
+
+    Examples:
+      | control_element_field |
+      | control_actions       |
+      | feedback_channels     |
+      | controlled_processes  |
 
   # SP1-S2-08
-  Scenario: SP1-S2-08 ElementRef references in Call 2 are valid
-    Given an LLM that returns a ResponsibilitySet where feedback sources reference RESP-1 and CP-1
-    When Stage 2 Call 2 responsibilities derivation is run
-    Then all ElementRef references in the ResponsibilitySet point to valid responsibilities or controlled processes
+  Scenario: SP1-S2-08 Call 2b produces a valid ControlElementSet
+    Given a valid ResponsibilitySet from Call 2a
+    And an LLM that returns a valid ControlElementSet JSON with controlled process CP-1
+    When Stage 2 Call 2b control elements derivation is run
+    Then a ControlElementSet model is produced
+    And the ControlElementSet contains controlled process CP-1
 
   # SP1-S2-09
-  Scenario: SP1-S2-09 Call 2a is logged with stage stage_2 and step call_2a_responsibilities
-    Given an LLM that returns a valid ResponsibilitySet JSON
+  Scenario Outline: SP1-S2-09 each Stage 2 call is logged with its own step name
+    Given an LLM that returns valid responses for all four Stage 2 calls
     And a run directory for call logging
-    When Stage 2 Call 2a responsibilities derivation is run
+    When Stage 2 control structure derivation is run
     Then a call log entry is appended with stage stage_2
-    And the call log entry step is call_2a_responsibilities
+    And a call log entry exists with step <step_name>
+
+    Examples:
+      | step_name                |
+      | call_1_requirements      |
+      | call_2a_responsibilities |
+      | call_2b_control_elements |
+      | call_3_coordination      |
 
   # SP1-S2-10
-  Scenario: SP1-S2-10 Call 3 produces a valid ControlStructure
-    Given a valid ResponsibilitySet from Call 2
-    And an LLM that returns a valid ControlStructure JSON with coordination links
-    When Stage 2 Call 3 connections derivation is run
+  Scenario: SP1-S2-10 assembly of Call 2a and Call 2b produces a valid ControlStructure
+    Given a valid ResponsibilitySet from Call 2a
+    And an LLM that returns a valid ControlElementSet JSON with controlled process CP-1
+    When Stage 2 control structure derivation is run
     Then a ControlStructure model is produced
     And the control structure passes foundation validation
 
   # SP1-S2-11
   Scenario: SP1-S2-11 coordination links are identified in Call 3
-    Given a valid ResponsibilitySet from Call 2
-    And an LLM that returns a ControlStructure with coordination link CL-1 from RESP-1 to RESP-2 sharing PM-1-1
-    When Stage 2 Call 3 connections derivation is run
+    Given an LLM that returns valid responses for Stage 2 calls 1, 2a, and 2b
+    And an LLM that returns a CoordinationAnalysis with coordination link CL-1 from RESP-1 to RESP-2 sharing PM-1-1
+    When Stage 2 control structure derivation is run
     Then the ControlStructure contains coordination link CL-1
     And CL-1 has source RESP-1 and target RESP-2
 
   # SP1-S2-12
-  Scenario: SP1-S2-12 Call 3 is logged with stage stage_2 and step call_3_coordination
-    Given a valid ResponsibilitySet from Call 2
-    And an LLM that returns a valid ControlStructure JSON
-    And a run directory for call logging
-    When Stage 2 Call 3 connections derivation is run
-    Then a call log entry is appended with stage stage_2
-    And the call log entry step is call_3_coordination
+  Scenario Outline: SP1-S2-12 the retired three-call step names are absent
+    Given an LLM that returns valid responses for all four Stage 2 calls
+    When Stage 2 control structure derivation is run
+    Then no call log entry has step <retired_step>
+
+    Examples:
+      | retired_step            |
+      | call_2_responsibilities |
+      | call_3_connections      |
 
   # SP1-S2-13
   Scenario: SP1-S2-13 control structure is written to control-structure.yaml
-    Given an LLM that returns valid responses for all three Stage 2 calls
+    Given an LLM that returns valid responses for all four Stage 2 calls
     And a run directory for output
     When Stage 2 control structure derivation is run
     Then a file control-structure.yaml exists in the run directory
     And the file contains a valid ControlStructure model when read back
 
   # SP1-S2-14
-  Scenario: SP1-S2-14 Call 2 receives requirements from Call 1
+  Scenario: SP1-S2-14 Call 2a receives requirements from Call 1
     Given an LLM that returns a valid RequirementSet for Call 1
-    And an LLM that returns a valid ResponsibilitySet for Call 2
-    When Stage 2 calls 1 through 2 are run in sequence
-    Then the Call 2 user prompt contains the requirements from Call 1
+    And an LLM that returns a valid ResponsibilitySet for Call 2a
+    When Stage 2 calls 1 through 2a are run in sequence
+    Then the Call 2a user prompt contains the requirements from Call 1
 
   # SP1-S2-15
-  Scenario: SP1-S2-15 Call 3 receives responsibilities and controlled processes from Call 2
-    Given an LLM that returns a valid RequirementSet for Call 1
-    And an LLM that returns a valid ResponsibilitySet for Call 2
-    And an LLM that returns a valid ControlStructure for Call 3
+  Scenario: SP1-S2-15 Call 2b receives responsibilities from Call 2a
+    Given an LLM that returns valid responses for Stage 2 calls 1 and 2a
+    And an LLM that returns a valid ControlElementSet JSON with controlled process CP-1
+    When Stage 2 calls 1 through 2b are run in sequence
+    Then the Call 2b user prompt contains the responsibilities from Call 2a
+
+  # SP1-S2-16
+  Scenario: SP1-S2-16 Call 3 receives the assembled control structure
+    Given an LLM that returns valid responses for Stage 2 calls 1, 2a, and 2b
+    And an LLM that returns a valid CoordinationAnalysis with coordination link CL-1
     When Stage 2 calls 1 through 3 are run in sequence
-    Then the Call 3 user prompt contains responsibilities and controlled processes from Call 2
+    Then the Call 3 user prompt contains the assembled responsibilities and controlled processes

@@ -147,22 +147,37 @@
     } ],
     "examples" : [ ]
   }, {
-    "name" : "IDNS-07 stage2_call2_system prompt contains negative RC vs PM constraint",
+    "name" : "IDNS-07 stage2_call2a_system prompt contains negative RC vs PM constraint",
     "steps" : [ {
       "keyword" : "Given",
-      "text" : "the stage2_call2_system.j2 prompt template is loaded"
+      "text" : "the template stage2_call2a_system.j2 is loaded"
     }, {
       "keyword" : "Then",
-      "text" : "the prompt text contains the constraint that rc_id must start with RC"
+      "text" : "the template text contains \"<constraint_text>\"",
+      "parameters" : [ "constraint_text" ]
+    } ],
+    "examples" : [ {
+      "constraint_text" : "Every rc_id MUST start with \"RC-\", never \"PM-\"."
     }, {
-      "keyword" : "And",
-      "text" : "the prompt text contains a warning not to copy PM entries as RCs"
+      "constraint_text" : "Do NOT copy PM entries as RCs"
+    } ]
+  }, {
+    "name" : "IDNS-08 the retired stage2_call2 system prompt is absent",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompts directory does not contain `stage2_call2_system.j2`"
     } ],
     "examples" : [ ]
   } ],
   "background" : [ {
     "keyword" : "Given",
     "text" : "the control structure module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "the STPA system model prompts directory is available"
+  }, {
+    "keyword" : "And",
+    "text" : "the TemplateLoader can load templates from the prompts directory"
   }, {
     "keyword" : "And",
     "text" : "a valid responsibility set with RESP-1, PM-1-1, CA-1-1, FB-1-1, and RC-1-1"

@@ -77,17 +77,20 @@ Feature: SP3 — Run orchestration
     And the run manifest prompt_hashes contains SHA-256 hashes for stage6c_gherkin_system.j2
 
   # SP3-RUN-09
-  Scenario: SP3-RUN-09 prompt templates exist for all stages
+  Scenario Outline: SP3-RUN-09 prompt templates exist for all stages
     Given the SP3 prompt templates directory
-    Then the following template files exist:
-      | stage5_system.j2                |
-      | stage5_user.j2                  |
-      | stage6a_narrative_system.j2     |
-      | stage6a_narrative_user.j2       |
-      | stage6b_tree_system.j2          |
-      | stage6b_tree_user.j2            |
-      | stage6c_gherkin_system.j2       |
-      | stage6c_gherkin_user.j2         |
+    Then the SP3 prompts directory contains `<template>`
+
+    Examples:
+      | template                    |
+      | stage5_system.j2            |
+      | stage5_user.j2              |
+      | stage6a_narrative_system.j2 |
+      | stage6a_narrative_user.j2   |
+      | stage6b_tree_system.j2      |
+      | stage6b_tree_user.j2        |
+      | stage6c_gherkin_system.j2   |
+      | stage6c_gherkin_user.j2     |
 
   # SP3-RUN-10
   Scenario: SP3-RUN-10 module layout matches spec

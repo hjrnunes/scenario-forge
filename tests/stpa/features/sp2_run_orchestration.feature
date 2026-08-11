@@ -73,9 +73,12 @@ Feature: SP2 — Run orchestration
     And the run manifest records catalog correspondence
 
   # SP2-RUN-09
-  Scenario: SP2-RUN-09 prompt templates exist for Stage 3
+  Scenario Outline: SP2-RUN-09 prompt templates exist for Stage 3
     Given the SP2 prompt templates directory
-    Then the following template files exist:
+    Then the SP2 prompts directory contains `<template>`
+
+    Examples:
+      | template         |
       | stage3_system.j2 |
       | stage3_user.j2   |
 

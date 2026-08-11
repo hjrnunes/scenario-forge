@@ -23,7 +23,7 @@
     } ],
     "examples" : [ ]
   }, {
-    "name" : "SP1-RUN-02 stages execute in order 1a then 1b then 2",
+    "name" : "SP1-RUN-02 stages execute in order 1b then 1a then 2",
     "steps" : [ {
       "keyword" : "Given",
       "text" : "an LLM that returns valid responses for all stages"
@@ -32,10 +32,10 @@
       "text" : "the full SP1 run is executed"
     }, {
       "keyword" : "Then",
-      "text" : "Stage 1a loss analysis is produced first"
+      "text" : "Stage 1b capability profile is produced first"
     }, {
       "keyword" : "And",
-      "text" : "Stage 1b capability profile is produced second"
+      "text" : "Stage 1a loss analysis is produced second"
     }, {
       "keyword" : "And",
       "text" : "Stage 2 control structure is produced third"
@@ -144,9 +144,65 @@
       "text" : "the SP1 prompt templates directory"
     }, {
       "keyword" : "Then",
-      "text" : "the following template files exist:"
+      "text" : "the prompts directory contains `<template>`",
+      "parameters" : [ "template" ]
     } ],
-    "examples" : [ ]
+    "examples" : [ {
+      "template" : "stage1a_risk_system.j2"
+    }, {
+      "template" : "stage1a_risk_user.j2"
+    }, {
+      "template" : "stage1a_gap_system.j2"
+    }, {
+      "template" : "stage1a_gap_user.j2"
+    }, {
+      "template" : "stage1b_system.j2"
+    }, {
+      "template" : "stage1b_user.j2"
+    }, {
+      "template" : "stage2_call1_system.j2"
+    }, {
+      "template" : "stage2_call1_user.j2"
+    }, {
+      "template" : "stage2_call2a_system.j2"
+    }, {
+      "template" : "stage2_call2a_user.j2"
+    }, {
+      "template" : "stage2_call2b_system.j2"
+    }, {
+      "template" : "stage2_call2b_user.j2"
+    }, {
+      "template" : "stage2_call3_system.j2"
+    }, {
+      "template" : "stage2_call3_user.j2"
+    }, {
+      "template" : "critic_system.j2"
+    }, {
+      "template" : "critic_user.j2"
+    }, {
+      "template" : "revision_system.j2"
+    }, {
+      "template" : "revision_user.j2"
+    } ]
+  }, {
+    "name" : "SP1-RUN-09b templates retired by the Stage 1 and Stage 2 restructures are absent",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP1 prompt templates directory"
+    }, {
+      "keyword" : "Then",
+      "text" : "the prompts directory does not contain `<retired_template>`",
+      "parameters" : [ "retired_template" ]
+    } ],
+    "examples" : [ {
+      "retired_template" : "stage1a_system.j2"
+    }, {
+      "retired_template" : "stage1a_user.j2"
+    }, {
+      "retired_template" : "stage2_call2_system.j2"
+    }, {
+      "retired_template" : "stage2_call2_user.j2"
+    } ]
   }, {
     "name" : "SP1-RUN-10 module layout matches spec",
     "steps" : [ {
@@ -164,9 +220,20 @@
       "text" : "the STPA system model module"
     }, {
       "keyword" : "Then",
-      "text" : "the following internal models are defined:"
+      "text" : "the control_structure module exports `<model>`",
+      "parameters" : [ "model" ]
     } ],
-    "examples" : [ ]
+    "examples" : [ {
+      "model" : "Requirement"
+    }, {
+      "model" : "RequirementSet"
+    }, {
+      "model" : "ResponsibilitySet"
+    }, {
+      "model" : "ControlElementSet"
+    }, {
+      "model" : "CoordinationAnalysis"
+    } ]
   }, {
     "name" : "SP1-RUN-12 run with profile flag skips Stage 1b LLM call",
     "steps" : [ {

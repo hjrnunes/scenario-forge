@@ -1,18 +1,20 @@
 {
   "name" : "SP1 prompt bug fixes",
   "scenarios" : [ {
-    "name" : "SP1 prompt bug fixes-01 Stage 1a prohibits hallucinated losses and hazards",
+    "name" : "SP1 prompt bug fixes-01 Stage 1a grounds losses and hazards in the use case",
     "steps" : [ {
       "keyword" : "Given",
-      "text" : "the template stage1a_system.j2 is loaded"
+      "text" : "the template stage1a_risk_system.j2 is loaded"
     }, {
       "keyword" : "Then",
-      "text" : "the template text contains \"Every loss must be traceable to either a risk card or a specific feature described in the use-case text\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"Every hazard must reference a concrete component, data flow, or capability from the use-case description\""
+      "text" : "the template text contains \"<grounding_text>\"",
+      "parameters" : [ "grounding_text" ]
     } ],
-    "examples" : [ ]
+    "examples" : [ {
+      "grounding_text" : "Every loss must cite its source risk IDs in `source_risk_cards`."
+    }, {
+      "grounding_text" : "Each hazard MUST name at least one specific component"
+    } ]
   }, {
     "name" : "SP1 prompt bug fixes-02 Stage 1b prohibits hallucinated tools and entry points",
     "steps" : [ {
@@ -20,12 +22,14 @@
       "text" : "the template stage1b_system.j2 is loaded"
     }, {
       "keyword" : "Then",
-      "text" : "the template text contains \"Every tool in tool_inventory must be explicitly mentioned or directly implied by the use-case description\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"Every entry point must correspond to an actual interface described in the use case\""
+      "text" : "the template text contains \"<grounding_text>\"",
+      "parameters" : [ "grounding_text" ]
     } ],
-    "examples" : [ ]
+    "examples" : [ {
+      "grounding_text" : "every tool must be explicitly mentioned or directly implied by the use-case description"
+    }, {
+      "grounding_text" : "every KC code, entry point, and tool must be traceable to a specific capability"
+    } ]
   }, {
     "name" : "SP1 prompt bug fixes-03 Stage 2 Call 3 defines coordination links",
     "steps" : [ {
@@ -33,80 +37,66 @@
       "text" : "the template stage2_call3_system.j2 is loaded"
     }, {
       "keyword" : "Then",
-      "text" : "the template text contains \"Coordination links capture dependencies between responsibilities\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"share state, data, or control flow\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"inter-controller coordination\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"Two responsibilities sharing a process model part not connected by a control action\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"One responsibility's feedback channel updates a PM part that another responsibility controls\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"Two responsibilities need to agree on a shared resource\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"An empty coordination_links list is acceptable only when no two responsibilities share state, data, or control flow\""
+      "text" : "the template text contains \"<coordination_text>\"",
+      "parameters" : [ "coordination_text" ]
     } ],
-    "examples" : [ ]
+    "examples" : [ {
+      "coordination_text" : "Coordination links are required when"
+    }, {
+      "coordination_text" : "lateral coordination mechanism between controllers that share state"
+    }, {
+      "coordination_text" : "Two responsibilities share a process model part not connected by a control action"
+    }, {
+      "coordination_text" : "Two responsibilities need to agree on a shared resource"
+    }, {
+      "coordination_text" : "An empty coordination_links list is acceptable only when no two responsibilities share state, data, or control flow"
+    } ]
   }, {
-    "name" : "SP1 prompt bug fixes-04 Call 2 requires zone-driven responsibilities",
+    "name" : "SP1 prompt bug fixes-04 Call 2a requires zone-driven responsibilities",
     "steps" : [ {
       "keyword" : "Given",
-      "text" : "the template stage2_call2_system.j2 is loaded"
+      "text" : "the template stage2_call2a_system.j2 is loaded"
     }, {
       "keyword" : "Then",
-      "text" : "the template text contains \"Check the capability profile's active zones\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"When `tool_execution` is active: require a responsibility governing tool parameter validation and action selection\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"When `memory` is active: require a responsibility for context management and memory lifecycle\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"When `hitl` is true: require a responsibility for escalation and human oversight\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"When `inter_agent` is active: require a responsibility for inter-agent coordination and message validation\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"This should be a hard requirement, not a suggestion\""
+      "text" : "the template text contains \"<zone_rule>\"",
+      "parameters" : [ "zone_rule" ]
     } ],
-    "examples" : [ ]
+    "examples" : [ {
+      "zone_rule" : "Check the capability profile's active zones"
+    }, {
+      "zone_rule" : "When `tool_execution` is active: require a responsibility governing tool parameter validation and action selection"
+    }, {
+      "zone_rule" : "When `memory` is active: require a responsibility for context management and memory lifecycle"
+    }, {
+      "zone_rule" : "When `hitl` is true: require a responsibility for escalation and human oversight"
+    }, {
+      "zone_rule" : "When `inter_agent` is active: require a responsibility for inter-agent coordination and message validation"
+    }, {
+      "zone_rule" : "This is a hard requirement, not a suggestion"
+    } ]
   }, {
-    "name" : "SP1 prompt bug fixes-05 Call 2 requires discrete control actions",
+    "name" : "SP1 prompt bug fixes-05 Call 2b requires discrete control actions",
     "steps" : [ {
       "keyword" : "Given",
-      "text" : "the template stage2_call2_system.j2 is loaded"
+      "text" : "the template stage2_call2b_system.j2 is loaded"
     }, {
       "keyword" : "Then",
-      "text" : "the template text contains \"Each control action must describe a single discrete action\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"Split composite actions into separate CAs\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"Approve or reject request\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"CA-X-1 Approve request\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"CA-X-2 Reject request\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"Execute or deny command\""
-    }, {
-      "keyword" : "And",
-      "text" : "the template text contains \"A control action that contains 'or', 'and', or similar conjunctions is likely composite and should be split\""
+      "text" : "the template text contains \"<discrete_ca_rule>\"",
+      "parameters" : [ "discrete_ca_rule" ]
     } ],
-    "examples" : [ ]
+    "examples" : [ {
+      "discrete_ca_rule" : "Each CA is a single discrete action"
+    }, {
+      "discrete_ca_rule" : "Split composite actions into separate CAs"
+    }, {
+      "discrete_ca_rule" : "approve or reject request"
+    }, {
+      "discrete_ca_rule" : "CA-X-1 Approve request"
+    }, {
+      "discrete_ca_rule" : "CA-X-2 Reject request"
+    }, {
+      "discrete_ca_rule" : "A CA containing \"or\", \"and\", or similar conjunctions is likely composite and should be split"
+    } ]
   }, {
     "name" : "SP1 prompt bug fixes-06 updated system prompts render successfully",
     "steps" : [ {
@@ -122,17 +112,20 @@
       "parameters" : [ "rendered_text" ]
     } ],
     "examples" : [ {
-      "template_name" : "stage1a_system.j2",
-      "rendered_text" : "Every loss must be traceable"
+      "template_name" : "stage1a_risk_system.j2",
+      "rendered_text" : "Every loss must cite its source risk IDs"
     }, {
       "template_name" : "stage1b_system.j2",
-      "rendered_text" : "Every tool in tool_inventory"
+      "rendered_text" : "every tool must be explicitly mentioned"
     }, {
-      "template_name" : "stage2_call2_system.j2",
-      "rendered_text" : "Each control action must describe"
+      "template_name" : "stage2_call2a_system.j2",
+      "rendered_text" : "Check the capability profile's active zones"
+    }, {
+      "template_name" : "stage2_call2b_system.j2",
+      "rendered_text" : "Each CA is a single discrete action"
     }, {
       "template_name" : "stage2_call3_system.j2",
-      "rendered_text" : "Coordination links capture dependencies"
+      "rendered_text" : "Coordination links are required when"
     } ]
   }, {
     "name" : "SP1 prompt bug fixes-07 existing prompt sections remain present",
@@ -146,17 +139,36 @@
       "parameters" : [ "section_header" ]
     } ],
     "examples" : [ {
-      "template_name" : "stage1a_system.j2",
+      "template_name" : "stage1a_risk_system.j2",
       "section_header" : "## Quality requirements"
     }, {
       "template_name" : "stage1b_system.j2",
-      "section_header" : "## Quality requirements"
+      "section_header" : "## Rules"
     }, {
-      "template_name" : "stage2_call2_system.j2",
+      "template_name" : "stage2_call2a_system.j2",
+      "section_header" : "## ID conventions"
+    }, {
+      "template_name" : "stage2_call2b_system.j2",
       "section_header" : "## ID conventions"
     }, {
       "template_name" : "stage2_call3_system.j2",
-      "section_header" : "## Structural requirements"
+      "section_header" : "## Connection integrity checks"
+    } ]
+  }, {
+    "name" : "SP1 prompt bug fixes-08 templates retired by the restructures are absent",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompts directory does not contain `<retired_template>`",
+      "parameters" : [ "retired_template" ]
+    } ],
+    "examples" : [ {
+      "retired_template" : "stage1a_system.j2"
+    }, {
+      "retired_template" : "stage1a_user.j2"
+    }, {
+      "retired_template" : "stage2_call2_system.j2"
+    }, {
+      "retired_template" : "stage2_call2_user.j2"
     } ]
   } ],
   "background" : [ {

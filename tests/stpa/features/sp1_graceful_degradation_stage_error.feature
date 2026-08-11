@@ -12,6 +12,12 @@ Feature: SP1 — Stage failure raises StageError and run returns partial results
   manifest is still written with available info. The failed call is
   logged with success=false and an error message.
 
+  Stage 1b now runs BEFORE Stage 1a, so a Stage 1a failure preserves the
+  capability profile rather than nulling it. Stage 1a is two calls
+  (risk_derivation then gap_analysis), and Stage 2 is four
+  (call_1_requirements, call_2a_responsibilities, call_2b_control_elements,
+  call_3_coordination); each call reports its own step name.
+
   Background:
     Given the STPA system model run module is importable
     And a use-case description and risk extraction JSON are available as input
@@ -27,27 +33,28 @@ Feature: SP1 — Stage failure raises StageError and run returns partial results
     And the failed call is logged with success=false
 
     Examples:
-      | stage          | stage_name | step_name                 |
-      | stage_1a       | stage_1a   | loss_analysis             |
-      | stage_1b       | stage_1b   | capability_profile        |
-      | stage_2_call_1 | stage_2    | call_1_requirements       |
-      | stage_2_call_2a| stage_2    | call_2a_responsibilities  |
-      | stage_2_call_2b| stage_2    | call_2b_control_elements  |
-      | stage_2_call_3 | stage_2    | call_3_coordination       |
+      | stage           | stage_name | step_name                |
+      | stage_1a_risk   | stage_1a   | risk_derivation          |
+      | stage_1a_gap    | stage_1a   | gap_analysis             |
+      | stage_1b        | stage_1b   | capability_profile       |
+      | stage_2_call_1  | stage_2    | call_1_requirements      |
+      | stage_2_call_2a | stage_2    | call_2a_responsibilities |
+      | stage_2_call_2b | stage_2    | call_2b_control_elements |
+      | stage_2_call_3  | stage_2    | call_3_coordination      |
 
   # SP1-GD-09
-  Scenario: SP1-GD-09 Stage 1a failure produces partial result with all artifacts None
+  Scenario: SP1-GD-09 Stage 1a failure preserves the capability profile from Stage 1b
     Given an LLM that returns an invalid response for stage_1a
     When the full SP1 run is executed
     Then the run returns a partial SP1RunResult
     And the stage_errors list contains the stage_1a failure
     And loss_analysis is None
-    And capability_profile is None
+    And capability_profile is not None
     And control_structure is None
     And a run manifest is written
 
   # SP1-GD-10
-  Scenario: SP1-GD-10 Stage 1b failure preserves loss_analysis and sets profile to None
+  Scenario: SP1-GD-10 Stage 1b failure sets profile to None and skips Stage 2
     Given an LLM that returns valid responses for stage_1a
     And an LLM that returns an invalid response for stage_1b
     When the full SP1 run is executed
@@ -76,7 +83,7 @@ Feature: SP1 — Stage failure raises StageError and run returns partial results
     When the full SP1 run is executed
     Then a call log entry exists with success=false
     And the call log entry stage is stage_1a
-    And the call log entry step is loss_analysis
+    And the call log entry step is risk_derivation
     And the call log entry has an error message field
 
   # SP1-GD-13

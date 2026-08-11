@@ -9,11 +9,15 @@ Feature: SP1 RC/PM ID namespace validation
   collisions: (1) regex validators on each ID field enforce the correct
   prefix and format at Pydantic parse time, (2) a model validator adds
   RC IDs to the global dedup check and detects cross-namespace collisions,
-  and (3) the Stage 2 Call 2 system prompt contains a negative constraint
-  instructing the LLM not to copy PM entries as RCs.
+  and (3) the Stage 2 Call 2a system prompt contains a negative constraint
+  instructing the LLM not to copy PM entries as RCs. Call 2a is the call
+  that emits responsibility constraints and process model parts, so the
+  constraint belongs in stage2_call2a_system.j2.
 
   Background:
     Given the control structure module is importable
+    And the STPA system model prompts directory is available
+    And the TemplateLoader can load templates from the prompts directory
     And a valid responsibility set with RESP-1, PM-1-1, CA-1-1, FB-1-1, and RC-1-1
 
   # IDNS-01
@@ -81,7 +85,15 @@ Feature: SP1 RC/PM ID namespace validation
     Then validation succeeds
 
   # IDNS-07
-  Scenario: IDNS-07 stage2_call2_system prompt contains negative RC vs PM constraint
-    Given the stage2_call2_system.j2 prompt template is loaded
-    Then the prompt text contains the constraint that rc_id must start with RC
-    And the prompt text contains a warning not to copy PM entries as RCs
+  Scenario Outline: IDNS-07 stage2_call2a_system prompt contains negative RC vs PM constraint
+    Given the template stage2_call2a_system.j2 is loaded
+    Then the template text contains "<constraint_text>"
+
+    Examples:
+      | constraint_text                                    |
+      | Every rc_id MUST start with "RC-", never "PM-".    |
+      | Do NOT copy PM entries as RCs                      |
+
+  # IDNS-08
+  Scenario: IDNS-08 the retired stage2_call2 system prompt is absent
+    Then the prompts directory does not contain `stage2_call2_system.j2`
