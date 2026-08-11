@@ -66,12 +66,12 @@ Feature: SP1 Stage 2 Call 3 ConnectionSet merge
     Then the ControlStructure contains controlled process CP-1
 
   # ConnSet-08
-  Scenario: ConnSet-08 Call 3 is logged with stage stage_2 and step call_3_connections
+  Scenario: ConnSet-08 Call 3 is logged with stage stage_2 and step call_3_coordination
     Given an LLM that returns a valid ConnectionSet JSON with coordination links
     And a run directory for call logging
     When Stage 2 control structure derivation is run
     Then a call log entry is appended with stage stage_2
-    And the call log entry step is call_3_connections
+    And the call log entry step is call_3_coordination
 
   # ConnSet-09
   Scenario: ConnSet-09 control structure is written to control-structure.yaml

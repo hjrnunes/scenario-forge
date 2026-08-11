@@ -76,12 +76,12 @@ Feature: SP1 Stage 2 — Control Structure derivation
     Then all ElementRef references in the ResponsibilitySet point to valid responsibilities or controlled processes
 
   # SP1-S2-09
-  Scenario: SP1-S2-09 Call 2 is logged with stage stage_2 and step call_2_responsibilities
+  Scenario: SP1-S2-09 Call 2a is logged with stage stage_2 and step call_2a_responsibilities
     Given an LLM that returns a valid ResponsibilitySet JSON
     And a run directory for call logging
-    When Stage 2 Call 2 responsibilities derivation is run
+    When Stage 2 Call 2a responsibilities derivation is run
     Then a call log entry is appended with stage stage_2
-    And the call log entry step is call_2_responsibilities
+    And the call log entry step is call_2a_responsibilities
 
   # SP1-S2-10
   Scenario: SP1-S2-10 Call 3 produces a valid ControlStructure
@@ -100,13 +100,13 @@ Feature: SP1 Stage 2 — Control Structure derivation
     And CL-1 has source RESP-1 and target RESP-2
 
   # SP1-S2-12
-  Scenario: SP1-S2-12 Call 3 is logged with stage stage_2 and step call_3_connections
+  Scenario: SP1-S2-12 Call 3 is logged with stage stage_2 and step call_3_coordination
     Given a valid ResponsibilitySet from Call 2
     And an LLM that returns a valid ControlStructure JSON
     And a run directory for call logging
     When Stage 2 Call 3 connections derivation is run
     Then a call log entry is appended with stage stage_2
-    And the call log entry step is call_3_connections
+    And the call log entry step is call_3_coordination
 
   # SP1-S2-13
   Scenario: SP1-S2-13 control structure is written to control-structure.yaml

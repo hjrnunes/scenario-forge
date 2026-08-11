@@ -27,12 +27,13 @@ Feature: SP1 — Stage failure raises StageError and run returns partial results
     And the failed call is logged with success=false
 
     Examples:
-      | stage          | stage_name | step_name               |
-      | stage_1a       | stage_1a   | loss_analysis           |
-      | stage_1b       | stage_1b   | capability_profile      |
-      | stage_2_call_1 | stage_2    | call_1_requirements     |
-      | stage_2_call_2 | stage_2    | call_2_responsibilities |
-      | stage_2_call_3 | stage_2    | call_3_connections      |
+      | stage          | stage_name | step_name                 |
+      | stage_1a       | stage_1a   | loss_analysis             |
+      | stage_1b       | stage_1b   | capability_profile        |
+      | stage_2_call_1 | stage_2    | call_1_requirements       |
+      | stage_2_call_2a| stage_2    | call_2a_responsibilities  |
+      | stage_2_call_2b| stage_2    | call_2b_control_elements  |
+      | stage_2_call_3 | stage_2    | call_3_coordination       |
 
   # SP1-GD-09
   Scenario: SP1-GD-09 Stage 1a failure produces partial result with all artifacts None

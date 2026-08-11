@@ -38,6 +38,7 @@ from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 
 STAGE = "stage_2"
+STAGE_2_CALL_COUNT = 4
 DEFAULT_TEMPERATURE = 0.4
 
 
