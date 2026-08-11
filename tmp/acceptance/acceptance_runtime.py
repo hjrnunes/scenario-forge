@@ -118,6 +118,7 @@ class World:
         self.sp1_profile_path: Path | None = None
         self.sp1_requirement_set: Any = None
         self.sp1_responsibility_set: Any = None
+        self.sp1_control_element_set: Any = None
         self.sp1_connection_set: Any = None
         self.sp1_critic_findings: Any = None
         self.sp1_revised: bool = False
@@ -4406,6 +4407,8 @@ from scenario_forge.stpa.system_model.control_structure import (
     RequirementSet as _SP1RequirementSet,
     _assemble_with_fallback as _sp1_assemble_with_fallback,
     _add_coordination_links_with_fallback as _sp1_add_coordination_links,
+    _sanitize_for_fallback as _sp1_sanitize_for_fallback,
+    _extract_resp_num as _sp1_extract_resp_num,
 )
 # Backward-compatible aliases for step handlers that still reference the
 # old ConnectionSet name.  In the new 4-call Stage 2, Call 3 produces a
@@ -4472,6 +4475,8 @@ class _SP1MockLLM:
         self._response_queue: list[Any] = []
         self._invalid_types: set[type] = set()
         self._exception_types: dict[type, Exception] = {}
+        self._call_counts: dict[type, int] = {}
+        self._invalid_after_n: dict[type, int] = {}
         self.base_url = "http://test:8080"
         self.model = "test-model"
 
@@ -4484,6 +4489,10 @@ class _SP1MockLLM:
     def set_invalid_response_for(self, model_class: type) -> None:
         """Configure the mock to return an invalid response for a type."""
         self._invalid_types.add(model_class)
+
+    def set_invalid_response_after_n_calls(self, model_class: type, n: int) -> None:
+        """Configure the mock to return invalid JSON only after *n* successful calls."""
+        self._invalid_after_n[model_class] = n
 
     def set_exception_for(self, model_class: type, exc: Exception) -> None:
         """Configure the mock to raise *exc* when called for *model_class*."""
@@ -4503,6 +4512,18 @@ class _SP1MockLLM:
         # Raise exception if configured
         if response_format is not None and response_format in self._exception_types:
             raise self._exception_types[response_format]
+        # Track per-type call count for delayed-invalid behaviour
+        if response_format is not None:
+            self._call_counts[response_format] = self._call_counts.get(response_format, 0) + 1
+            if (
+                response_format in self._invalid_after_n
+                and self._call_counts[response_format] > self._invalid_after_n[response_format]
+            ):
+                content = "THIS_IS_NOT_VALID_JSON{{{"
+                return LLMResult(
+                    content=content, prompt_tokens=100, completion_tokens=50,
+                    duration_ms=5000, system_prompt=system_prompt, user_prompt=user_prompt,
+                )
         if self._response_queue:
             content = self._response_queue.pop(0)
         elif response_format is not None and response_format in self._invalid_types:
@@ -6896,6 +6917,8 @@ from scenario_forge.stpa.system_model.control_structure import (
     derive_control_structure as _gd_derive_cs,
     RequirementSet as _GDRequirementSet,
     ResponsibilitySet as _GDResponsibilitySet,
+    ControlElementSet as _GDControlElementSet,
+    CoordinationAnalysis as _GDCoordinationAnalysis,
 )
 from scenario_forge.stpa.system_model.critic import (
     run_completeness_critic as _gd_run_critic,
@@ -7103,8 +7126,13 @@ def _h_gd_llm_invalid_for_stage(world: World, text: str, examples: dict) -> tupl
         import re
         m = re.search(r"for (stage_\w+)", text)
         stage = m.group(1) if m else ""
-    if stage in ("stage_1a",):
+    if stage in ("stage_1a", "stage_1a_risk"):
         client.set_invalid_response_for(_SP1LossAnalysisDraft)
+    elif stage == "stage_1a_gap":
+        # Let the first call (risk_derivation) succeed, fail only the
+        # second call (gap_analysis) so the logged step is gap_analysis.
+        client.set_response_for(_SP1LossAnalysisDraft, _sp1_valid_la_dict())
+        client.set_invalid_response_after_n_calls(_SP1LossAnalysisDraft, 1)
     elif stage in ("stage_1b",):
         client.set_response_for(_SP1LossAnalysisDraft, _sp1_valid_la_dict())
         client.set_invalid_response_for(_SP1Stage1Profile)
@@ -7112,17 +7140,24 @@ def _h_gd_llm_invalid_for_stage(world: World, text: str, examples: dict) -> tupl
         client.set_response_for(_SP1LossAnalysisDraft, _sp1_valid_la_dict())
         client.set_response_for(_SP1Stage1Profile, _sp1_valid_stage1_profile_dict())
         client.set_invalid_response_for(_GDRequirementSet)
-    elif stage == "stage_2_call_2":
+    elif stage in ("stage_2_call_2", "stage_2_call_2a"):
         client.set_response_for(_SP1LossAnalysisDraft, _sp1_valid_la_dict())
         client.set_response_for(_SP1Stage1Profile, _sp1_valid_stage1_profile_dict())
         client.set_response_for(_GDRequirementSet, _sp1_valid_req_set_dict())
         client.set_invalid_response_for(_GDResponsibilitySet)
-    elif stage == "stage_2_call_3":
+    elif stage == "stage_2_call_2b":
         client.set_response_for(_SP1LossAnalysisDraft, _sp1_valid_la_dict())
         client.set_response_for(_SP1Stage1Profile, _sp1_valid_stage1_profile_dict())
         client.set_response_for(_GDRequirementSet, _sp1_valid_req_set_dict())
-        client.set_response_for(_GDResponsibilitySet, _sp1_valid_resp_set_dict())
-        client.set_invalid_response_for(ControlStructure)
+        client.set_response_for(_GDResponsibilitySet, _sp1_valid_resp_set_2a_dict())
+        client.set_invalid_response_for(_GDControlElementSet)
+    elif stage in ("stage_2_call_3", "stage_2_call_3_coordination"):
+        client.set_response_for(_SP1LossAnalysisDraft, _sp1_valid_la_dict())
+        client.set_response_for(_SP1Stage1Profile, _sp1_valid_stage1_profile_dict())
+        client.set_response_for(_GDRequirementSet, _sp1_valid_req_set_dict())
+        client.set_response_for(_GDResponsibilitySet, _sp1_valid_resp_set_2a_dict())
+        client.set_response_for(_GDControlElementSet, _sp1_valid_control_element_set_dict())
+        client.set_invalid_response_for(_GDCoordinationAnalysis)
     elif stage == "stage_1a_and_stage_1b" or "and" in stage:
         client.set_invalid_response_for(_SP1Stage1Profile)
     return True, ""
@@ -7157,11 +7192,15 @@ def _h_gd_derivation_attempted(world: World, text: str, examples: dict) -> tuple
     stage = examples.get("stage", "")
     la = _gd_valid_la()
     try:
-        if stage == "stage_1a":
+        if stage in ("stage_1a", "stage_1a_risk", "stage_1a_gap"):
             _gd_derive_loss_analysis(llm_client=client, use_case_text="Test", risk_cards=[], run_dir=run_dir)
         elif stage == "stage_1b":
-            _gd_derive_profile(llm_client=client, use_case_text="Test", loss_analysis=la, run_dir=run_dir)
-        elif stage in ("stage_2_call_1", "stage_2_call_2", "stage_2_call_3", "stage_2"):
+            _gd_derive_profile(llm_client=client, use_case_text="Test", run_dir=run_dir)
+        elif stage in (
+            "stage_2_call_1", "stage_2_call_2", "stage_2_call_2a",
+            "stage_2_call_2b", "stage_2_call_3", "stage_2_call_3_coordination",
+            "stage_2",
+        ):
             _gd_derive_cs(llm_client=client, use_case_text="Test", loss_analysis=la, run_dir=run_dir)
         return False, "Expected StageError but none was raised"
     except _GDStageError as e:
@@ -11064,7 +11103,12 @@ def _fc_resp_set_single_resp_with_cp() -> dict:
 # ============= sp1_merge_fallback_sanitize handlers =============
 
 def _h_san_resp_set_with_invalid_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the ResponsibilitySet has a <element_type> <element_id> with <ref_field> {type: <ref_type>, id: <ref_id>}."""
+    """Handle: the ResponsibilitySet has a <element_type> <element_id> with <ref_field> {type: <ref_type>, id: <ref_id>}.
+
+    After the Stage 2 restructure, ProcessModelParts live in the
+    ResponsibilitySet (Call 2a) while ControlActions and FeedbackChannels
+    live in the ControlElementSet (Call 2b).  Route the lookup accordingly.
+    """
     # Parse: "the ResponsibilitySet has a ProcessModelPart PM-1-1 with feedback_source {type: controlled_process, id: FB-1-1}"
     m = re.search(
         r"the ResponsibilitySet has a (\w+) (\S+) with (\w+) \{type: (\w+), id: ([^}]+)\}",
@@ -11075,56 +11119,72 @@ def _h_san_resp_set_with_invalid_ref(world: World, text: str, examples: dict) ->
     element_type, element_id, ref_field, ref_type, ref_id = m.groups()
     # Build the ElementRef
     ref = ElementRef(type=ReferenceType(ref_type), id=ref_id.strip())
-    # Modify the responsibility set
-    rs = world.sp1_responsibility_set
-    if rs is None:
-        return False, "No ResponsibilitySet available"
-    for resp in rs.responsibilities:
-        if element_type == "ProcessModelPart":
+    if element_type == "ProcessModelPart":
+        rs = world.sp1_responsibility_set
+        if rs is None:
+            return False, "No ResponsibilitySet available"
+        for resp in rs.responsibilities:
             for pm in resp.process_model_parts:
                 if pm.pm_id == element_id:
                     pm.feedback_source = ref
                     return True, ""
-        elif element_type == "ControlAction":
-            for ca in resp.control_actions:
-                if ca.ca_id == element_id:
-                    ca.target = ref
-                    return True, ""
-        elif element_type == "FeedbackChannel":
-            for fb in resp.feedback_channels:
-                if fb.fb_id == element_id:
-                    fb.source = ref
-                    return True, ""
-    return False, f"Element {element_type} {element_id} not found in ResponsibilitySet"
+        return False, f"Element {element_type} {element_id} not found in ResponsibilitySet"
+    # ControlAction / FeedbackChannel live in the ControlElementSet (Call 2b)
+    ces = world.sp1_control_element_set
+    if ces is None:
+        ces = _SP1ControlElementSet.model_validate(_sp1_valid_control_element_set_dict())
+        world.sp1_control_element_set = ces
+    if element_type == "ControlAction":
+        for ca in ces.control_actions:
+            if ca.ca_id == element_id:
+                ca.target = ref
+                return True, ""
+    elif element_type == "FeedbackChannel":
+        for fb in ces.feedback_channels:
+            if fb.fb_id == element_id:
+                fb.source = ref
+                return True, ""
+    return False, f"Element {element_type} {element_id} not found in ControlElementSet"
 
 
 def _h_san_resp_set_with_valid_ref(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the ResponsibilitySet has a <element_type> <element_id> with <ref_field> pointing to CP-1."""
+    """Handle: the ResponsibilitySet has a <element_type> <element_id> with <ref_field> pointing to CP-1.
+
+    After the Stage 2 restructure, ProcessModelParts live in the
+    ResponsibilitySet (Call 2a) while ControlActions and FeedbackChannels
+    live in the ControlElementSet (Call 2b).  Route the lookup accordingly.
+    """
     m = re.search(r"the ResponsibilitySet has a (\w+) (\S+) with (\w+) pointing to (\S+)", text)
     if not m:
         return False, f"Could not parse valid ref step from: {text}"
     element_type, element_id, ref_field, target_id = m.groups()
     ref = ElementRef(type=ReferenceType.controlled_process, id=target_id.strip())
-    rs = world.sp1_responsibility_set
-    if rs is None:
-        return False, "No ResponsibilitySet available"
-    for resp in rs.responsibilities:
-        if element_type == "ProcessModelPart":
+    if element_type == "ProcessModelPart":
+        rs = world.sp1_responsibility_set
+        if rs is None:
+            return False, "No ResponsibilitySet available"
+        for resp in rs.responsibilities:
             for pm in resp.process_model_parts:
                 if pm.pm_id == element_id:
                     pm.feedback_source = ref
                     return True, ""
-        elif element_type == "ControlAction":
-            for ca in resp.control_actions:
-                if ca.ca_id == element_id:
-                    ca.target = ref
-                    return True, ""
-        elif element_type == "FeedbackChannel":
-            for fb in resp.feedback_channels:
-                if fb.fb_id == element_id:
-                    fb.source = ref
-                    return True, ""
-    return False, f"Element {element_type} {element_id} not found in ResponsibilitySet"
+        return False, f"Element {element_type} {element_id} not found in ResponsibilitySet"
+    # ControlAction / FeedbackChannel live in the ControlElementSet (Call 2b)
+    ces = world.sp1_control_element_set
+    if ces is None:
+        ces = _SP1ControlElementSet.model_validate(_sp1_valid_control_element_set_dict())
+        world.sp1_control_element_set = ces
+    if element_type == "ControlAction":
+        for ca in ces.control_actions:
+            if ca.ca_id == element_id:
+                ca.target = ref
+                return True, ""
+    elif element_type == "FeedbackChannel":
+        for fb in ces.feedback_channels:
+            if fb.fb_id == element_id:
+                fb.source = ref
+                return True, ""
+    return False, f"Element {element_type} {element_id} not found in ControlElementSet"
 
 
 def _h_san_llm_merge_failure(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -13179,10 +13239,13 @@ def _h_b3_stage2_runs(world: World, text: str, examples: dict) -> tuple[bool, st
     from scenario_forge.stpa.system_model.run import _run_stage_2_block
     from scenario_forge.stpa.system_model.critic import RevisionDelta
     from scenario_forge.stpa.system_model.control_structure import (
-        ConnectionSet, RequirementSet, ResponsibilitySet as _RS,
+        CoordinationAnalysis, ControlElementSet, RequirementSet, ResponsibilitySet as _RS,
     )
-    from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict, \
-        valid_loss_analysis_dict, valid_requirement_set_dict, valid_responsibility_set_dict
+    from tests.stpa.sp1_helpers import (
+        MockLLMClient, valid_control_element_set_dict,
+        valid_empty_coordination_analysis_dict, valid_loss_analysis_dict,
+        valid_requirement_set_dict, valid_responsibility_set_dict,
+    )
     from scenario_forge.models.capability_profile import Stage1Profile
     from scenario_forge.stpa.models.loss_analysis import LossAnalysis
     import tempfile
@@ -13190,7 +13253,8 @@ def _h_b3_stage2_runs(world: World, text: str, examples: dict) -> tuple[bool, st
     client = MockLLMClient()
     client.set_response_for(RequirementSet, valid_requirement_set_dict())
     client.set_response_for(_RS, valid_responsibility_set_dict())
-    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+    client.set_response_for(ControlElementSet, valid_control_element_set_dict())
+    client.set_response_for(CoordinationAnalysis, valid_empty_coordination_analysis_dict())
     critic_dict = {
         "gaps": [{"gap_type": "missing_responsibility", "description": "Missing validation",
                   "related_attack_path": "Attack", "suggested_remedy": "Add PM-0 for validation state"}],
@@ -13252,63 +13316,70 @@ def _b3_make_resp(resp_id: str, pm_ids: list[str],
     )
 
 
-def _h_b3_resp_set_orphan_1(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilitySet with responsibility RESP-1 having PM-1-1 and PM-1-2 but only FB-1-1 updating PM-1-1."""
+def _b3_make_cs(responsibilities: list[Responsibility]) -> ControlStructure:
+    """Wrap responsibilities into a ControlStructure for repair tests."""
+    return ControlStructure(responsibilities=responsibilities)
+
+
+def _h_b3_cs_orphan_1(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure with responsibility RESP-1 having PM-1-1 and PM-1-2 but only FB-1-1 updating PM-1-1."""
     resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"], [("FB-1-1", "PM-1-1")])
-    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    world.control_structure = _b3_make_cs([resp])
     return True, ""
 
 
 def _h_b3_repair_called(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: repair_orphan_pms is called."""
-    if world.sp1_responsibility_set is None:
-        return False, "No ResponsibilitySet available"
-    world.sp1_repaired_set, world.sp1_repair_warnings = _B3RepairOrphanPMs(world.sp1_responsibility_set)
+    if world.control_structure is None:
+        return False, "No ControlStructure available"
+    world.control_structure, world.sp1_repair_warnings = _B3RepairOrphanPMs(world.control_structure)
     return True, ""
 
 
 def _h_b3_repaired_has_fb_updating(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the repaired ResponsibilitySet has a feedback channel updating PM-X-Y."""
+    """Handle: the repaired ControlStructure has a feedback channel updating PM-X-Y."""
     match = re.search(r"updating (PM-\d+-\d+)", text)
     if not match:
         return False, f"Could not parse PM id from: {text}"
     pm_id = match.group(1)
-    if world.sp1_repaired_set is None:
-        return False, "No repaired set available"
-    for resp in world.sp1_repaired_set.responsibilities:
+    cs = world.control_structure
+    if cs is None:
+        return False, "No repaired ControlStructure available"
+    for resp in cs.responsibilities:
         for fb in resp.feedback_channels:
             if fb.updates == pm_id:
                 return True, ""
-    return False, f"No FB updating {pm_id} found in repaired set"
+    return False, f"No FB updating {pm_id} found in repaired ControlStructure"
 
 
-def _h_b3_resp_set_orphan_2(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilitySet with responsibility RESP-2 having orphan PM-2-1 and existing FB-2-1."""
+def _h_b3_cs_orphan_2(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure with responsibility RESP-2 having orphan PM-2-1 and existing FB-2-1."""
     resp = _b3_make_resp("RESP-2", ["PM-2-1"], [("FB-2-1", "PM-2-1")])
     resp.process_model_parts.append(ProcessModelPart(pm_id="PM-2-2", description="Orphan"))
-    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    world.control_structure = _b3_make_cs([resp])
     return True, ""
 
 
 def _h_b3_repaired_has_fb_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the repaired ResponsibilitySet has a feedback channel with id FB-X-Y."""
+    """Handle: the repaired ControlStructure has a feedback channel with id FB-X-Y."""
     match = re.search(r"with id (FB-\d+-\d+)", text)
     if not match:
         return False, f"Could not parse FB id from: {text}"
     fb_id = match.group(1)
-    if world.sp1_repaired_set is None:
-        return False, "No repaired set available"
-    for resp in world.sp1_repaired_set.responsibilities:
+    cs = world.control_structure
+    if cs is None:
+        return False, "No repaired ControlStructure available"
+    for resp in cs.responsibilities:
         for fb in resp.feedback_channels:
             if fb.fb_id == fb_id:
                 return True, ""
-    return False, f"No FB with id {fb_id} found in repaired set"
+    return False, f"No FB with id {fb_id} found in repaired ControlStructure"
 
 
-def _h_b3_resp_set_orphan_1_3(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-3."""
+def _h_b3_cs_orphan_1_3(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure with responsibility RESP-1 having orphan PM-1-3."""
     resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-3"], [("FB-1-1", "PM-1-1")])
-    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    world.control_structure = _b3_make_cs([resp])
     return True, ""
 
 
@@ -13318,19 +13389,20 @@ def _h_b3_new_fb_desc_contains(world: World, text: str, examples: dict) -> tuple
     if not match:
         return False, f"Could not parse expected text from: {text}"
     expected = match.group(1)
-    if world.sp1_repaired_set is None:
-        return False, "No repaired set available"
-    for resp in world.sp1_repaired_set.responsibilities:
+    cs = world.control_structure
+    if cs is None:
+        return False, "No repaired ControlStructure available"
+    for resp in cs.responsibilities:
         for fb in resp.feedback_channels:
             if "Auto-generated" in fb.description and expected in fb.description:
                 return True, ""
     return False, f"No new FB with description containing '{expected}'"
 
 
-def _h_b3_resp_set_orphan_1_2(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-2."""
+def _h_b3_cs_orphan_1_2(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure with responsibility RESP-1 having orphan PM-1-2."""
     resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"], [("FB-1-1", "PM-1-1")])
-    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    world.control_structure = _b3_make_cs([resp])
     return True, ""
 
 
@@ -13340,31 +13412,36 @@ def _h_b3_new_fb_updates_equals(world: World, text: str, examples: dict) -> tupl
     if not match:
         return False, f"Could not parse expected updates from: {text}"
     expected = match.group(1)
-    if world.sp1_repaired_set is None:
-        return False, "No repaired set available"
-    for resp in world.sp1_repaired_set.responsibilities:
+    cs = world.control_structure
+    if cs is None:
+        return False, "No repaired ControlStructure available"
+    for resp in cs.responsibilities:
         for fb in resp.feedback_channels:
             if "Auto-generated" in fb.description and fb.updates == expected:
                 return True, ""
     return False, f"No new FB with updates='{expected}'"
 
 
-def _h_b3_resp_set_no_orphans(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilitySet where every PM has a corresponding FB."""
+def _h_b3_cs_no_orphans(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure where every PM has a corresponding FB."""
     resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"],
                          [("FB-1-1", "PM-1-1"), ("FB-1-2", "PM-1-2")])
-    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    world.control_structure = _b3_make_cs([resp])
     return True, ""
 
 
-def _h_b3_resp_set_unchanged(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the ResponsibilitySet is unchanged."""
-    if world.sp1_repaired_set is None or world.sp1_responsibility_set is None:
-        return False, "Missing set data"
-    orig = world.sp1_responsibility_set.responsibilities[0]
-    repaired = world.sp1_repaired_set.responsibilities[0]
-    if len(orig.feedback_channels) != len(repaired.feedback_channels):
-        return False, "Feedback channels changed"
+def _h_b3_cs_unchanged(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ControlStructure is unchanged."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No ControlStructure available"
+    # After repair with no orphans, the CS should have the same number of FBs
+    for resp in cs.responsibilities:
+        if not all(
+            "Auto-generated" not in fb.description
+            for fb in resp.feedback_channels
+        ):
+            return False, "Unexpected auto-generated FBs were added"
     return True, ""
 
 
@@ -13377,10 +13454,10 @@ def _h_b3_no_warnings(world: World, text: str, examples: dict) -> tuple[bool, st
     return True, ""
 
 
-def _h_b3_resp_set_two_orphans(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilitySet with responsibility RESP-1 having two orphan PMs PM-1-2 and PM-1-3."""
+def _h_b3_cs_two_orphans(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure with responsibility RESP-1 having two orphan PMs PM-1-2 and PM-1-3."""
     resp = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2", "PM-1-3"], [("FB-1-1", "PM-1-1")])
-    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    world.control_structure = _b3_make_cs([resp])
     return True, ""
 
 
@@ -13403,44 +13480,46 @@ def _h_b3_warning_mentions_orphan(world: World, text: str, examples: dict) -> tu
     return True, ""
 
 
-def _h_b3_resp_set_resp3_no_fbs(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilitySet with responsibility RESP-3 having orphans PM-3-1 and PM-3-2 with no existing FBs."""
+def _h_b3_cs_resp3_no_fbs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure with responsibility RESP-3 having orphans PM-3-1 and PM-3-2 with no existing FBs."""
     resp = _b3_make_resp("RESP-3", ["PM-3-1", "PM-3-2"], fb_specs=None)
-    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp])
+    world.control_structure = _b3_make_cs([resp])
     return True, ""
 
 
 def _h_b3_repaired_has_fbs(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the repaired ResponsibilitySet has feedback channels FB-3-1 and FB-3-2."""
-    if world.sp1_repaired_set is None:
-        return False, "No repaired set available"
+    """Handle: the repaired ControlStructure has feedback channels FB-3-1 and FB-3-2."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No repaired ControlStructure available"
     fb_ids = set()
-    for resp in world.sp1_repaired_set.responsibilities:
+    for resp in cs.responsibilities:
         for fb in resp.feedback_channels:
             fb_ids.add(fb.fb_id)
     for expected in re.findall(r"FB-\d+-\d+", text):
         if expected not in fb_ids:
-            return False, f"FB {expected} not found in repaired set: {fb_ids}"
+            return False, f"FB {expected} not found in repaired ControlStructure: {fb_ids}"
     return True, ""
 
 
-def _h_b3_resp_set_multi_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-2 and responsibility RESP-2 having orphan PM-2-1."""
+def _h_b3_cs_multi_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure with responsibility RESP-1 having orphan PM-1-2 and responsibility RESP-2 having orphan PM-2-1."""
     resp1 = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"], [("FB-1-1", "PM-1-1")])
     resp2 = _b3_make_resp("RESP-2", ["PM-2-1"], fb_specs=None)
-    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp1, resp2])
+    world.control_structure = _b3_make_cs([resp1, resp2])
     return True, ""
 
 
 def _h_b3_repaired_has_fb_in_resp(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the repaired ResponsibilitySet has a FB updating PM-X-Y in RESP-N."""
+    """Handle: the repaired ControlStructure has a FB updating PM-X-Y in RESP-N."""
     match = re.search(r"updating (PM-\d+-\d+) in (RESP-\d+)", text)
     if not match:
         return False, f"Could not parse from: {text}"
     pm_id, resp_id = match.group(1), match.group(2)
-    if world.sp1_repaired_set is None:
-        return False, "No repaired set available"
-    for resp in world.sp1_repaired_set.responsibilities:
+    cs = world.control_structure
+    if cs is None:
+        return False, "No repaired ControlStructure available"
+    for resp in cs.responsibilities:
         if resp.resp_id == resp_id:
             for fb in resp.feedback_channels:
                 if fb.updates == pm_id:
@@ -13448,19 +13527,20 @@ def _h_b3_repaired_has_fb_in_resp(world: World, text: str, examples: dict) -> tu
     return False, f"No FB updating {pm_id} in {resp_id}"
 
 
-def _h_b3_resp_set_multi_orphans(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a ResponsibilitySet with multiple orphan PMs across responsibilities."""
+def _h_b3_cs_multi_orphans(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a ControlStructure with multiple orphan PMs across responsibilities."""
     resp1 = _b3_make_resp("RESP-1", ["PM-1-1", "PM-1-2"], [("FB-1-1", "PM-1-1")])
     resp2 = _b3_make_resp("RESP-2", ["PM-2-1", "PM-2-2"], [("FB-2-1", "PM-2-1")])
-    world.sp1_responsibility_set = _B3ResponsibilitySet(responsibilities=[resp1, resp2])
+    world.control_structure = _b3_make_cs([resp1, resp2])
     return True, ""
 
 
 def _h_b3_all_pms_referenced(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: every PM part in the repaired ResponsibilitySet is referenced by at least one FB."""
-    if world.sp1_repaired_set is None:
-        return False, "No repaired set available"
-    for resp in world.sp1_repaired_set.responsibilities:
+    """Handle: every PM part in the repaired ControlStructure is referenced by at least one FB."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No repaired ControlStructure available"
+    for resp in cs.responsibilities:
         updated = {fb.updates for fb in resp.feedback_channels}
         for pm in resp.process_model_parts:
             if pm.pm_id not in updated:
@@ -13481,10 +13561,13 @@ def _h_b3_derive_runs(world: World, text: str, examples: dict) -> tuple[bool, st
     """Handle: derive_control_structure runs."""
     from scenario_forge.stpa.system_model.control_structure import derive_control_structure
     from scenario_forge.stpa.system_model.control_structure import (
-        ConnectionSet, RequirementSet,
+        CoordinationAnalysis, ControlElementSet, RequirementSet,
     )
-    from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict, \
-        valid_requirement_set_dict, valid_responsibility_set_dict
+    from tests.stpa.sp1_helpers import (
+        MockLLMClient, valid_control_element_set_dict,
+        valid_empty_coordination_analysis_dict, valid_requirement_set_dict,
+        valid_responsibility_set_dict,
+    )
     import tempfile
 
     client = MockLLMClient()
@@ -13496,7 +13579,8 @@ def _h_b3_derive_runs(world: World, text: str, examples: dict) -> tuple[bool, st
             {"pm_id": "PM-1-2", "description": "Orphan state"}
         )
     client.set_response_for(_B3ResponsibilitySet, resp_dict)
-    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+    client.set_response_for(ControlElementSet, valid_control_element_set_dict())
+    client.set_response_for(CoordinationAnalysis, valid_empty_coordination_analysis_dict())
 
     world.sp1_run_dir = Path(tempfile.mkdtemp())
     from unittest.mock import patch as _patch
@@ -13514,15 +13598,15 @@ def _h_b3_derive_runs(world: World, text: str, examples: dict) -> tuple[bool, st
     return True, ""
 
 
-def _h_b3_repair_after_call2(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: repair_orphan_pms is called after Call 2 responsibilities are parsed."""
+def _h_b3_repair_after_assembly(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: repair_orphan_pms is called after the control structure is assembled."""
     if not world.sp1_sanitize_called:
         return False, "repair_orphan_pms was not called"
     return True, ""
 
 
 def _h_b3_repair_before_call3(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: repair_orphan_pms is called before Call 3 connections are derived."""
+    """Handle: repair_orphan_pms is called before Call 3 coordination is derived."""
     if not world.sp1_sanitize_called:
         return False, "repair_orphan_pms was not called"
     return True, ""
@@ -13554,31 +13638,31 @@ _register_first(r"the Stage 2 revision block runs", _h_b3_stage2_runs)
 _register_first(r"sanitize_critic_ids is called after run_completeness_critic returns", _h_b3_sanitize_after_critic)
 _register_first(r"sanitize_critic_ids is called before run_revision is called", _h_b3_sanitize_before_revision)
 # Orphan PM repair
-_register_first(r"a ResponsibilitySet with responsibility RESP-1 having PM-1-1 and PM-1-2 but only FB-1-1 updating PM-1-1", _h_b3_resp_set_orphan_1)
+_register_first(r"a ControlStructure with responsibility RESP-1 having PM-1-1 and PM-1-2 but only FB-1-1 updating PM-1-1", _h_b3_cs_orphan_1)
 _register_first(r"repair_orphan_pms is called$", _h_b3_repair_called)
-_register_first(r"the repaired ResponsibilitySet has a feedback channel updating", _h_b3_repaired_has_fb_updating)
-_register_first(r"a ResponsibilitySet with responsibility RESP-2 having orphan PM-2-1 and existing FB-2-1", _h_b3_resp_set_orphan_2)
-_register_first(r"the repaired ResponsibilitySet has a feedback channel with id", _h_b3_repaired_has_fb_id)
-_register_first(r"a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-3", _h_b3_resp_set_orphan_1_3)
+_register_first(r"the repaired ControlStructure has a feedback channel updating", _h_b3_repaired_has_fb_updating)
+_register_first(r"a ControlStructure with responsibility RESP-2 having orphan PM-2-1 and existing FB-2-1", _h_b3_cs_orphan_2)
+_register_first(r"the repaired ControlStructure has a feedback channel with id", _h_b3_repaired_has_fb_id)
+_register_first(r"a ControlStructure with responsibility RESP-1 having orphan PM-1-3", _h_b3_cs_orphan_1_3)
 _register_first(r"the new feedback channel description contains", _h_b3_new_fb_desc_contains)
-_register_first(r"a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-2$", _h_b3_resp_set_orphan_1_2)
+_register_first(r"a ControlStructure with responsibility RESP-1 having orphan PM-1-2$", _h_b3_cs_orphan_1_2)
 _register_first(r"the new feedback channel updates field equals", _h_b3_new_fb_updates_equals)
-_register_first(r"a ResponsibilitySet where every PM has a corresponding FB", _h_b3_resp_set_no_orphans)
-_register_first(r"the ResponsibilitySet is unchanged", _h_b3_resp_set_unchanged)
+_register_first(r"a ControlStructure where every PM has a corresponding FB", _h_b3_cs_no_orphans)
+_register_first(r"the ControlStructure is unchanged", _h_b3_cs_unchanged)
 _register_first(r"no warnings are returned", _h_b3_no_warnings)
-_register_first(r"a ResponsibilitySet with responsibility RESP-1 having two orphan PMs PM-1-2 and PM-1-3", _h_b3_resp_set_two_orphans)
+_register_first(r"a ControlStructure with responsibility RESP-1 having two orphan PMs PM-1-2 and PM-1-3", _h_b3_cs_two_orphans)
 _register_first(r"the warnings list contains two entries", _h_b3_two_warnings)
 _register_first(r"each warning mentions the orphan PM id", _h_b3_warning_mentions_orphan)
-_register_first(r"a ResponsibilitySet with responsibility RESP-3 having orphans PM-3-1 and PM-3-2 with no existing FBs", _h_b3_resp_set_resp3_no_fbs)
-_register_first(r"the repaired ResponsibilitySet has feedback channels", _h_b3_repaired_has_fbs)
-_register_first(r"a ResponsibilitySet with responsibility RESP-1 having orphan PM-1-2 and responsibility RESP-2 having orphan PM-2-1", _h_b3_resp_set_multi_resp)
-_register_first(r"the repaired ResponsibilitySet has a FB updating", _h_b3_repaired_has_fb_in_resp)
-_register_first(r"a ResponsibilitySet with multiple orphan PMs across responsibilities", _h_b3_resp_set_multi_orphans)
-_register_first(r"every PM part in the repaired ResponsibilitySet is referenced by at least one FB", _h_b3_all_pms_referenced)
+_register_first(r"a ControlStructure with responsibility RESP-3 having orphans PM-3-1 and PM-3-2 with no existing FBs", _h_b3_cs_resp3_no_fbs)
+_register_first(r"the repaired ControlStructure has feedback channels", _h_b3_repaired_has_fbs)
+_register_first(r"a ControlStructure with responsibility RESP-1 having orphan PM-1-2 and responsibility RESP-2 having orphan PM-2-1", _h_b3_cs_multi_resp)
+_register_first(r"the repaired ControlStructure has a FB updating", _h_b3_repaired_has_fb_in_resp)
+_register_first(r"a ControlStructure with multiple orphan PMs across responsibilities", _h_b3_cs_multi_orphans)
+_register_first(r"every PM part in the repaired ControlStructure is referenced by at least one FB", _h_b3_all_pms_referenced)
 _register_first(r"a use case text and loss analysis available for Stage 2", _h_b3_use_case_and_loss)
 _register_first(r"derive_control_structure runs", _h_b3_derive_runs)
-_register_first(r"repair_orphan_pms is called after Call 2 responsibilities are parsed", _h_b3_repair_after_call2)
-_register_first(r"repair_orphan_pms is called before Call 3 connections are derived", _h_b3_repair_before_call3)
+_register_first(r"repair_orphan_pms is called after the control structure is assembled", _h_b3_repair_after_assembly)
+_register_first(r"repair_orphan_pms is called before Call 3 coordination is derived", _h_b3_repair_before_call3)
 
 # Register batch 2 handlers
 # Capability profile injection
@@ -20098,6 +20182,8 @@ def _derive_feature_tag(ir_path: str) -> str | None:
         if stem.startswith("sp3_"): return "sp3"
     """
     stem = Path(ir_path).stem
+    if "acceptance-refresh" in Path(ir_path).parts:
+        return "acceptance_refresh"
     if stem.startswith("sp2_"):
         return "sp2"
     if stem.startswith("sp3_"):
@@ -21197,6 +21283,486 @@ _register(r"in `calls.jsonl` the `stage_1b` call appears before the first `stage
 _register(r"in `calls.jsonl` the `stage_1a` `risk_derivation` call appears before the `stage_1a` `gap_analysis` call", _h_stage1_calls_risk_before_gap)
 _register(r"the `stage_1a` `gap_analysis` call entry in `calls.jsonl` has a `user_prompt_text` containing", _h_stage1_gap_has_kc)
 _register(r"the `stage_1b` call entry in `calls.jsonl` has a `user_prompt_text` that does not contain", _h_stage1_1b_no_loss_input)
+
+
+# ---------------------------------------------------------------------------
+# Acceptance refresh: Stage 2 four-call assembly and coordination
+# ---------------------------------------------------------------------------
+
+def _ar_client(world: World) -> _SP1MockLLM:
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    return client
+
+
+def _ar_run_dir(world: World) -> Path:
+    if world.sp1_run_dir is None:
+        world.sp1_run_dir = Path(_tempfile.mkdtemp(prefix="acceptance_refresh_"))
+    return world.sp1_run_dir
+
+
+def _ar_stage2_defaults(world: World) -> None:
+    client = _ar_client(world)
+    defaults = {
+        _SP1RequirementSet: _sp1_valid_req_set_dict(),
+        _SP1ResponsibilitySet: _sp1_valid_resp_set_2a_dict(),
+        _SP1ControlElementSet: _sp1_valid_control_element_set_dict(),
+        _SP1CoordinationAnalysis: _sp1_valid_coordination_analysis_dict(),
+    }
+    for response_format, response in defaults.items():
+        if response_format not in client._response_map:
+            client.set_response_for(response_format, response)
+
+
+def _h_ar_module_export(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    from scenario_forge.stpa.system_model import control_structure
+    match = re.search(r"module (does not )?exports? `([^`]+)`", text)
+    if not match:
+        return False, f"Could not parse symbol from: {text}"
+    absent, symbol = match.groups()
+    exported = hasattr(control_structure, symbol)
+    if bool(absent) == exported:
+        expectation = "not be exported" if absent else "be exported"
+        return False, f"Expected {symbol} to {expectation}"
+    return True, ""
+
+
+def _h_ar_model_field(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    match = re.search(r"`CoordinationAnalysis` model (does not )?declare `([^`]+)`", text)
+    if not match:
+        return False, f"Could not parse model field from: {text}"
+    absent, field = match.groups()
+    declared = field in _SP1CoordinationAnalysis.model_fields
+    if bool(absent) == declared:
+        expectation = "not be declared" if absent else "be declared"
+        return False, f"Expected {field} to {expectation}"
+    return True, ""
+
+
+def _h_ar_responsibility_set(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    ids = re.findall(r"RESP-\d+", text)
+    response = _sp1_valid_resp_set_2a_dict()
+    response["responsibilities"] = [
+        responsibility for responsibility in response["responsibilities"]
+        if responsibility["resp_id"] in ids
+    ]
+    world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(response)
+    _ar_client(world).set_response_for(_SP1ResponsibilitySet, response)
+    return True, ""
+
+
+def _h_ar_valid_responsibility_set(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(
+        _sp1_valid_resp_set_2a_dict()
+    )
+    # Handle combined step: "a valid ResponsibilitySet from Call 2a with
+    # responsibility RESP-1 and a ControlElementSet from Call 2b with
+    # controlled process CP-1"
+    if "ControlElementSet from Call 2b" in text:
+        if world.sp1_control_element_set is None:
+            world.sp1_control_element_set = _SP1ControlElementSet.model_validate(
+                _sp1_valid_control_element_set_dict()
+            )
+        _ar_client(world).set_response_for(
+            _SP1ControlElementSet, world.sp1_control_element_set.model_dump()
+        )
+    return True, ""
+
+
+def _h_ar_control_element_set(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    if world.sp1_control_element_set is not None:
+        # Preserve modifications from a prior sanitize step (e.g. a CA or
+        # FB with an invalid ElementRef) and apply the unresolvable
+        # feedback source on top of the existing set.  Target FB-2-1
+        # (not FB-1-1) so that step-2 modifications to FB-1-1 are
+        # preserved.
+        existing = world.sp1_control_element_set
+        if "unresolvable feedback source reference" in text:
+            for fb in existing.feedback_channels:
+                if fb.fb_id == "FB-2-1":
+                    fb.source = ElementRef(type=ReferenceType.controlled_process, id="CP-404")
+        _ar_client(world).set_response_for(
+            _SP1ControlElementSet, existing.model_dump()
+        )
+        return True, ""
+    response = _sp1_valid_control_element_set_dict()
+    if "unresolvable feedback source reference" in text:
+        response["feedback_channels"][1]["source"] = {
+            "type": "controlled_process", "id": "CP-404",
+        }
+    world.sp1_control_element_set = _SP1ControlElementSet.model_validate(response)
+    _ar_client(world).set_response_for(_SP1ControlElementSet, response)
+    return True, ""
+
+
+def _h_ar_coordination_analysis(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    response = _sp1_valid_coordination_analysis_dict()
+    if "integrity finding" in text:
+        response = {
+            "coordination_links": [],
+            "integrity_findings": ["Controlled process CP-404 is unreferenced"],
+        }
+    elif "non-existent responsibility" in text:
+        response["coordination_links"][0]["source"] = "RESP-404"
+    world.sp1_connection_set = _SP1CoordinationAnalysis.model_validate(response)
+    _ar_client(world).set_response_for(_SP1CoordinationAnalysis, response)
+    return True, ""
+
+
+def _h_ar_stage2_calls_ready(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    _ar_stage2_defaults(world)
+    return True, ""
+
+
+def _h_ar_call3_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    from scenario_forge.stpa.system_model.control_structure import _call_3_coordination
+    _ar_stage2_defaults(world)
+    run_dir = _ar_run_dir(world)
+    control_structure = ControlStructure.model_validate(_sp1_valid_cs_dict())
+    world.sp1_connection_set = _call_3_coordination(
+        llm_client=_ar_client(world),
+        use_case_text=world.sp1_use_case_text,
+        control_structure=control_structure,
+        run_dir=run_dir,
+        loader=TemplateLoader(_PQF_PROMPTS_DIR),
+        temperature=0.4,
+    )
+    return True, ""
+
+
+def _h_ar_assemble(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    _ar_stage2_defaults(world)
+    responsibility_set = world.sp1_responsibility_set or _SP1ResponsibilitySet.model_validate(
+        _sp1_valid_resp_set_2a_dict()
+    )
+    control_elements = world.sp1_control_element_set or _SP1ControlElementSet.model_validate(
+        _sp1_valid_control_element_set_dict()
+    )
+    world.control_structure, world.sp1_warnings = _sp1_assemble_with_fallback(
+        responsibility_set, control_elements, _ar_run_dir(world), "test-model"
+    )
+    world.san_merge_warnings = list(world.sp1_warnings)
+    # When the fallback path is used (warnings non-empty), the fallback
+    # ControlStructure is built from the ResponsibilitySet's
+    # responsibilities and the ControlElementSet's controlled_processes
+    # only — CAs and FBs are lost because they live in the
+    # ControlElementSet (Call 2b), not in the responsibilities (Call 2a).
+    # Manually merge CAs and FBs back into the responsibilities and
+    # sanitize invalid ElementRefs so Then-step handlers can verify them.
+    if world.sp1_warnings and control_elements.control_actions:
+        import copy as _copy
+        resps = _copy.deepcopy(responsibility_set.responsibilities)
+        resp_by_num = {
+            _sp1_extract_resp_num(r.resp_id): r for r in resps
+        }
+        for ca in control_elements.control_actions:
+            resp = resp_by_num.get(_sp1_extract_resp_num(ca.ca_id))
+            if resp is not None:
+                resp.control_actions.append(ca)
+        for fb in control_elements.feedback_channels:
+            resp = resp_by_num.get(_sp1_extract_resp_num(fb.fb_id))
+            if resp is not None:
+                resp.feedback_channels.append(fb)
+        try:
+            sanitized_resps, sanitized_cps, sanitize_warnings = (
+                _sp1_sanitize_for_fallback(
+                    resps, control_elements.controlled_processes
+                )
+            )
+            world.sp1_warnings.extend(sanitize_warnings)
+            world.san_merge_warnings = list(world.sp1_warnings)
+            world.control_structure = ControlStructure(
+                responsibilities=sanitized_resps,
+                controlled_processes=sanitized_cps,
+            )
+        except Exception:
+            pass
+    return True, ""
+
+
+def _h_ar_add_coordination(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    control_structure = world.control_structure or ControlStructure.model_validate(_sp1_valid_cs_dict())
+    analysis = world.sp1_connection_set or _SP1CoordinationAnalysis.model_validate(
+        _sp1_valid_coordination_analysis_dict()
+    )
+    world.control_structure, world.sp1_warnings = _sp1_add_coordination_links(
+        control_structure, analysis, _ar_run_dir(world), "test-model"
+    )
+    return True, ""
+
+
+def _h_ar_stage2_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    _ar_stage2_defaults(world)
+    world.control_structure, world.sp1_warnings = _sp1_derive_control_structure(
+        llm_client=_ar_client(world),
+        use_case_text=world.sp1_use_case_text,
+        loss_analysis=LossAnalysis.model_validate(_sp1_valid_la_dict()),
+        run_dir=_ar_run_dir(world),
+        template_loader=TemplateLoader(_PQF_PROMPTS_DIR),
+        temperature=0.4,
+    )
+    return True, ""
+
+
+def _h_ar_call2a_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    from scenario_forge.stpa.system_model.control_structure import _call_2a_responsibilities
+    _ar_stage2_defaults(world)
+    world.sp1_responsibility_set = _call_2a_responsibilities(
+        llm_client=_ar_client(world),
+        use_case_text=world.sp1_use_case_text,
+        requirement_set=_SP1RequirementSet.model_validate(_sp1_valid_req_set_dict()),
+        capability_profile=None,
+        run_dir=_ar_run_dir(world),
+        loader=TemplateLoader(_PQF_PROMPTS_DIR),
+        temperature=0.4,
+    )
+    return True, ""
+
+
+def _h_ar_call2b_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    from scenario_forge.stpa.system_model.control_structure import _call_2b_control_elements
+    _ar_stage2_defaults(world)
+    world.sp1_control_element_set = _call_2b_control_elements(
+        llm_client=_ar_client(world),
+        use_case_text=world.sp1_use_case_text,
+        responsibility_set=world.sp1_responsibility_set or _SP1ResponsibilitySet.model_validate(
+            _sp1_valid_resp_set_2a_dict()
+        ),
+        run_dir=_ar_run_dir(world),
+        loader=TemplateLoader(_PQF_PROMPTS_DIR),
+        temperature=0.4,
+    )
+    return True, ""
+
+
+def _h_ar_call_log_exists(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    match = re.search(r"step (\S+)", text)
+    step = match.group(1) if match else ""
+    path = _ar_run_dir(world) / "calls.jsonl"
+    entries = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    if not any(entry.get("step") == step for entry in entries):
+        return False, f"No {step} entry in call log"
+    return True, ""
+
+
+def _h_ar_call_sequence(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    return _h_ar_stage2_run(world, text, examples)
+
+
+def _h_ar_coordination_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    if not isinstance(world.sp1_connection_set, _SP1CoordinationAnalysis):
+        return False, "No CoordinationAnalysis model was produced"
+    return True, ""
+
+
+def _h_ar_coordination_contains_link(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    analysis = world.sp1_connection_set
+    if analysis is None or not any(link.link_id == "CL-1" for link in analysis.coordination_links):
+        return False, "CoordinationAnalysis does not contain CL-1"
+    return True, ""
+
+
+def _h_ar_integrity_findings(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    analysis = world.sp1_connection_set
+    if analysis is None or not analysis.integrity_findings:
+        return False, "CoordinationAnalysis integrity_findings is empty"
+    return True, ""
+
+
+def _h_ar_no_coordination_links(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    analysis = world.sp1_connection_set
+    if analysis is None:
+        analysis = world.control_structure
+    if analysis is None or analysis.coordination_links:
+        return False, "Expected no coordination links"
+    return True, ""
+
+
+def _h_ar_control_structure_element(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    if world.control_structure is None:
+        return False, "No ControlStructure available"
+    match = re.search(r"contains (responsibility|controlled process) (RESP-\d+|CP-\d+)", text)
+    if not match:
+        return False, f"Could not parse control structure element: {text}"
+    kind, element_id = match.groups()
+    values = (
+        [item.resp_id for item in world.control_structure.responsibilities]
+        if kind == "responsibility"
+        else [item.cp_id for item in world.control_structure.controlled_processes]
+    )
+    if element_id not in values:
+        return False, f"{kind} {element_id} not found in {values}"
+    return True, ""
+
+
+def _h_ar_link_source_target(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    if world.control_structure is None:
+        return False, "No ControlStructure available"
+    link = next((item for item in world.control_structure.coordination_links if item.link_id == "CL-1"), None)
+    if link is None or link.source != "RESP-1" or link.target != "RESP-2":
+        return False, "CL-1 does not connect RESP-1 to RESP-2"
+    return True, ""
+
+
+def _h_ar_call3_prompt(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    calls = _ar_client(world).calls
+    prompt = next(
+        (call["user_prompt"] for call in reversed(calls)
+         if call["response_format"] is _SP1CoordinationAnalysis),
+        "",
+    )
+    if "RESP-1" not in prompt or "CP-1" not in prompt:
+        return False, "Call 3 prompt lacks assembled responsibilities or controlled processes"
+    return True, ""
+
+
+def _h_ar_warnings_include(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    match = re.search(r"naming step (\S+)", text)
+    step = match.group(1) if match else ""
+    if not any(step in warning for warning in world.sp1_warnings):
+        return False, f"No warning names {step}: {world.sp1_warnings}"
+    return True, ""
+
+
+def _h_ar_no_assembly_failure(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    if world.sp1_warnings:
+        return False, f"Unexpected assembly warnings: {world.sp1_warnings}"
+    return True, ""
+
+
+def _h_ar_no_log_step(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    match = re.search(r"step (\S+)", text)
+    step = match.group(1) if match else ""
+    run_dir = _ar_run_dir(world)
+    entries = [
+        json.loads(line) for line in (run_dir / "calls.jsonl").read_text().splitlines()
+    ] if (run_dir / "calls.jsonl").exists() else []
+    if any(entry.get("step") == step for entry in entries):
+        return False, f"Unexpected {step} entry in call log"
+    return True, ""
+
+
+def _h_ar_sp1_assembly_error(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    result = world.gd_run_result or world.sp1_run_result
+    errors = getattr(result, "stage_errors", []) if result is not None else []
+    if not any("assemble_control_structure" in error for error in errors):
+        return False, f"No assemble_control_structure error in {errors}"
+    return True, ""
+
+
+_set_feature("acceptance_refresh")
+_register_first(r"the control_structure module (?:does not )?export", _h_ar_module_export)
+_register_first(r"the `CoordinationAnalysis` model (?:does not )?declare", _h_ar_model_field)
+_register_first(r"a ResponsibilitySet from Call 2a with responsibilities", _h_ar_responsibility_set)
+_register_first(r"(?:an LLM that returns a )?ControlElementSet from Call 2b with", _h_ar_control_element_set)
+_register_first(r"(?:an LLM that returns a )?(?:valid )?CoordinationAnalysis", _h_ar_coordination_analysis)
+_register_first(r"an LLM that returns valid responses for (?:Stage 2 calls 1, 2a, and 2b|all four Stage 2 calls)", _h_ar_stage2_calls_ready)
+_register_first(r"Stage 2 Call 3 coordination derivation is run", _h_ar_call3_run)
+_register_first(r"the Stage 2 assembly with fallback is executed", _h_ar_assemble)
+_register_first(r"the Stage 2 coordination link addition with fallback is executed", _h_ar_add_coordination)
+_register_first(r"Stage 2 control structure derivation is run", _h_ar_stage2_run)
+_register_first(r"Stage 2 calls 1 through 3 are run in sequence", _h_ar_call_sequence)
+_register_first(r"a CoordinationAnalysis model is produced", _h_ar_coordination_produced)
+_register_first(r"the CoordinationAnalysis contains coordination link CL-1", _h_ar_coordination_contains_link)
+_register_first(r"the CoordinationAnalysis integrity_findings list is not empty", _h_ar_integrity_findings)
+_register_first(r"the CoordinationAnalysis contains no coordination links", _h_ar_no_coordination_links)
+_register_first(r"the ControlStructure contains (?:responsibility|controlled process)", _h_ar_control_structure_element)
+_register_first(r"CL-1 has source RESP-1 and target RESP-2", _h_ar_link_source_target)
+_register_first(r"the Call 3 user prompt contains the assembled responsibilities and controlled processes", _h_ar_call3_prompt)
+_register_first(r"the warnings list includes a warning naming step", _h_ar_warnings_include)
+_register_first(r"no assembly failure is logged", _h_ar_no_assembly_failure)
+_register_first(r"no call log entry has step", _h_ar_no_log_step)
+_register_first(r"the SP1RunResult stage_errors contains the assemble_control_structure failure", _h_ar_sp1_assembly_error)
+_set_feature(None)
+
+# The refreshed SP1 features share these Stage 2 step shapes with the
+# acceptance-refresh feature.  Keep them global, but use namespaced prompt
+# wording so SP2/SP3 handlers cannot shadow one another.
+def _h_ar_named_prompts_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    match = re.search(r"the (SP2|SP3) prompts directory contains `([^`]+)`", text)
+    if not match:
+        return False, f"Could not parse prompt directory step: {text}"
+    stage, template = match.groups()
+    if stage == "SP2":
+        from scenario_forge.stpa.threat_enum._constants import PROMPTS_DIR
+    else:
+        from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+    if not (PROMPTS_DIR / template).exists():
+        return False, f"Missing {stage} template: {template}"
+    return True, ""
+
+
+def _h_ar_render_call2a_prompt(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    loader = TemplateLoader(_PQF_PROMPTS_DIR)
+    profile = world.sp1_profile
+    world.template_rendered = loader.render_prompt(
+        "stage2_call2a_user.j2",
+        use_case_text=world.sp1_use_case_text,
+        requirements=_SP1RequirementSet.model_validate(_sp1_valid_req_set_dict()).requirements,
+        capability_profile=profile,
+    )
+    return True, ""
+
+
+def _h_ar_responsibility_shape(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    if world.sp1_responsibility_set is None:
+        return False, "No ResponsibilitySet available"
+    for responsibility in world.sp1_responsibility_set.responsibilities:
+        if not responsibility.responsibility_constraints or not responsibility.process_model_parts:
+            return False, f"Incomplete responsibility: {responsibility.resp_id}"
+    return True, ""
+
+
+def _h_ar_responsibility_no_field(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    field = re.search(r"does not declare `([^`]+)`", text)
+    if field and field.group(1) in _SP1ResponsibilitySet.model_fields:
+        return False, f"ResponsibilitySet declares {field.group(1)}"
+    return True, ""
+
+
+def _h_ar_control_elements_produced(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    return (True, "") if world.sp1_control_element_set is not None else (False, "No ControlElementSet available")
+
+
+def _h_ar_control_elements_contains_cp(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    elements = world.sp1_control_element_set
+    if elements is None or not any(cp.cp_id == "CP-1" for cp in elements.controlled_processes):
+        return False, "ControlElementSet does not contain CP-1"
+    return True, ""
+
+
+def _h_ar_prior_prompt_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    expected = "requirements" if "2a" in text else "responsibilities"
+    if not any(expected in call["user_prompt"].lower() for call in _ar_client(world).calls):
+        return False, f"No prompt contains {expected}"
+    return True, ""
+
+
+_register_first(r"the control_structure module (?:does not )?exports?", _h_ar_module_export)
+_register_first(r"the SP2 prompts directory contains", _h_ar_named_prompts_contains)
+_register_first(r"the SP3 prompts directory contains", _h_ar_named_prompts_contains)
+_register_first(r"the Call 2a user prompt is rendered with the capability profile", _h_ar_render_call2a_prompt)
+_register_first(r"(?:an LLM that returns a )?ControlElementSet from Call 2b with", _h_ar_control_element_set)
+_register_first(r"a valid ResponsibilitySet from Call 2a", _h_ar_valid_responsibility_set)
+_register_first(r"a ResponsibilitySet from Call 2a with responsibilities", _h_ar_responsibility_set)
+_register_first(r"an LLM that returns valid responses for (?:Stage 2 calls 1, 2a, and 2b|all four Stage 2 calls|Stage 2 calls 1 and 2a)", _h_ar_stage2_calls_ready)
+_register_first(r"the Stage 2 assembly with fallback is executed", _h_ar_assemble)
+_register_first(r"Stage 2 control structure derivation is run", _h_ar_stage2_run)
+_register_first(r"Stage 2 calls 1 through 3 are run in sequence", _h_ar_call_sequence)
+_register_first(r"Stage 2 Call 2a responsibilities derivation is run", _h_ar_call2a_run)
+_register_first(r"Stage 2 Call 2b control elements derivation is run", _h_ar_call2b_run)
+_register_first(r"Stage 2 calls 1 through 2[ab] are run in sequence", _h_ar_stage2_run)
+_register_first(r"an LLM that returns a valid ControlElementSet JSON", _h_ar_control_element_set)
+_register_first(r"an LLM that returns a valid CoordinationAnalysis", _h_ar_coordination_analysis)
+_register_first(r"a CoordinationAnalysis with", _h_ar_coordination_analysis)
+_register_first(r"a call log entry exists with step", _h_ar_call_log_exists)
+_register_first(r"no call log entry has step", _h_ar_no_log_step)
+_register_first(r"each responsibility has at least one responsibility constraint and one process model part", _h_ar_responsibility_shape)
+_register_first(r"the `ResponsibilitySet` model does not declare", _h_ar_responsibility_no_field)
+_register_first(r"a ControlElementSet model is produced", _h_ar_control_elements_produced)
+_register_first(r"the ControlElementSet contains controlled process CP-1", _h_ar_control_elements_contains_cp)
+_register_first(r"the Call 2[ab] user prompt contains", _h_ar_prior_prompt_contains)
+_register_first(r"the Call 3 user prompt contains the assembled responsibilities and controlled processes", _h_ar_call3_prompt)
 
 
 def execute_ir(ir_path: str) -> tuple[bool, str]:

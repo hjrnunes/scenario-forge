@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "feature_path": "gd stage error ir",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/gd_stage_error_ir.json",
-  "implementation_hash": "sha256:7e5fca4e15911bc85d77a39416d8ab2fd9391f43a20c7459d9de267466a3b9ce",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/gd_stage_error_ir.json",
+  "implementation_hash": "sha256:fb0ffd02c405b8ee98e3d77f8a12455f1d0fed07b768c5a7f98d411ee9972a24",
   "hash_scope": "generated_files",
   "generated_files": [
     "gd_stage_error_ir_acceptance_test.py"
