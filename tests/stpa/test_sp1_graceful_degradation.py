@@ -426,6 +426,7 @@ class TestDerivationStageFailure:
             ("stage_1b", "stage_1b", "capability_profile", "_setup_stage_1b_failure"),
             ("stage_2_call_1", "stage_2", "call_1_requirements", "_setup_stage_2_call_1_failure"),
             ("stage_2_call_2a", "stage_2", "call_2a_responsibilities", "_setup_stage_2_call_2_failure"),
+            ("stage_2_call_2b", "stage_2", "call_2b_control_elements", "_setup_stage_2_call_2b_failure"),
             ("stage_2_call_3", "stage_2", "call_3_coordination", "_setup_stage_2_call_3_failure"),
         ],
     )
@@ -487,6 +488,20 @@ class TestDerivationStageFailure:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_invalid_response_for(ResponsibilitySet)
+        def invoke(c, d):
+            derive_control_structure(
+                llm_client=c,
+                use_case_text="Test",
+                loss_analysis=_make_loss_analysis(),
+                run_dir=d,
+            )
+        return client, invoke
+
+    def _setup_stage_2_call_2b_failure(self, tmp_path):
+        client = MockLLMClient()
+        client.set_response_for(RequirementSet, _valid_requirement_set_dict())
+        client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
+        client.set_invalid_response_for(ControlElementSet)
         def invoke(c, d):
             derive_control_structure(
                 llm_client=c,

@@ -3,7 +3,7 @@
 Orchestrates the full SP1 pipeline:
   Stage 1a: Loss analysis derivation
   Stage 1b: Capability profile inference (or load with --profile)
-  Stage 2: Control structure derivation (3 calls + heuristics + critic + revision)
+  Stage 2: Control structure derivation (4 calls + heuristics + critic + revision)
 """
 
 from __future__ import annotations

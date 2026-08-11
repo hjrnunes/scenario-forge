@@ -12,7 +12,7 @@ from __future__ import annotations
 import copy
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
@@ -97,6 +97,25 @@ def _extract_resp_num(element_id: str) -> int:
     return int(match.group()) if match else 0
 
 
+def _assign_elements_to_responsibilities(
+    elements: list,
+    id_attr: str,
+    resp_by_num: dict[int, Responsibility],
+    target_attr: str,
+) -> None:
+    """Assign elements (CAs or FBs) to their parent responsibility by ID prefix.
+
+    For each element, extracts the numeric prefix from its ``id_attr``
+    (e.g. ``CA-3-1`` → 3) and appends it to the matching responsibility's
+    ``target_attr`` list. Elements with no matching responsibility are
+    silently dropped, matching the original assembly behavior.
+    """
+    for element in elements:
+        resp = resp_by_num.get(_extract_resp_num(getattr(element, id_attr)))
+        if resp is not None:
+            getattr(resp, target_attr).append(element)
+
+
 def _assemble_control_structure(
     responsibility_set: ResponsibilitySet,
     control_element_set: ControlElementSet,
@@ -107,25 +126,22 @@ def _assemble_control_structure(
     FB-X-Y → RESP-X). Produces and validates the final ControlStructure.
     """
     responsibilities = copy.deepcopy(responsibility_set.responsibilities)
+    resp_by_num = {
+        _extract_resp_num(resp.resp_id): resp for resp in responsibilities
+    }
 
-    # Build a lookup: resp_num → responsibility
-    resp_by_num: dict[int, Responsibility] = {}
-    for resp in responsibilities:
-        resp_by_num[_extract_resp_num(resp.resp_id)] = resp
-
-    # Assign control actions to responsibilities by ID prefix
-    for ca in control_element_set.control_actions:
-        resp_num = _extract_resp_num(ca.ca_id)
-        resp = resp_by_num.get(resp_num)
-        if resp is not None:
-            resp.control_actions.append(ca)
-
-    # Assign feedback channels to responsibilities by ID prefix
-    for fb in control_element_set.feedback_channels:
-        resp_num = _extract_resp_num(fb.fb_id)
-        resp = resp_by_num.get(resp_num)
-        if resp is not None:
-            resp.feedback_channels.append(fb)
+    _assign_elements_to_responsibilities(
+        control_element_set.control_actions,
+        "ca_id",
+        resp_by_num,
+        "control_actions",
+    )
+    _assign_elements_to_responsibilities(
+        control_element_set.feedback_channels,
+        "fb_id",
+        resp_by_num,
+        "feedback_channels",
+    )
 
     controlled_processes = copy.deepcopy(control_element_set.controlled_processes)
 
@@ -610,6 +626,51 @@ def derive_control_structure(
 
 
 # ---------------------------------------------------------------------------
+# Shared LLM call backbone for the four Stage 2 calls
+# ---------------------------------------------------------------------------
+
+
+_Stage2ModelT = TypeVar("_Stage2ModelT", bound=BaseModel)
+
+
+def _run_stage2_llm_call(
+    *,
+    llm_client: LLMClient,
+    run_dir: Path,
+    loader: TemplateLoader,
+    temperature: float,
+    system_template: str,
+    user_template: str,
+    user_prompt_kwargs: dict[str, Any],
+    response_format: type[_Stage2ModelT],
+    step: str,
+) -> _Stage2ModelT:
+    """Render prompts, call the LLM, validate, and raise StageError on failure.
+
+    Shared backbone for the four Stage 2 LLM calls (Call 1, 2a, 2b, 3).
+    Each call renders a system + user prompt, invokes the LLM via
+    ``safe_llm_call``, and raises ``StageError`` if the call or validation
+    fails.
+    """
+    system_prompt = loader.render_prompt(system_template)
+    user_prompt = loader.render_prompt(user_template, **user_prompt_kwargs)
+
+    result, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=response_format,
+        run_dir=run_dir,
+        stage=STAGE,
+        step=step,
+        temperature=temperature,
+    )
+    if error_msg is not None:
+        raise StageError(stage=STAGE, step=step, message=error_msg)
+    return result  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
 # Call 1 — Requirements
 # ---------------------------------------------------------------------------
 
@@ -628,26 +689,20 @@ def _call_1_requirements(
     Raises:
         StageError: If the LLM call fails or the response fails validation.
     """
-    system_prompt = loader.render_prompt("stage2_call1_system.j2")
-    user_prompt = loader.render_prompt(
-        "stage2_call1_user.j2",
-        use_case_text=use_case_text,
-        security_constraints=loss_analysis.security_constraints,
-    )
-
-    requirement_set, _, error_msg = safe_llm_call(
+    return _run_stage2_llm_call(
         llm_client=llm_client,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response_format=RequirementSet,
         run_dir=run_dir,
-        stage=STAGE,
-        step="call_1_requirements",
+        loader=loader,
         temperature=temperature,
+        system_template="stage2_call1_system.j2",
+        user_template="stage2_call1_user.j2",
+        user_prompt_kwargs={
+            "use_case_text": use_case_text,
+            "security_constraints": loss_analysis.security_constraints,
+        },
+        response_format=RequirementSet,
+        step="call_1_requirements",
     )
-    if error_msg is not None:
-        raise StageError(stage=STAGE, step="call_1_requirements", message=error_msg)
-    return requirement_set
 
 
 # ---------------------------------------------------------------------------
@@ -670,27 +725,21 @@ def _call_2a_responsibilities(
     Raises:
         StageError: If the LLM call fails or the response fails validation.
     """
-    system_prompt = loader.render_prompt("stage2_call2a_system.j2")
-    user_prompt = loader.render_prompt(
-        "stage2_call2a_user.j2",
-        use_case_text=use_case_text,
-        requirements=requirement_set.requirements,
-        capability_profile=capability_profile,
-    )
-
-    responsibility_set, _, error_msg = safe_llm_call(
+    return _run_stage2_llm_call(
         llm_client=llm_client,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response_format=ResponsibilitySet,
         run_dir=run_dir,
-        stage=STAGE,
-        step="call_2a_responsibilities",
+        loader=loader,
         temperature=temperature,
+        system_template="stage2_call2a_system.j2",
+        user_template="stage2_call2a_user.j2",
+        user_prompt_kwargs={
+            "use_case_text": use_case_text,
+            "requirements": requirement_set.requirements,
+            "capability_profile": capability_profile,
+        },
+        response_format=ResponsibilitySet,
+        step="call_2a_responsibilities",
     )
-    if error_msg is not None:
-        raise StageError(stage=STAGE, step="call_2a_responsibilities", message=error_msg)
-    return responsibility_set
 
 
 # ---------------------------------------------------------------------------
@@ -712,26 +761,20 @@ def _call_2b_control_elements(
     Raises:
         StageError: If the LLM call fails or the response fails validation.
     """
-    system_prompt = loader.render_prompt("stage2_call2b_system.j2")
-    user_prompt = loader.render_prompt(
-        "stage2_call2b_user.j2",
-        use_case_text=use_case_text,
-        responsibilities=responsibility_set.responsibilities,
-    )
-
-    control_element_set, _, error_msg = safe_llm_call(
+    return _run_stage2_llm_call(
         llm_client=llm_client,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response_format=ControlElementSet,
         run_dir=run_dir,
-        stage=STAGE,
-        step="call_2b_control_elements",
+        loader=loader,
         temperature=temperature,
+        system_template="stage2_call2b_system.j2",
+        user_template="stage2_call2b_user.j2",
+        user_prompt_kwargs={
+            "use_case_text": use_case_text,
+            "responsibilities": responsibility_set.responsibilities,
+        },
+        response_format=ControlElementSet,
+        step="call_2b_control_elements",
     )
-    if error_msg is not None:
-        raise StageError(stage=STAGE, step="call_2b_control_elements", message=error_msg)
-    return control_element_set
 
 
 # ---------------------------------------------------------------------------
@@ -757,23 +800,17 @@ def _call_3_coordination(
     Raises:
         StageError: If the LLM call fails or the response fails validation.
     """
-    system_prompt = loader.render_prompt("stage2_call3_system.j2")
-    user_prompt = loader.render_prompt(
-        "stage2_call3_user.j2",
-        use_case_text=use_case_text,
-        control_structure=control_structure,
-    )
-
-    coordination_analysis, _, error_msg = safe_llm_call(
+    return _run_stage2_llm_call(
         llm_client=llm_client,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response_format=CoordinationAnalysis,
         run_dir=run_dir,
-        stage=STAGE,
-        step="call_3_coordination",
+        loader=loader,
         temperature=temperature,
+        system_template="stage2_call3_system.j2",
+        user_template="stage2_call3_user.j2",
+        user_prompt_kwargs={
+            "use_case_text": use_case_text,
+            "control_structure": control_structure,
+        },
+        response_format=CoordinationAnalysis,
+        step="call_3_coordination",
     )
-    if error_msg is not None:
-        raise StageError(stage=STAGE, step="call_3_coordination", message=error_msg)
-    return coordination_analysis
