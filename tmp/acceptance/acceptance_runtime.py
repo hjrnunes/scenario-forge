@@ -1380,7 +1380,41 @@ def _set_feature(tag: str | None) -> None:
     _CURRENT_REGISTRATION_FEATURE = tag
 
 
+# ---------------------------------------------------------------------------
+# Registration integrity checks
+# ---------------------------------------------------------------------------
+
+# Track every (pattern_str, handler_name, feature_tag) tuple registered,
+# to detect exact duplicates at registration time.  An exact duplicate is
+# the same pattern registered with the same handler in the same scope —
+# truly redundant and always a mistake.
+_REGISTERED_PATTERN_KEYS: set[tuple[str, str, str | None]] = set()
+
+
+def _track_registration(pattern: str, handler: Any, feature_tag: str | None) -> None:
+    """Record a registration and assert no exact duplicate exists.
+
+    Catches the most obvious shadowing bug: the same pattern string
+    registered twice with the same handler in the same scope.  A different
+    handler with the same pattern is a more subtle shadowing bug that is
+    detected at test time by ``find_pattern_conflicts`` rather than at
+    registration time, to avoid breaking pre-existing registrations that
+    predate this integrity check.
+    """
+    handler_name = getattr(handler, "__name__", repr(handler))
+    key = (pattern, handler_name, feature_tag)
+    if key in _REGISTERED_PATTERN_KEYS:
+        scope = f"feature {feature_tag!r}" if feature_tag else "global scope"
+        raise RuntimeError(
+            f"Duplicate step pattern registration in {scope}: "
+            f"{pattern!r} (handler {handler_name}) — "
+            f"second registration is redundant"
+        )
+    _REGISTERED_PATTERN_KEYS.add(key)
+
+
 def _register(pattern: str, handler: Any) -> None:
+    _track_registration(pattern, handler, None)
     STEP_PATTERNS.append((re.compile(pattern, re.IGNORECASE), handler, None))
 
 
@@ -1391,10 +1425,46 @@ def _register_first(pattern: str, handler: Any) -> None:
     _set_feature). During execution, tagged patterns only match when the
     current IR file's feature matches, preventing cross-feature hijacking.
     """
+    _track_registration(pattern, handler, _CURRENT_REGISTRATION_FEATURE)
     STEP_PATTERNS.insert(
         0,
         (re.compile(pattern, re.IGNORECASE), handler, _CURRENT_REGISTRATION_FEATURE),
     )
+
+
+def find_pattern_conflicts(
+    step_texts: list[str],
+) -> list[tuple[str, str, str]]:
+    """Return conflicts where two same-scope patterns match the same step text.
+
+    For each step text, finds all patterns (within the same feature scope)
+    that match it. If more than one pattern in the same scope matches, that
+    is a shadowing conflict — the first match wins, so the second handler is
+    dead code that will never execute.
+
+    Returns a list of (step_text, first_pattern, second_pattern) tuples.
+    An empty list means no conflicts were found.
+    """
+    conflicts: list[tuple[str, str, str]] = []
+    for text in step_texts:
+        # Check global (untagged) patterns
+        global_matches = [
+            pat.pattern
+            for pat, _, tag in STEP_PATTERNS
+            if tag is None and pat.search(text)
+        ]
+        if len(global_matches) > 1:
+            conflicts.append((text, global_matches[0], global_matches[1]))
+
+        # Check per-feature tagged patterns
+        feature_groups: dict[str, list[str]] = {}
+        for pat, _, tag in STEP_PATTERNS:
+            if tag is not None and pat.search(text):
+                feature_groups.setdefault(tag, []).append(pat.pattern)
+        for feature, matches in feature_groups.items():
+            if len(matches) > 1:
+                conflicts.append((text, matches[0], matches[1]))
+    return conflicts
 
 
 # Background / setup
@@ -19024,7 +19094,6 @@ _register_first(r"by_ica_type has.*", _h_sp3_diversity_counts)
 _register_first(r"by_branch_category has.*", _h_sp3_diversity_counts)
 _register(r"responsibility_diversity is a non-negative float", _h_sp3_diversity_float)
 _register(r"ica_type_diversity is a non-negative float", _h_sp3_diversity_float)
-_register(r"unique_attack_mechanisms is.*", _h_sp3_unique_mechanisms)
 _register_first(r"no LLM calls are made", _h_sp3_no_llm_calls)
 _register(r"a file eval-scorecard.yaml exists.*", _h_sp3_scorecard_file)
 _register(r"the scorecard contains metrics for.*", _h_sp3_scorecard_file)

@@ -584,6 +584,31 @@ def check_entry_points_cover_ir(runner: QARunner) -> None:
         )
 
 
+def check_entry_points_canonical_ir_location(runner: QARunner) -> None:
+    """Every entry point references IR in the canonical tmp/acceptance/ir/ directory.
+
+    Non-canonical IR locations (tmp/, tmp/acceptance/) are how IR drift
+    stayed hidden in the original staleness incident: the QA suite's
+    ``_ir_files()`` only scans ``IR_DIR``, so IR files outside it were
+    invisible to the stale-symbol and IR-matches-features checks.
+    """
+    entry_points = sorted(GENERATED_DIR.glob("*_acceptance_test.py"))
+    for path in entry_points:
+        body = path.read_text(encoding="utf-8")
+        refs = re.findall(r'Path\(r"([^"]+\.json)"\)', body)
+        non_canonical = []
+        for ref in refs:
+            try:
+                Path(ref).resolve().relative_to(IR_DIR.resolve())
+            except ValueError:
+                non_canonical.append(ref)
+        runner.check(
+            f"canonical: {path.name} references IR in {IR_DIR.name}/",
+            not non_canonical,
+            f"non-canonical: {non_canonical}" if non_canonical else "",
+        )
+
+
 def run_static_checks(runner: QARunner) -> None:
     """Run every check that needs only the filesystem."""
     check_templates_on_disk(runner)
@@ -595,6 +620,7 @@ def run_static_checks(runner: QARunner) -> None:
     check_ir_matches_features(runner)
     check_entry_points_resolve(runner)
     check_entry_points_cover_ir(runner)
+    check_entry_points_canonical_ir_location(runner)
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "feature_path": "gd recoverable ir",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/gd_recoverable_ir.json",
-  "implementation_hash": "sha256:fc8991750e318809b671faf02507bb89a44e8172a8316bfde714715b0f5ef37e",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/gd_recoverable_ir.json",
+  "implementation_hash": "sha256:29754e6026625168e3d173adc9a17f39a3113a9cb538b65f58155db5e5830e5a",
   "hash_scope": "generated_files",
   "generated_files": [
     "gd_recoverable_ir_acceptance_test.py"
