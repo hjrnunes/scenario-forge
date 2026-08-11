@@ -1209,17 +1209,12 @@ class Stage1Profile(BaseModel):
 
     zones_active is NOT an LLM-inferred field — it is derived from
     kc_subcodes in to_capability_profile().
+
+    Boolean capability flags (has_persistent_memory, multi_agent, hitl)
+    are NOT declared here — they are computed from kc_subcodes on
+    CapabilityProfile (per project memory decision-boolean-flags-computed-from-kc).
     """
 
-    has_persistent_memory: bool = Field(
-        description="Whether the system maintains state across sessions or interactions.",
-    )
-    multi_agent: bool = Field(
-        description="Whether the system involves multiple AI agents that communicate or coordinate.",
-    )
-    hitl: bool = Field(
-        description="Whether the system includes human-in-the-loop checkpoints.",
-    )
     entry_points: list[EntryPoint] = Field(
         description=(
             "Attack entry points, each with a name, direction tag, and optional "
@@ -1282,16 +1277,13 @@ class Stage1Profile(BaseModel):
 
         zones_active is derived from kc_subcodes.  Boolean flags
         (has_persistent_memory, multi_agent, hitl) are computed properties
-        on CapabilityProfile derived solely from kc_subcodes, so they are
-        excluded from the data dict.
+        on CapabilityProfile derived solely from kc_subcodes.
 
         Inferred profiles are always forced to ``inferred_partial``
         completeness — the LLM cannot self-promote to
         ``operator_confirmed_complete`` (cmps.9).
         """
-        data = self.model_dump(
-            exclude={"has_persistent_memory", "multi_agent", "hitl"},
-        )
+        data = self.model_dump()
         data["zones_active"] = derive_zones_from_kc(self.kc_subcodes)
         # Force inferred_partial — LLM output cannot declare completeness.
         data["entry_point_completeness"] = InventoryCompleteness.inferred_partial.value

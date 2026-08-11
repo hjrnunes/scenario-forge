@@ -83,7 +83,12 @@ def run_sp1(
     profile_name: str | None = None,
     max_workers: int = 1,
 ) -> SP1RunResult:
-    """Run the full SP1 pipeline: Stages 1a → 1b → 2.
+    """Run the full SP1 pipeline: Stages 1b → 1a → 2.
+
+    Pipeline ordering: Stage 1b (capability profile) runs first, then
+    Stage 1a (loss analysis, two calls: risk_derivation + gap_analysis).
+    Stage 1a-2 (gap analysis) receives the capability profile as input.
+    Stage 2 runs after both 1a and 1b complete.
 
     Args:
         llm_client: LLM client for making completion calls.
@@ -109,16 +114,16 @@ def run_sp1(
 
     stage_errors: list[str] = []
 
-    # --- Stage 1a: Loss Analysis ---
-    loss_analysis = _try_derive_loss_analysis(
-        llm_client, use_case_text, risk_cards, run_dir, loader, temperature,
-        stage_errors,
+    # --- Stage 1b: Capability Profile (runs BEFORE Stage 1a) ---
+    capability_profile = _try_derive_capability_profile(
+        llm_client, use_case_text, run_dir, loader, temperature,
+        profile_path, stage_errors,
     )
 
-    # --- Stage 1b: Capability Profile ---
-    capability_profile = _try_derive_capability_profile(
-        llm_client, use_case_text, loss_analysis, run_dir, loader, temperature,
-        profile_path, stage_errors,
+    # --- Stage 1a: Loss Analysis (two calls, receives capability profile) ---
+    loss_analysis = _try_derive_loss_analysis(
+        llm_client, use_case_text, risk_cards, run_dir, loader, temperature,
+        stage_errors, capability_profile,
     )
 
     # --- Stage 2: Control Structure + heuristics + critic + revision ---
@@ -178,8 +183,9 @@ def _try_derive_loss_analysis(
     loader: TemplateLoader,
     temperature: float,
     stage_errors: list[str],
+    capability_profile: CapabilityProfile | None = None,
 ) -> LossAnalysis | None:
-    """Run Stage 1a, recording errors on failure."""
+    """Run Stage 1a (two calls), recording errors on failure."""
     try:
         return derive_loss_analysis(
             llm_client=llm_client,
@@ -188,6 +194,7 @@ def _try_derive_loss_analysis(
             run_dir=run_dir,
             template_loader=loader,
             temperature=temperature,
+            capability_profile=capability_profile,
         )
     except StageError as exc:
         stage_errors.append(str(exc))
@@ -197,7 +204,6 @@ def _try_derive_loss_analysis(
 def _try_derive_capability_profile(
     llm_client: LLMClient,
     use_case_text: str,
-    loss_analysis: LossAnalysis | None,
     run_dir: Path,
     loader: TemplateLoader,
     temperature: float,
@@ -205,15 +211,12 @@ def _try_derive_capability_profile(
     stage_errors: list[str],
 ) -> CapabilityProfile | None:
     """Run Stage 1b (or load a pre-built profile), recording errors on failure."""
-    if loss_analysis is None:
-        return None
     if profile_path is not None:
         return load_capability_profile(profile_path)
     try:
         return derive_capability_profile(
             llm_client=llm_client,
             use_case_text=use_case_text,
-            loss_analysis=loss_analysis,
             run_dir=run_dir,
             template_loader=loader,
             temperature=temperature,
@@ -343,7 +346,7 @@ def _write_manifest(
     prompt_hashes = loader.hash_prompt_templates()
     critic_summary = _summarize_critic_findings(critic_findings)
     stage_1b_calls = 0 if profile_skipped else 1
-    _stage_1a_call_count = 1
+    _stage_1a_call_count = 2
     _stage_2_call_count = 3
 
     model_config_dict: dict[str, Any] = {

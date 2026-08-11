@@ -86,8 +86,17 @@ class MockLLMClient:
         self._response_queue = list(responses)
 
     def set_response_for(self, model_class: type, response: Any) -> None:
-        """Set a response for a specific response_format type."""
-        self._response_map[model_class] = response
+        """Set a response for a specific response_format type.
+
+        If *response* is a list, each call for this type pops the next
+        item from the list (FIFO). This allows different responses for
+        sequential calls with the same response_format (e.g. the two
+        Stage 1a calls that both use LossAnalysisDraft).
+        """
+        if isinstance(response, list):
+            self._response_map[model_class] = list(response)
+        else:
+            self._response_map[model_class] = response
 
     def complete(
         self,
@@ -117,7 +126,14 @@ class MockLLMClient:
             # Return a non-JSON string that will fail parsing/validation
             content = "THIS_IS_NOT_VALID_JSON{{{"
         elif response_format is not None and response_format in self._response_map:
-            content = self._response_map[response_format]
+            mapped = self._response_map[response_format]
+            if isinstance(mapped, list):
+                if mapped:
+                    content = mapped.pop(0)
+                else:
+                    content = None
+            else:
+                content = mapped
         elif response_format is None and None in self._response_map:
             content = self._response_map[None]
         else:
@@ -172,7 +188,13 @@ def read_calls_jsonl(run_dir: Path) -> list[dict]:
 
 
 def valid_stage1_profile_dict() -> dict:
-    """Return a valid Stage1Profile dict for tests that need Stage 1b."""
+    """Return a valid Stage1Profile dict for tests that need Stage 1b.
+
+    Boolean flags (has_persistent_memory, multi_agent, hitl) are no longer
+    LLM-inferred fields — they are computed from kc_subcodes on
+    CapabilityProfile.  Any extra keys in the dict are silently ignored
+    by Pydantic.
+    """
     return {
         "has_persistent_memory": False,
         "multi_agent": False,
@@ -186,8 +208,72 @@ def valid_stage1_profile_dict() -> dict:
     }
 
 
+def valid_risk_draft_dict() -> dict:
+    """Return a valid LossAnalysisDraft dict for the risk_derivation call."""
+    return {
+        "risk_card_losses": [
+            {
+                "loss_id": "L-1",
+                "description": "Unauthorized transaction",
+                "provenance": "risk_card",
+                "source_risk_cards": ["atlas-001"],
+            }
+        ],
+        "use_case_losses": [],
+        "hazards": [
+            {
+                "hazard_id": "H-1",
+                "description": "Agent executes unintended action",
+                "related_losses": ["L-1"],
+            }
+        ],
+        "security_constraints": [
+            {
+                "constraint_id": "SC-1",
+                "description": "Must confirm before action",
+                "related_hazards": ["H-1"],
+            }
+        ],
+    }
+
+
+def valid_gap_draft_dict() -> dict:
+    """Return a valid LossAnalysisDraft dict for the gap_analysis call."""
+    return {
+        "risk_card_losses": [],
+        "use_case_losses": [
+            {
+                "loss_id": "L-2",
+                "description": "Loss of trust",
+                "provenance": "use_case",
+                "source_risk_cards": [],
+            }
+        ],
+        "hazards": [
+            {
+                "hazard_id": "H-2",
+                "description": "Agent erodes user trust",
+                "related_losses": ["L-2"],
+            }
+        ],
+        "security_constraints": [
+            {
+                "constraint_id": "SC-2",
+                "description": "Must maintain transparency",
+                "related_hazards": ["H-2"],
+            }
+        ],
+    }
+
+
 def valid_loss_analysis_dict() -> dict:
-    """Return a valid LossAnalysis dict for SP1 pipeline tests."""
+    """Return a valid LossAnalysis dict (merged result) for tests that
+    construct a LossAnalysis directly.
+
+    This represents the *merged* output after risk_derivation + gap_analysis.
+    Tests that mock the LLM should use ``valid_risk_draft_dict`` and
+    ``valid_gap_draft_dict`` instead.
+    """
     return {
         "risk_card_losses": [
             {
@@ -209,15 +295,25 @@ def valid_loss_analysis_dict() -> dict:
             {
                 "hazard_id": "H-1",
                 "description": "Agent executes unintended action",
-                "related_losses": ["L-1", "L-2"],
-            }
+                "related_losses": ["L-1"],
+            },
+            {
+                "hazard_id": "H-2",
+                "description": "Agent erodes user trust",
+                "related_losses": ["L-2"],
+            },
         ],
         "security_constraints": [
             {
                 "constraint_id": "SC-1",
                 "description": "Must confirm before action",
                 "related_hazards": ["H-1"],
-            }
+            },
+            {
+                "constraint_id": "SC-2",
+                "description": "Must maintain transparency",
+                "related_hazards": ["H-2"],
+            },
         ],
     }
 
@@ -286,7 +382,7 @@ def valid_critic_findings_dict_no_gaps() -> dict:
 def setup_sp1_mock_client() -> MockLLMClient:
     """Set up a mock LLM client with valid responses for all SP1 stages."""
     from scenario_forge.models.capability_profile import Stage1Profile
-    from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+    from scenario_forge.stpa.models.loss_analysis import LossAnalysisDraft
     from scenario_forge.stpa.system_model.control_structure import (
         ConnectionSet,
         RequirementSet,
@@ -295,7 +391,10 @@ def setup_sp1_mock_client() -> MockLLMClient:
     from scenario_forge.stpa.system_model.critic import CriticFindings
 
     client = MockLLMClient()
-    client.set_response_for(LossAnalysis, valid_loss_analysis_dict())
+    # Stage 1a: two calls (risk_derivation + gap_analysis) both use LossAnalysisDraft.
+    # Provide a list so the first call gets the risk draft and the second gets the gap draft.
+    client.set_response_for(LossAnalysisDraft, [valid_risk_draft_dict(), valid_gap_draft_dict()])
+    # Stage 1b: Stage1Profile (no loss_analysis parameter)
     client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, valid_responsibility_set_dict())

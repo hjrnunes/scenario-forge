@@ -1,6 +1,7 @@
 """Tests for SP1 Stage 1b — Capability Profile inference.
 
-Covers SP1-CP-01 through SP1-CP-08 from the Gherkin feature file.
+Covers SP1-CP-01 through SP1-CP-08 (adapted for the revised prompt
+that removes loss-analysis context and boolean flag fields).
 """
 
 from __future__ import annotations
@@ -14,57 +15,15 @@ from scenario_forge.models.capability_profile import (
 )
 from scenario_forge.stpa.infra.llm_helpers import StageError
 from scenario_forge.stpa.infra.yaml_io import read_yaml, write_yaml
-from scenario_forge.stpa.models.loss_analysis import (
-    Hazard,
-    Loss,
-    LossAnalysis,
-    LossProvenance,
-    SecurityConstraint,
-)
 from scenario_forge.stpa.system_model.profile import (
     derive_capability_profile,
     load_capability_profile,
 )
-from tests.stpa.sp1_helpers import MockLLMClient
-
-
-def _make_loss_analysis() -> LossAnalysis:
-    return LossAnalysis(
-        risk_card_losses=[
-            Loss(
-                loss_id="L-1",
-                description="Unauthorized transaction",
-                provenance=LossProvenance.risk_card,
-                source_risk_cards=["atlas-001"],
-            ),
-            Loss(
-                loss_id="L-2",
-                description="Data exposure",
-                provenance=LossProvenance.risk_card,
-                source_risk_cards=["atlas-002"],
-            ),
-        ],
-        use_case_losses=[],
-        hazards=[
-            Hazard(hazard_id="H-1", description="H1", related_losses=["L-1"]),
-            Hazard(hazard_id="H-2", description="H2", related_losses=["L-2"]),
-        ],
-        security_constraints=[
-            SecurityConstraint(
-                constraint_id="SC-1", description="C1", related_hazards=["H-1"]
-            ),
-            SecurityConstraint(
-                constraint_id="SC-2", description="C2", related_hazards=["H-2"]
-            ),
-        ],
-    )
+from tests.stpa.sp1_helpers import MockLLMClient, valid_stage1_profile_dict
 
 
 def _valid_stage1_profile_dict() -> dict:
     return {
-        "has_persistent_memory": True,
-        "multi_agent": False,
-        "hitl": False,
         "entry_points": [
             {"name": "User chat messages", "direction": "input", "controllability": "direct"},
         ],
@@ -77,16 +36,15 @@ def _valid_stage1_profile_dict() -> dict:
 
 
 class TestStage1bProfile:
-    """SP1 Stage 1b capability profile inference."""
+    """SP1 Stage 1b capability profile inference (revised prompt)."""
 
     def test_cp_01_valid_response_produces_valid_profile(self, tmp_path):
-        """SP1-CP-01: valid LLM response produces a valid CapabilityProfile."""
+        """A valid LLM response produces a valid CapabilityProfile."""
         client = MockLLMClient()
         client.set_response_for(Stage1Profile, _valid_stage1_profile_dict())
         result = derive_capability_profile(
             llm_client=client,
             use_case_text="Test use case",
-            loss_analysis=_make_loss_analysis(),
             run_dir=tmp_path,
         )
         assert isinstance(result, CapabilityProfile)
@@ -95,13 +53,12 @@ class TestStage1bProfile:
         assert result.entry_point_completeness.value == "inferred_partial"
 
     def test_cp_02_stage1_profile_promoted(self, tmp_path):
-        """SP1-CP-02: Stage1Profile is promoted via to_capability_profile."""
+        """Stage1Profile is promoted via to_capability_profile."""
         client = MockLLMClient()
         client.set_response_for(Stage1Profile, _valid_stage1_profile_dict())
         result = derive_capability_profile(
             llm_client=client,
             use_case_text="Test use case",
-            loss_analysis=_make_loss_analysis(),
             run_dir=tmp_path,
         )
         # zones_active derived from kc_subcodes
@@ -113,12 +70,9 @@ class TestStage1bProfile:
         assert result.has_persistent_memory is True
 
     def test_cp_03_profile_flag_skips_llm_call(self, tmp_path):
-        """SP1-CP-03: profile flag skips the LLM call."""
+        """Profile flag skips the LLM call."""
         # Write a pre-built profile
         profile = Stage1Profile(
-            has_persistent_memory=True,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 {"name": "User chat", "direction": "input", "controllability": "direct"},
             ],
@@ -133,7 +87,7 @@ class TestStage1bProfile:
         assert isinstance(loaded, CapabilityProfile)
 
     def test_cp_05_call_logged_with_stage_1b(self, tmp_path):
-        """SP1-CP-05: call log entry has stage stage_1b."""
+        """Call log entry has stage stage_1b."""
         import json as _json
 
         client = MockLLMClient()
@@ -141,7 +95,6 @@ class TestStage1bProfile:
         derive_capability_profile(
             llm_client=client,
             use_case_text="Test use case",
-            loss_analysis=_make_loss_analysis(),
             run_dir=tmp_path,
         )
         calls_file = tmp_path / "calls.jsonl"
@@ -152,13 +105,12 @@ class TestStage1bProfile:
         assert entries[0]["step"] == "capability_profile"
 
     def test_cp_06_capability_profile_written_to_yaml(self, tmp_path):
-        """SP1-CP-06: capability-profile.yaml exists and contains valid model."""
+        """capability-profile.yaml exists and contains valid model."""
         client = MockLLMClient()
         client.set_response_for(Stage1Profile, _valid_stage1_profile_dict())
         derive_capability_profile(
             llm_client=client,
             use_case_text="Test use case",
-            loss_analysis=_make_loss_analysis(),
             run_dir=tmp_path,
         )
         yaml_file = tmp_path / "capability-profile.yaml"
@@ -167,7 +119,7 @@ class TestStage1bProfile:
         assert isinstance(loaded, CapabilityProfile)
 
     def test_cp_07_invalid_kc_subcodes_fail(self, tmp_path):
-        """SP1-CP-07: invalid KC sub-codes in LLM response fail validation."""
+        """Invalid KC sub-codes in LLM response fail validation."""
         bad = _valid_stage1_profile_dict()
         bad["kc_subcodes"] = ["KC1.1", "KC9.9"]
         client = MockLLMClient()
@@ -176,25 +128,53 @@ class TestStage1bProfile:
             derive_capability_profile(
                 llm_client=client,
                 use_case_text="Test use case",
-                loss_analysis=_make_loss_analysis(),
                 run_dir=tmp_path,
             )
 
-    def test_cp_08_loss_analysis_context_in_prompt(self, tmp_path):
-        """SP1-CP-08: loss analysis context is passed to the prompt."""
+    def test_cp_08_no_loss_context_in_prompt(self, tmp_path):
+        """The stage1b user prompt does not include loss-analysis context."""
         client = MockLLMClient()
         client.set_response_for(Stage1Profile, _valid_stage1_profile_dict())
-        loss_analysis = _make_loss_analysis()
         derive_capability_profile(
             llm_client=client,
             use_case_text="Test use case",
-            loss_analysis=loss_analysis,
             run_dir=tmp_path,
         )
         assert len(client.calls) == 1
         user_prompt = client.calls[0].user_prompt
-        assert "Loss Analysis Context" in user_prompt
-        assert "L-1" in user_prompt
-        assert "L-2" in user_prompt
-        assert "H-1" in user_prompt
-        assert "H-2" in user_prompt
+        assert "Loss Analysis Context" not in user_prompt
+        assert "loss_analysis" not in user_prompt
+        assert "all_losses" not in user_prompt
+        assert "security_constraints" not in user_prompt
+
+    def test_cp_09_kc_taxonomy_in_system_prompt(self):
+        """The stage1b system prompt includes KC taxonomy markers."""
+        from scenario_forge.stpa.system_model import PROMPTS_DIR
+
+        content = (PROMPTS_DIR / "stage1b_system.j2").read_text()
+        assert "KC1 — Language Models" in content
+        assert "KC6 — Operational Environment" in content
+        assert "KCX — Extended Capabilities" in content
+
+    def test_cp_10_no_stpa_in_system_prompt(self):
+        """The stage1b system prompt does not mention STPA."""
+        from scenario_forge.stpa.system_model import PROMPTS_DIR
+
+        content = (PROMPTS_DIR / "stage1b_system.j2").read_text()
+        assert "STPA" not in content
+
+    def test_cp_11_no_zones_active_in_system_prompt(self):
+        """The stage1b system prompt does not request zones_active."""
+        from scenario_forge.stpa.system_model import PROMPTS_DIR
+
+        content = (PROMPTS_DIR / "stage1b_system.j2").read_text()
+        assert "zones_active" not in content
+
+    def test_cp_12_stage1_profile_no_bool_fields(self):
+        """Stage1Profile model does not declare boolean capability fields."""
+        from scenario_forge.models.capability_profile import Stage1Profile as S1P
+
+        field_names = set(S1P.model_fields.keys())
+        assert "has_persistent_memory" not in field_names
+        assert "multi_agent" not in field_names
+        assert "hitl" not in field_names

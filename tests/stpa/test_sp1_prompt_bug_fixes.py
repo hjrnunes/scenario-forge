@@ -12,16 +12,14 @@ from scenario_forge.stpa.system_model import PROMPTS_DIR
 
 
 _REQUIRED_CONTENT = {
-    "stage1a_system.j2": (
-        "Every loss must be traceable to either a risk card or a specific feature "
-        "described in the use-case text",
-        "Every hazard must reference a concrete component, data flow, or capability "
-        "from the use-case description",
+    "stage1a_risk_system.j2": (
+        "Every loss must cite its source risk IDs",
+        "Every hazard references at least one valid loss_id",
     ),
     "stage1b_system.j2": (
-        "Every tool in tool_inventory must be explicitly mentioned or directly implied "
+        "every tool must be explicitly mentioned or directly implied "
         "by the use-case description",
-        "Every entry point must correspond to an actual interface described in the use case",
+        "Do not invent tools based on what a system like this might have",
     ),
     "stage2_call2_system.j2": (
         "Check the capability profile's active zones",
@@ -74,8 +72,8 @@ def test_sp1_prompt_bug_fix_content_renders(
 @pytest.mark.parametrize(
     "template_name, section",
     (
-        ("stage1a_system.j2", "## Quality requirements"),
-        ("stage1b_system.j2", "## Quality requirements"),
+        ("stage1a_risk_system.j2", "## Quality requirements"),
+        ("stage1b_system.j2", "## Rules"),
         ("stage2_call2_system.j2", "## ID conventions"),
         ("stage2_call3_system.j2", "## Structural requirements"),
     ),
@@ -102,7 +100,8 @@ def test_sp1_prompt_bug_fixes_preserve_existing_sections(
 # ---------------------------------------------------------------------------
 
 _ZERO_VAR_SYSTEM_TEMPLATES = [
-    "stage1a_system.j2",
+    "stage1a_risk_system.j2",
+    "stage1a_gap_system.j2",
     "stage1b_system.j2",
     "stage2_call1_system.j2",
     "stage2_call2_system.j2",

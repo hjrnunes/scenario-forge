@@ -30,6 +30,7 @@ from scenario_forge.stpa.models.loss_analysis import (
     Hazard,
     Loss,
     LossAnalysis,
+    LossAnalysisDraft,
     LossProvenance,
     SecurityConstraint,
 )
@@ -93,9 +94,6 @@ def _make_loss_analysis() -> LossAnalysis:
 
 def _make_capability_profile() -> CapabilityProfile:
     return Stage1Profile(
-        has_persistent_memory=False,
-        multi_agent=False,
-        hitl=False,
         entry_points=[
             {"name": "User chat", "direction": "input", "controllability": "direct"},
         ],
@@ -133,6 +131,7 @@ def _make_control_structure() -> ControlStructure:
 
 
 def _valid_loss_analysis_dict() -> dict:
+    """Risk draft for the risk_derivation call."""
     return {
         "risk_card_losses": [
             {
@@ -142,6 +141,28 @@ def _valid_loss_analysis_dict() -> dict:
                 "source_risk_cards": ["atlas-001"],
             }
         ],
+        "use_case_losses": [],
+        "hazards": [
+            {
+                "hazard_id": "H-1",
+                "description": "Agent executes unintended action",
+                "related_losses": ["L-1"],
+            }
+        ],
+        "security_constraints": [
+            {
+                "constraint_id": "SC-1",
+                "description": "Must confirm before action",
+                "related_hazards": ["H-1"],
+            }
+        ],
+    }
+
+
+def _valid_gap_draft_dict() -> dict:
+    """Gap draft for the gap_analysis call."""
+    return {
+        "risk_card_losses": [],
         "use_case_losses": [
             {
                 "loss_id": "L-2",
@@ -152,16 +173,16 @@ def _valid_loss_analysis_dict() -> dict:
         ],
         "hazards": [
             {
-                "hazard_id": "H-1",
-                "description": "Agent executes unintended action",
-                "related_losses": ["L-1", "L-2"],
+                "hazard_id": "H-2",
+                "description": "Agent erodes user trust",
+                "related_losses": ["L-2"],
             }
         ],
         "security_constraints": [
             {
-                "constraint_id": "SC-1",
-                "description": "Must confirm before action",
-                "related_hazards": ["H-1"],
+                "constraint_id": "SC-2",
+                "description": "Must maintain transparency",
+                "related_hazards": ["H-2"],
             }
         ],
     }
@@ -239,7 +260,9 @@ def _valid_critic_findings_dict_with_unjustified() -> dict:
 def _setup_valid_mock_client() -> MockLLMClient:
     """Set up a mock LLM client with valid responses for all stages."""
     client = MockLLMClient()
-    client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+    client.set_response_for(
+        LossAnalysisDraft, [_valid_loss_analysis_dict(), _valid_gap_draft_dict()],
+    )
     client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, _valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
@@ -406,7 +429,7 @@ class TestDerivationStageFailure:
     @pytest.mark.parametrize(
         "stage, stage_name, step_name, setup_fn",
         [
-            ("stage_1a", "stage_1a", "loss_analysis", "_setup_stage_1a_failure"),
+            ("stage_1a", "stage_1a", "risk_derivation", "_setup_stage_1a_failure"),
             ("stage_1b", "stage_1b", "capability_profile", "_setup_stage_1b_failure"),
             ("stage_2_call_1", "stage_2", "call_1_requirements", "_setup_stage_2_call_1_failure"),
             ("stage_2_call_2", "stage_2", "call_2_responsibilities", "_setup_stage_2_call_2_failure"),
@@ -431,7 +454,7 @@ class TestDerivationStageFailure:
 
     def _setup_stage_1a_failure(self, tmp_path):
         client = MockLLMClient()
-        client.set_invalid_response_for(LossAnalysis)
+        client.set_invalid_response_for(LossAnalysisDraft)
         def invoke(c, d):
             derive_loss_analysis(
                 llm_client=c,
@@ -443,13 +466,14 @@ class TestDerivationStageFailure:
 
     def _setup_stage_1b_failure(self, tmp_path):
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+        client.set_response_for(
+            LossAnalysisDraft, [_valid_loss_analysis_dict(), _valid_gap_draft_dict()],
+        )
         client.set_invalid_response_for(Stage1Profile)
         def invoke(c, d):
             derive_capability_profile(
                 llm_client=c,
                 use_case_text="Test",
-                loss_analysis=_make_loss_analysis(),
                 run_dir=d,
             )
         return client, invoke
@@ -502,10 +526,14 @@ class TestDerivationStageFailure:
 class TestRunOrchestrationPartialFailure:
     """SP1-GD-09 through SP1-GD-15: run returns partial results on stage failure."""
 
-    def test_gd_09_stage_1a_failure_all_artifacts_none(self, tmp_path):
-        """SP1-GD-09: Stage 1a failure → partial result with all artifacts None."""
+    def test_gd_09_stage_1a_failure_loss_analysis_none(self, tmp_path):
+        """SP1-GD-09: Stage 1a failure → loss_analysis None, CS None.
+
+        With the new ordering (1b before 1a), Stage 1b succeeds before
+        Stage 1a fails, so capability_profile is preserved.
+        """
         client = _setup_valid_mock_client()
-        client.set_invalid_response_for(LossAnalysis)
+        client.set_invalid_response_for(LossAnalysisDraft)
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",
@@ -516,13 +544,18 @@ class TestRunOrchestrationPartialFailure:
         assert len(result.stage_errors) >= 1
         assert any("stage_1a" in e for e in result.stage_errors)
         assert result.loss_analysis is None
-        assert result.capability_profile is None
         assert result.control_structure is None
+        # capability_profile is preserved (1b ran before 1a)
+        assert result.capability_profile is not None
         # Manifest still written
         assert (tmp_path / "run-manifest.yaml").exists()
 
     def test_gd_10_stage_1b_failure_preserves_loss_analysis(self, tmp_path):
-        """SP1-GD-10: Stage 1b failure → loss_analysis preserved, profile/CS None."""
+        """SP1-GD-10: Stage 1b failure → profile/CS None, loss_analysis preserved.
+
+        With the new ordering (1b before 1a), Stage 1b fails first, then
+        Stage 1a runs with capability_profile=None (still produces loss_analysis).
+        """
         client = _setup_valid_mock_client()
         client.set_invalid_response_for(Stage1Profile)
         result = run_sp1(
@@ -560,7 +593,7 @@ class TestRunOrchestrationPartialFailure:
     def test_gd_12_failed_derivation_call_logged_with_success_false(self, tmp_path):
         """SP1-GD-12: failed derivation call logged with success=false and error."""
         client = _setup_valid_mock_client()
-        client.set_invalid_response_for(LossAnalysis)
+        client.set_invalid_response_for(LossAnalysisDraft)
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
@@ -572,7 +605,7 @@ class TestRunOrchestrationPartialFailure:
         assert len(failed) >= 1
         stage_1a_failed = [e for e in failed if e["stage"] == "stage_1a"]
         assert len(stage_1a_failed) == 1
-        assert stage_1a_failed[0]["step"] == "loss_analysis"
+        assert stage_1a_failed[0]["step"] == "risk_derivation"
         assert "error" in stage_1a_failed[0]
 
     def test_gd_13_pipeline_does_not_crash_on_stage_2_failure(self, tmp_path):
@@ -591,7 +624,7 @@ class TestRunOrchestrationPartialFailure:
     def test_gd_14_llm_exception_raises_stage_error_and_logs(self, tmp_path):
         """SP1-GD-14: LLM RuntimeError during stage_1a → partial result with stage_error."""
         client = _setup_valid_mock_client()
-        client.set_exception_for(LossAnalysis, RuntimeError("Connection refused"))
+        client.set_exception_for(LossAnalysisDraft, RuntimeError("Connection refused"))
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",

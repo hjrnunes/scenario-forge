@@ -23,6 +23,7 @@ from scenario_forge.stpa.models.loss_analysis import (
     Hazard,
     Loss,
     LossAnalysis,
+    LossAnalysisDraft,
     LossProvenance,
     SecurityConstraint,
 )
@@ -72,6 +73,17 @@ def _make_loss_analysis() -> LossAnalysis:
 
 
 def _valid_loss_analysis_dict() -> dict:
+    """Risk draft for the risk_derivation call (empty risk_card_losses, empty hazards)."""
+    return {
+        "risk_card_losses": [],
+        "use_case_losses": [],
+        "hazards": [],
+        "security_constraints": [],
+    }
+
+
+def _valid_gap_draft_dict() -> dict:
+    """Gap draft for the gap_analysis call (produces use_case losses)."""
     return {
         "risk_card_losses": [],
         "use_case_losses": [
@@ -304,7 +316,9 @@ def _setup_full_run_client(
     from scenario_forge.stpa.system_model.critic import CriticFindings
 
     client = MockLLMClient()
-    client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+    client.set_response_for(
+        LossAnalysisDraft, [_valid_loss_analysis_dict(), _valid_gap_draft_dict()],
+    )
     client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, _valid_requirement_set_dict())
     client.set_response_for(

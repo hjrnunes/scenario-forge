@@ -1,0 +1,35 @@
+## Use-Case Description
+
+{{ use_case_text }}
+
+---
+
+## Organizational Risks
+
+{% if risk_cards %}
+{% for card in risk_cards %}
+### {{ card.risk_id }} — {{ card.risk_name }}
+- **Description:** {{ card.risk_description }}
+- **Threat:** {{ card.threat or "N/A" }}
+- **Vulnerability:** {{ card.vulnerability or "N/A" }}
+- **Consequence:** {{ card.consequence or "N/A" }}
+- **Impact:** {{ card.impact or "N/A" }}
+{% endfor %}
+{% else %}
+No organizational risks provided. This call should produce an empty result — gap analysis is performed in a separate step.
+{% endif %}
+
+---
+
+## Your Task
+
+Derive losses, hazards, and security constraints from the organizational risks above, grounded in this specific system's architecture and domain.
+
+For each risk:
+1. Derive one or more system-specific losses, citing the source risk IDs. Deduplicate where multiple risks converge on the same loss.
+2. Derive system-level hazards that enable each loss. Each hazard must name a concrete component, data flow, or integration point from the use-case description.
+3. Derive security constraints that prevent each hazard.
+
+Deprioritize risks that have no adversarial vector in this system's context.
+
+Ensure all cross-references are valid and no IDs are duplicated.
