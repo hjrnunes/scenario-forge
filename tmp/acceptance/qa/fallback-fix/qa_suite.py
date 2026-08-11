@@ -198,58 +198,73 @@ def run_static_checks(runner: QARunner) -> None:
     calls = _calls_in_function(func)
     call_names = [_call_name(c) for c in calls]
 
-    # --- Check 2: _assign_elements_to_responsibilities is called ---
-    has_assign = any(
-        _call_name(c) == "_assign_elements_to_responsibilities" for c in calls
+    # --- Check 2: _enrich_responsibilities is called ---
+    # The cleaner (commit 604f28c) extracted the CA/FB assignment into the
+    # ``_enrich_responsibilities`` helper for DRY.  ``_assemble_with_fallback``
+    # now calls ``_enrich_responsibilities`` (which internally calls
+    # ``_assign_elements_to_responsibilities`` twice — once for CAs, once for
+    # FBs) instead of calling ``_assign_elements_to_responsibilities`` directly.
+    has_enrich = any(
+        _call_name(c) == "_enrich_responsibilities" for c in calls
     )
     runner.check(
-        "fallback-fix-static-02: _assemble_with_fallback calls _assign_elements_to_responsibilities",
-        has_assign,
+        "fallback-fix-static-02: _assemble_with_fallback calls _enrich_responsibilities (assigns CAs/FBs before sanitization)",
+        has_enrich,
         "CAs/FBs must be assigned onto responsibilities before sanitization",
     )
 
-    # --- Check 3: _assign_elements_to_responsibilities is called before _sanitize_for_fallback ---
+    # --- Check 3: _enrich_responsibilities is called before _sanitize_for_fallback ---
     # Walk the function body in source order and find the first occurrence
-    # of each call. The assignment must come before the sanitize call.
+    # of each call. The enrichment must come before the sanitize call.
     source = _function_source(func)
-    assign_pos = source.find("_assign_elements_to_responsibilities")
+    enrich_pos = source.find("_enrich_responsibilities")
     sanitize_pos = source.find("_sanitize_for_fallback")
-    assign_before_sanitize = (
-        assign_pos != -1
+    enrich_before_sanitize = (
+        enrich_pos != -1
         and sanitize_pos != -1
-        and assign_pos < sanitize_pos
+        and enrich_pos < sanitize_pos
     )
     runner.check(
-        "fallback-fix-static-03: _assign_elements_to_responsibilities is called before _sanitize_for_fallback",
-        assign_before_sanitize,
-        f"assign_pos={assign_pos}, sanitize_pos={sanitize_pos}",
+        "fallback-fix-static-03: _enrich_responsibilities is called before _sanitize_for_fallback",
+        enrich_before_sanitize,
+        f"enrich_pos={enrich_pos}, sanitize_pos={sanitize_pos}",
     )
 
-    # --- Check 4: _assign_elements_to_responsibilities is called before _strip_all_element_refs ---
+    # --- Check 4: _enrich_responsibilities is called before _strip_all_element_refs ---
     strip_pos = source.find("_strip_all_element_refs")
-    assign_before_strip = (
-        assign_pos != -1
+    enrich_before_strip = (
+        enrich_pos != -1
         and strip_pos != -1
-        and assign_pos < strip_pos
+        and enrich_pos < strip_pos
     )
     runner.check(
-        "fallback-fix-static-04: _assign_elements_to_responsibilities is called before _strip_all_element_refs",
-        assign_before_strip,
-        f"assign_pos={assign_pos}, strip_pos={strip_pos}",
+        "fallback-fix-static-04: _enrich_responsibilities is called before _strip_all_element_refs",
+        enrich_before_strip,
+        f"enrich_pos={enrich_pos}, strip_pos={strip_pos}",
     )
 
-    # --- Check 5: Both CAs and FBs are assigned ---
-    # The fix should call _assign_elements_to_responsibilities twice:
+    # --- Check 5: _enrich_responsibilities assigns both CAs and FBs ---
+    # The helper must call _assign_elements_to_responsibilities twice:
     # once for control_actions (ca_id → control_actions) and once for
     # feedback_channels (fb_id → feedback_channels).
-    assign_calls = [
-        c for c in calls if _call_name(c) == "_assign_elements_to_responsibilities"
-    ]
-    runner.check(
-        "fallback-fix-static-05: _assign_elements_to_responsibilities is called at least twice (CAs and FBs)",
-        len(assign_calls) >= 2,
-        f"Found {len(assign_calls)} call(s); expected >= 2",
-    )
+    enrich_func = _find_function(tree, "_enrich_responsibilities")
+    if enrich_func is not None:
+        enrich_calls = _calls_in_function(enrich_func)
+        assign_calls = [
+            c for c in enrich_calls
+            if _call_name(c) == "_assign_elements_to_responsibilities"
+        ]
+        runner.check(
+            "fallback-fix-static-05: _enrich_responsibilities calls _assign_elements_to_responsibilities at least twice (CAs and FBs)",
+            len(assign_calls) >= 2,
+            f"Found {len(assign_calls)} call(s); expected >= 2",
+        )
+    else:
+        runner.check(
+            "fallback-fix-static-05: _enrich_responsibilities calls _assign_elements_to_responsibilities at least twice (CAs and FBs)",
+            False,
+            "_enrich_responsibilities not found",
+        )
 
     # --- Check 6: _sanitize_for_fallback still receives responsibilities (now with CAs/FBs) ---
     has_sanitize = any(
