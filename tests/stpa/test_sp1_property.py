@@ -119,14 +119,13 @@ class TestResponsibilitySetYamlRoundTrip:
     @given(
         n_resps=st.integers(min_value=1, max_value=3),
         n_pms=st.integers(min_value=1, max_value=3),
-        n_cps=st.integers(min_value=0, max_value=3),
     )
     @settings(
         max_examples=25,
         deadline=None,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_round_trip(self, tmp_path, n_resps, n_pms, n_cps):
+    def test_round_trip(self, tmp_path, n_resps, n_pms):
         """ResponsibilitySet round-trips through YAML."""
         responsibilities = []
         for i in range(1, n_resps + 1):
@@ -135,36 +134,15 @@ class TestResponsibilitySetYamlRoundTrip:
                 ProcessModelPart(pm_id=f"PM-{i}-{j}", description=f"PM {i}-{j}")
                 for j in range(1, n_pms + 1)
             ]
-            cas = [
-                ControlAction(ca_id=f"CA-{i}-{j}", description=f"CA {i}-{j}")
-                for j in range(1, n_pms + 1)
-            ]
-            fbs = [
-                FeedbackChannel(
-                    fb_id=f"FB-{i}-{j}",
-                    description=f"FB {i}-{j}",
-                    updates=f"PM-{i}-{j}",
-                    source=ElementRef(type=ReferenceType.responsibility, id=resp_id),
-                )
-                for j in range(1, min(n_pms, n_pms) + 1)
-            ]
             responsibilities.append(
                 Responsibility(
                     resp_id=resp_id,
                     description=f"Controller {i}",
                     process_model_parts=pms,
-                    control_actions=cas,
-                    feedback_channels=fbs,
                 )
             )
-        from scenario_forge.stpa.models.control_structure import ControlledProcess
-        real_cps = [
-            ControlledProcess(cp_id=f"CP-{i}", description=f"Process {i}")
-            for i in range(1, n_cps + 1)
-        ]
         rs = ResponsibilitySet(
             responsibilities=responsibilities,
-            controlled_processes=real_cps,
         )
         result = _yaml_round_trip(rs, tmp_path)
         assert result == rs
@@ -247,9 +225,8 @@ class TestEmptyModelInvariants:
                     ],
                 ),
             ],
-            controlled_processes=[],
         )
-        assert rs.controlled_processes == []
+        assert len(rs.responsibilities) == 1
 
 
 # ---------------------------------------------------------------------------

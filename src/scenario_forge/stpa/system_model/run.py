@@ -347,7 +347,7 @@ def _write_manifest(
     critic_summary = _summarize_critic_findings(critic_findings)
     stage_1b_calls = 0 if profile_skipped else 1
     _stage_1a_call_count = 2
-    _stage_2_call_count = 3
+    _stage_2_call_count = 4
 
     model_config_dict: dict[str, Any] = {
         "model": llm_client.model,

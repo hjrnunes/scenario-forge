@@ -44,7 +44,7 @@ def _default_entries() -> list[dict]:
             "success": True,
         },
         {
-            "stage": "stage_2", "step": "call_2_responsibilities",
+            "stage": "stage_2", "step": "call_2a_responsibilities",
             "model": "gemma-4-26b-a4b-it",
             "prompt_tokens": 5100, "completion_tokens": 1500,
             "duration_ms": 9800, "timestamp": "2026-08-08T12:02:00Z",
@@ -96,7 +96,7 @@ class TestRenderCallsHtml:
         html, _ = _render(tmp_path)
         assert "call_1a_losses" in html
         assert "call_1b_profile" in html
-        assert "call_2_responsibilities" in html
+        assert "call_2a_responsibilities" in html
         assert "call_2_requirements" in html
 
     def test_ch04_failed_calls_highlighted_in_red(self, tmp_path):

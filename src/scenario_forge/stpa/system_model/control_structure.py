@@ -1,9 +1,10 @@
 """Stage 2 — Control Structure derivation.
 
-Three sequential LLM calls applying Poh's Behavioral Design Process:
-  Call 1 — Requirements (Step 2a)
-  Call 2 — Responsibilities + Elements (Steps 2b-2c)
-  Call 3 — Connections (Steps 2d-2e)
+Four sequential LLM calls:
+  Call 1  — Requirements
+  Call 2a — Responsibilities + Responsibility Constraints + Process Model parts
+  Call 2b — Control Actions + Feedback Channels + Controlled Processes
+  Call 3  — Coordination links + integrity findings
 """
 
 from __future__ import annotations
@@ -25,10 +26,10 @@ from scenario_forge.stpa.infra.llm_helpers import (
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import (
+    ControlAction,
     ControlStructure,
     CoordinationLink,
     ControlledProcess,
-    ElementRef,
     FeedbackChannel,
     Responsibility,
     _is_valid_element_ref,
@@ -61,118 +62,81 @@ class RequirementSet(BaseModel):
 
 
 class ResponsibilitySet(BaseModel):
-    """A set of responsibilities with controlled processes (Call 2 output).
+    """Call 2a output: responsibilities with RCs and PM parts only.
 
-    Wraps the Foundation Responsibility list plus ControlledProcess list.
+    No control actions, feedback channels, or controlled processes —
+    those are derived in Call 2b.
     """
 
     responsibilities: list[Responsibility]
+
+
+class ControlElementSet(BaseModel):
+    """Call 2b output: control actions, feedback channels, and controlled processes."""
+
+    control_actions: list[ControlAction] = []
+    feedback_channels: list[FeedbackChannel] = []
     controlled_processes: list[ControlledProcess] = []
 
 
-class ConnectionAssignment(BaseModel):
-    """A connection assignment for a feedback channel or control action."""
-
-    element_id: str  # FB-* or CA-*
-    target: ElementRef | None = None  # for control actions: which element receives the action
-    source: ElementRef | None = None  # for feedback channels: which element provides the info
-
-
-class ConnectionSet(BaseModel):
-    """Slim schema for Call 3 — only new outputs."""
+class CoordinationAnalysis(BaseModel):
+    """Call 3 output: coordination links and integrity findings."""
 
     coordination_links: list[CoordinationLink] = []
-    controlled_processes: list[ControlledProcess] = []
-    connection_assignments: list[ConnectionAssignment] = []
+    integrity_findings: list[str] = []
 
 
 # ---------------------------------------------------------------------------
-# Merge — combine ResponsibilitySet (Call 2) with ConnectionSet (Call 3)
+# Assembly — merge Call 2a (ResponsibilitySet) with Call 2b (ControlElementSet)
 # ---------------------------------------------------------------------------
 
 
-def merge_connection_set(
+def _extract_resp_num(element_id: str) -> int:
+    """Extract the numeric suffix from a resp_id or element ID like 'RESP-3' or 'CA-3-1'."""
+    match = re.search(r"\d+", element_id)
+    return int(match.group()) if match else 0
+
+
+def _assemble_control_structure(
     responsibility_set: ResponsibilitySet,
-    connection_set: ConnectionSet,
+    control_element_set: ControlElementSet,
 ) -> ControlStructure:
-    """Merge ResponsibilitySet from Call 2 with ConnectionSet from Call 3.
+    """Merge Call 2a (responsibilities + RCs + PMs) and Call 2b (CAs + FBs + CPs).
 
-    - Applies connection assignments to responsibilities (sets feedback
-      sources, control action targets by element ID)
-    - Adds coordination links and controlled processes
-    - Produces and validates the final ControlStructure
+    Matches CAs and FBs to responsibilities by ID prefix (CA-X-Y → RESP-X,
+    FB-X-Y → RESP-X). Produces and validates the final ControlStructure.
     """
     responsibilities = copy.deepcopy(responsibility_set.responsibilities)
 
-    for assignment in connection_set.connection_assignments:
-        _apply_connection_assignment(responsibilities, assignment)
+    # Build a lookup: resp_num → responsibility
+    resp_by_num: dict[int, Responsibility] = {}
+    for resp in responsibilities:
+        resp_by_num[_extract_resp_num(resp.resp_id)] = resp
 
-    controlled_processes = _merge_controlled_processes(
-        responsibility_set.controlled_processes,
-        connection_set.controlled_processes,
-    )
+    # Assign control actions to responsibilities by ID prefix
+    for ca in control_element_set.control_actions:
+        resp_num = _extract_resp_num(ca.ca_id)
+        resp = resp_by_num.get(resp_num)
+        if resp is not None:
+            resp.control_actions.append(ca)
+
+    # Assign feedback channels to responsibilities by ID prefix
+    for fb in control_element_set.feedback_channels:
+        resp_num = _extract_resp_num(fb.fb_id)
+        resp = resp_by_num.get(resp_num)
+        if resp is not None:
+            resp.feedback_channels.append(fb)
+
+    controlled_processes = copy.deepcopy(control_element_set.controlled_processes)
 
     return ControlStructure(
         responsibilities=responsibilities,
         controlled_processes=controlled_processes,
-        coordination_links=connection_set.coordination_links,
     )
 
 
-def _apply_connection_assignment(
-    responsibilities: list[Responsibility],
-    assignment: ConnectionAssignment,
-) -> None:
-    """Apply a single connection assignment to the matching feedback channel or control action."""
-    for resp in responsibilities:
-        if _try_set_feedback_source(resp, assignment):
-            return
-        if _try_set_control_action_target(resp, assignment):
-            return
-
-
-def _try_set_feedback_source(
-    resp: Responsibility, assignment: ConnectionAssignment
-) -> bool:
-    """Set the feedback source if the assignment matches a feedback channel in this responsibility."""
-    if assignment.source is None:
-        return False
-    for fb in resp.feedback_channels:
-        if fb.fb_id == assignment.element_id:
-            fb.source = assignment.source
-            return True
-    return False
-
-
-def _try_set_control_action_target(
-    resp: Responsibility, assignment: ConnectionAssignment
-) -> bool:
-    """Set the control action target if the assignment matches a control action in this responsibility."""
-    if assignment.target is None:
-        return False
-    for ca in resp.control_actions:
-        if ca.ca_id == assignment.element_id:
-            ca.target = assignment.target
-            return True
-    return False
-
-
-def _merge_controlled_processes(
-    from_call2: list[ControlledProcess],
-    from_call3: list[ControlledProcess],
-) -> list[ControlledProcess]:
-    """Merge controlled processes from Call 2 and Call 3, deduplicating by cp_id."""
-    seen: set[str] = set()
-    merged: list[ControlledProcess] = []
-    for cp in from_call2 + from_call3:
-        if cp.cp_id not in seen:
-            seen.add(cp.cp_id)
-            merged.append(cp)
-    return merged
-
-
 # ---------------------------------------------------------------------------
-# Merge with fallback — deterministic, no LLM dependency
+# Fallback helpers — deterministic, no LLM dependency
 # ---------------------------------------------------------------------------
 
 
@@ -233,7 +197,7 @@ def _sanitize_for_fallback(
 
     Args:
         responsibilities: Responsibilities from the ResponsibilitySet.
-        controlled_processes: Controlled processes from the ResponsibilitySet.
+        controlled_processes: Controlled processes from the ControlElementSet.
 
     Returns:
         A tuple of (sanitized responsibilities, controlled processes,
@@ -312,54 +276,54 @@ def _strip_all_element_refs(
     return stripped_resps, stripped_cps, warnings
 
 
-def _merge_with_fallback(
+def _assemble_with_fallback(
     responsibility_set: ResponsibilitySet,
-    connection_set: ConnectionSet,
+    control_element_set: ControlElementSet,
     run_dir: Path,
     model: str,
 ) -> tuple[ControlStructure, list[str]]:
-    """Merge ConnectionSet into ResponsibilitySet, falling back on failure.
+    """Assemble ControlStructure from Call 2a + Call 2b, falling back on failure.
 
-    On merge failure (invalid cross-references in the ConnectionSet), the
-    failure is logged to ``calls.jsonl`` and a fallback ControlStructure is
-    built from the ResponsibilitySet alone (without coordination links).
+    On assembly failure (invalid cross-references in the ControlElementSet),
+    the failure is logged to ``calls.jsonl`` and a fallback ControlStructure
+    is built from the ResponsibilitySet alone (without coordination links).
 
     The fallback path first sanitizes invalid ElementRefs via
     ``_sanitize_for_fallback``. If sanitization still fails (e.g. duplicate
     IDs), a further-degraded path strips ALL ElementRefs.
 
-    This function is deterministic and has no LLM dependency, so it can be
-    tested independently of the Stage 2 LLM call sequence.
+    This function is deterministic and has no LLM dependency, so it can
+    be tested independently of the Stage 2 LLM call sequence.
 
     Args:
-        responsibility_set: Responsibilities and controlled processes from Call 2.
-        connection_set: Coordination links, CPs, and assignments from Call 3.
+        responsibility_set: Responsibilities with RCs and PMs from Call 2a.
+        control_element_set: CAs, FBs, and CPs from Call 2b.
         run_dir: Directory for failure logging.
         model: LLM model name (used in the call-log entry).
 
     Returns:
-        A tuple of (ControlStructure, merge_warnings). The warning list
-        is empty when the merge succeeds.
+        A tuple of (ControlStructure, assembly_warnings). The warning list
+        is empty when the assembly succeeds.
     """
     try:
-        return merge_connection_set(responsibility_set, connection_set), []
+        return _assemble_control_structure(responsibility_set, control_element_set), []
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
         log_llm_call_failure(
             model,
             run_dir,
             STAGE,
-            "merge_connection_set",
+            "assemble_control_structure",
             error_msg,
         )
-        warnings = [f"{STAGE}/merge_connection_set: {error_msg}"]
+        warnings = [f"{STAGE}/assemble_control_structure: {error_msg}"]
 
         # First fallback: sanitize invalid ElementRefs
         try:
             sanitized_resps, sanitized_cps, sanitize_warnings = (
                 _sanitize_for_fallback(
                     responsibility_set.responsibilities,
-                    responsibility_set.controlled_processes,
+                    control_element_set.controlled_processes,
                 )
             )
             warnings.extend(sanitize_warnings)
@@ -373,7 +337,7 @@ def _merge_with_fallback(
             stripped_resps, stripped_cps, strip_warnings = (
                 _strip_all_element_refs(
                     responsibility_set.responsibilities,
-                    responsibility_set.controlled_processes,
+                    control_element_set.controlled_processes,
                 )
             )
             warnings.extend(strip_warnings)
@@ -385,14 +349,56 @@ def _merge_with_fallback(
 
 
 # ---------------------------------------------------------------------------
-# Orphan PM repair — deterministic, no LLM dependency
+# Coordination link addition — deterministic, no LLM dependency
 # ---------------------------------------------------------------------------
 
 
-def _extract_resp_num(resp_id: str) -> int:
-    """Extract the numeric suffix from a resp_id like 'RESP-3'."""
-    match = re.search(r"\d+", resp_id)
-    return int(match.group()) if match else 0
+def _add_coordination_links_with_fallback(
+    control_structure: ControlStructure,
+    coordination_analysis: CoordinationAnalysis,
+    run_dir: Path,
+    model: str,
+) -> tuple[ControlStructure, list[str]]:
+    """Add coordination links from Call 3 to the ControlStructure.
+
+    On failure (invalid coordination link references), the failure is
+    logged and the ControlStructure is returned without coordination links.
+
+    Args:
+        control_structure: The assembled ControlStructure (without links).
+        coordination_analysis: Coordination links and integrity findings from Call 3.
+        run_dir: Directory for failure logging.
+        model: LLM model name (used in the call-log entry).
+
+    Returns:
+        A tuple of (ControlStructure, warnings). The warning list is empty
+        when the coordination links are added successfully.
+    """
+    if not coordination_analysis.coordination_links:
+        return control_structure, []
+
+    try:
+        return ControlStructure(
+            responsibilities=control_structure.responsibilities,
+            controlled_processes=control_structure.controlled_processes,
+            coordination_links=coordination_analysis.coordination_links,
+        ), []
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        log_llm_call_failure(
+            model,
+            run_dir,
+            STAGE,
+            "add_coordination_links",
+            error_msg,
+        )
+        warnings = [f"{STAGE}/add_coordination_links: {error_msg}"]
+        return control_structure, warnings
+
+
+# ---------------------------------------------------------------------------
+# Orphan PM repair — deterministic, no LLM dependency
+# ---------------------------------------------------------------------------
 
 
 def _next_fb_num(resp: Responsibility) -> int:
@@ -451,8 +457,8 @@ def _create_stub_fb(
 
 
 def repair_orphan_pms(
-    responsibility_set: ResponsibilitySet,
-) -> tuple[ResponsibilitySet, list[str]]:
+    control_structure: ControlStructure,
+) -> tuple[ControlStructure, list[str]]:
     """Repair orphan PM parts by auto-generating stub feedback channels.
 
     For each responsibility, finds PM parts where no feedback channel has
@@ -464,18 +470,18 @@ def repair_orphan_pms(
       - ``source``: reuses an existing FB source if available, else None
 
     Args:
-        responsibility_set: The ResponsibilitySet from Call 2.
+        control_structure: The assembled ControlStructure.
 
     Returns:
-        A tuple of (repaired ResponsibilitySet, warnings). Each warning
-        mentions the orphan PM ID. If no orphans exist, the set is
+        A tuple of (repaired ControlStructure, warnings). Each warning
+        mentions the orphan PM ID. If no orphans exist, the structure is
         returned unchanged with an empty warnings list.
     """
     warnings: list[str] = []
     any_repaired = False
     repaired_resps: list[Responsibility] = []
 
-    for resp in responsibility_set.responsibilities:
+    for resp in control_structure.responsibilities:
         orphan_pm_ids = _find_orphan_pms(resp)
         if not orphan_pm_ids:
             repaired_resps.append(resp)
@@ -495,16 +501,16 @@ def repair_orphan_pms(
         repaired_resps.append(resp_copy)
 
     if not any_repaired:
-        return responsibility_set, warnings
+        return control_structure, warnings
 
-    repaired_set = responsibility_set.model_copy(
+    repaired_cs = control_structure.model_copy(
         update={"responsibilities": repaired_resps},
     )
-    return repaired_set, warnings
+    return repaired_cs, warnings
 
 
 # ---------------------------------------------------------------------------
-# Stage 2 — three sequential LLM calls
+# Stage 2 — four sequential LLM calls
 # ---------------------------------------------------------------------------
 
 
@@ -518,25 +524,30 @@ def derive_control_structure(
     template_loader: TemplateLoader | None = None,
     temperature: float = DEFAULT_TEMPERATURE,
 ) -> tuple[ControlStructure, list[str]]:
-    """Run all three Stage 2 calls in sequence and assemble the ControlStructure.
+    """Run all four Stage 2 calls in sequence and assemble the ControlStructure.
 
-    If the merge of ResponsibilitySet (Call 2) and ConnectionSet (Call 3)
-    fails due to invalid cross-references in the ConnectionSet, the merge
-    failure is logged and a fallback ControlStructure is built from the
-    ResponsibilitySet alone (without coordination links). The returned
+    Call 1  — Requirements (from security constraints)
+    Call 2a — Responsibilities + RCs + PM parts (from requirements + capability profile)
+    Call 2b — Control actions + feedback channels + controlled processes (from responsibilities)
+    Call 3  — Coordination links + integrity findings (from full control structure)
+
+    If the assembly of Call 2a + Call 2b fails due to invalid cross-references,
+    the assembly failure is logged and a fallback ControlStructure is built
+    from the ResponsibilitySet alone (without coordination links). The returned
     warning list is non-empty in that case.
 
     Args:
         llm_client: LLM client for making completion calls.
         use_case_text: Free-text use-case description.
         loss_analysis: LossAnalysis from Stage 1a (provides security constraints).
+        capability_profile: Optional capability profile for zone-driven responsibilities.
         run_dir: Directory for output artifacts.
         template_loader: Optional template loader (defaults to SP1 prompts dir).
         temperature: LLM temperature (default 0.4).
 
     Returns:
-        A tuple of (validated ControlStructure, merge_warnings). The
-        warning list is empty when the merge succeeds.
+        A tuple of (validated ControlStructure, warnings). The
+        warning list is empty when the assembly succeeds.
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
@@ -550,8 +561,8 @@ def derive_control_structure(
         temperature=temperature,
     )
 
-    # Call 2 — Responsibilities + Elements
-    responsibility_set = _call_2_responsibilities(
+    # Call 2a — Responsibilities + RCs + PM parts
+    responsibility_set = _call_2a_responsibilities(
         llm_client=llm_client,
         use_case_text=use_case_text,
         requirement_set=requirement_set,
@@ -561,11 +572,8 @@ def derive_control_structure(
         temperature=temperature,
     )
 
-    # Repair orphan PMs — auto-generate stub FB channels before Call 3
-    responsibility_set, repair_warnings = repair_orphan_pms(responsibility_set)
-
-    # Call 3 — Connections
-    connection_set = _call_3_connections(
+    # Call 2b — CAs + FBs + CPs
+    control_element_set = _call_2b_control_elements(
         llm_client=llm_client,
         use_case_text=use_case_text,
         responsibility_set=responsibility_set,
@@ -574,12 +582,31 @@ def derive_control_structure(
         temperature=temperature,
     )
 
-    control_structure, merge_warnings = _merge_with_fallback(
-        responsibility_set, connection_set, run_dir, llm_client.model,
+    # Assembly: merge Call 2a + Call 2b → ControlStructure (with fallback)
+    control_structure, assembly_warnings = _assemble_with_fallback(
+        responsibility_set, control_element_set, run_dir, llm_client.model,
+    )
+
+    # Repair orphan PMs — auto-generate stub FB channels before Call 3
+    control_structure, repair_warnings = repair_orphan_pms(control_structure)
+
+    # Call 3 — Coordination + integrity (receives full assembled control structure)
+    coordination_analysis = _call_3_coordination(
+        llm_client=llm_client,
+        use_case_text=use_case_text,
+        control_structure=control_structure,
+        run_dir=run_dir,
+        loader=loader,
+        temperature=temperature,
+    )
+
+    # Add coordination links to the ControlStructure (with fallback)
+    control_structure, coord_warnings = _add_coordination_links_with_fallback(
+        control_structure, coordination_analysis, run_dir, llm_client.model,
     )
 
     write_yaml(control_structure, run_dir / "control-structure.yaml")
-    return control_structure, merge_warnings + repair_warnings
+    return control_structure, assembly_warnings + repair_warnings + coord_warnings
 
 
 # ---------------------------------------------------------------------------
@@ -624,11 +651,11 @@ def _call_1_requirements(
 
 
 # ---------------------------------------------------------------------------
-# Call 2 — Responsibilities + Elements
+# Call 2a — Responsibilities + RCs + PM parts
 # ---------------------------------------------------------------------------
 
 
-def _call_2_responsibilities(
+def _call_2a_responsibilities(
     *,
     llm_client: LLMClient,
     use_case_text: str,
@@ -638,14 +665,14 @@ def _call_2_responsibilities(
     loader: TemplateLoader,
     temperature: float,
 ) -> ResponsibilitySet:
-    """Run Call 2: derive responsibilities, PM/CA/FB elements, and controlled processes.
+    """Run Call 2a: derive responsibilities, responsibility constraints, and PM parts.
 
     Raises:
         StageError: If the LLM call fails or the response fails validation.
     """
-    system_prompt = loader.render_prompt("stage2_call2_system.j2")
+    system_prompt = loader.render_prompt("stage2_call2a_system.j2")
     user_prompt = loader.render_prompt(
-        "stage2_call2_user.j2",
+        "stage2_call2a_user.j2",
         use_case_text=use_case_text,
         requirements=requirement_set.requirements,
         capability_profile=capability_profile,
@@ -658,20 +685,20 @@ def _call_2_responsibilities(
         response_format=ResponsibilitySet,
         run_dir=run_dir,
         stage=STAGE,
-        step="call_2_responsibilities",
+        step="call_2a_responsibilities",
         temperature=temperature,
     )
     if error_msg is not None:
-        raise StageError(stage=STAGE, step="call_2_responsibilities", message=error_msg)
+        raise StageError(stage=STAGE, step="call_2a_responsibilities", message=error_msg)
     return responsibility_set
 
 
 # ---------------------------------------------------------------------------
-# Call 3 — Connections
+# Call 2b — Control Actions + Feedback Channels + Controlled Processes
 # ---------------------------------------------------------------------------
 
 
-def _call_3_connections(
+def _call_2b_control_elements(
     *,
     llm_client: LLMClient,
     use_case_text: str,
@@ -679,11 +706,53 @@ def _call_3_connections(
     run_dir: Path,
     loader: TemplateLoader,
     temperature: float,
-) -> ConnectionSet:
-    """Run Call 3: identify connections, coordination links, and connection assignments.
+) -> ControlElementSet:
+    """Run Call 2b: derive control actions, feedback channels, and controlled processes.
 
-    Returns a ConnectionSet (slim schema) that is later merged with the
-    ResponsibilitySet from Call 2 to produce the final ControlStructure.
+    Raises:
+        StageError: If the LLM call fails or the response fails validation.
+    """
+    system_prompt = loader.render_prompt("stage2_call2b_system.j2")
+    user_prompt = loader.render_prompt(
+        "stage2_call2b_user.j2",
+        use_case_text=use_case_text,
+        responsibilities=responsibility_set.responsibilities,
+    )
+
+    control_element_set, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_format=ControlElementSet,
+        run_dir=run_dir,
+        stage=STAGE,
+        step="call_2b_control_elements",
+        temperature=temperature,
+    )
+    if error_msg is not None:
+        raise StageError(stage=STAGE, step="call_2b_control_elements", message=error_msg)
+    return control_element_set
+
+
+# ---------------------------------------------------------------------------
+# Call 3 — Coordination + integrity
+# ---------------------------------------------------------------------------
+
+
+def _call_3_coordination(
+    *,
+    llm_client: LLMClient,
+    use_case_text: str,
+    control_structure: ControlStructure,
+    run_dir: Path,
+    loader: TemplateLoader,
+    temperature: float,
+) -> CoordinationAnalysis:
+    """Run Call 3: identify coordination links and verify connection integrity.
+
+    Returns a CoordinationAnalysis containing coordination links and
+    integrity findings. Does NOT fix integrity issues — flags them for
+    the revision step.
 
     Raises:
         StageError: If the LLM call fails or the response fails validation.
@@ -692,24 +761,19 @@ def _call_3_connections(
     user_prompt = loader.render_prompt(
         "stage2_call3_user.j2",
         use_case_text=use_case_text,
-        responsibility_set=responsibility_set,
+        control_structure=control_structure,
     )
 
-    connection_set, _, error_msg = safe_llm_call(
+    coordination_analysis, _, error_msg = safe_llm_call(
         llm_client=llm_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        response_format=ConnectionSet,
+        response_format=CoordinationAnalysis,
         run_dir=run_dir,
         stage=STAGE,
-        step="call_3_connections",
+        step="call_3_coordination",
         temperature=temperature,
     )
     if error_msg is not None:
-        raise StageError(stage=STAGE, step="call_3_connections", message=error_msg)
-    return connection_set
-
-
-# mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T21:58:37Z","module_hash":"a0f80807bfc4fd0049deb40007f6490421e620554cb03770f26e5eabc570f810","functions":[{"id":"func/merge_connection_set","name":"merge_connection_set","line":94,"end_line":119,"hash":"91401c9996d67d5255695a66ae446cf4a08e2ade63f41901d56d5ff07f0061e3"},{"id":"func/_apply_connection_assignment","name":"_apply_connection_assignment","line":122,"end_line":131,"hash":"4826885a653c30e772ae1c2a33be78235229c39814c0237dae054cdfd4723b92"},{"id":"func/_try_set_feedback_source","name":"_try_set_feedback_source","line":134,"end_line":144,"hash":"b570aa8dbc9545c3cb8e4e4bbc6c29415d0a1fc4411931cf0b89ec7cbe1730c0"},{"id":"func/_try_set_control_action_target","name":"_try_set_control_action_target","line":147,"end_line":157,"hash":"0f0ecda079875b1d7e7a0b35a2596c263a0df3a38060058645e132e5b42f6333"},{"id":"func/_merge_controlled_processes","name":"_merge_controlled_processes","line":160,"end_line":171,"hash":"b6e9a76bea5acbc4e6d1f164d2bab1edc9ed699e8512a42f90752025a74148e8"},{"id":"func/_iter_resp_ref_fields","name":"_iter_resp_ref_fields","line":179,"end_line":198,"hash":"21d182b1d761a480a796f41095d59725a6220a8e29ffecd32c99498ac49ec687"},{"id":"func/_nullify_invalid_refs_in_resp","name":"_nullify_invalid_refs_in_resp","line":201,"end_line":220,"hash":"e65b30e4d03db7268047d722a7779cb10c44e502d4751a97d71b86116fac0563"},{"id":"func/_sanitize_for_fallback","name":"_sanitize_for_fallback","line":223,"end_line":252,"hash":"6915f5c5c82fecb20e9fcff469fe980cb4bb7111158209e176ff983db23f1727"},{"id":"func/_strip_all_refs_in_resp","name":"_strip_all_refs_in_resp","line":255,"end_line":265,"hash":"14f54711c6202a0ef276c6c0c7f6b5f27a33e3f4125758cb98fa94f78ea2bccf"},{"id":"func/_strip_all_element_refs","name":"_strip_all_element_refs","line":268,"end_line":312,"hash":"14f48de3852ad03fb33765514e83f3d9e7c13e260dd799212082098fff75709f"},{"id":"func/_merge_with_fallback","name":"_merge_with_fallback","line":315,"end_line":384,"hash":"eeea88fa3c976c61f11e7d86432017510e0c28c913f260fbc33709e82ce25e82"},{"id":"func/_extract_resp_num","name":"_extract_resp_num","line":392,"end_line":395,"hash":"c60c17bbd15fed1d2c23c18c009e959d98aad10f2483586f45376e2e2040a07b"},{"id":"func/_next_fb_num","name":"_next_fb_num","line":398,"end_line":409,"hash":"9cb65fc906923ba464247da1827ef99279c6681dc8bd9a336a2a7b50817c86c8"},{"id":"func/_find_orphan_pms","name":"_find_orphan_pms","line":412,"end_line":418,"hash":"0e41d0d10fcfc7d0b5b6d7ac81657b077239b0a2a6b6b5b13924221a1f5e3b18"},{"id":"func/_create_stub_fb","name":"_create_stub_fb","line":421,"end_line":450,"hash":"78fc6869e1c08b137ede0c35ca809bae8b70ab9ef4fcca809688233f60c57d4b"},{"id":"func/repair_orphan_pms","name":"repair_orphan_pms","line":453,"end_line":503,"hash":"5e492cbf68051d9d09c65c6cc299d12f33c68a0299070cec7e88de60f1bf0e06"},{"id":"func/derive_control_structure","name":"derive_control_structure","line":511,"end_line":582,"hash":"d3bf1a6aa69e55ad6883d3dacbdb54daaf1f2e8680fed6b94bcd5ed2a9838200"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":590,"end_line":623,"hash":"fd9bc8ae6b88e5852532eecfc104323c9eedd2cea5c485991da751403cc39071"},{"id":"func/_call_2_responsibilities","name":"_call_2_responsibilities","line":631,"end_line":666,"hash":"0b200435fbb5d1f73446ae42cafbf55a652db2c3635f432d8e18d59c2d020d53"},{"id":"func/_call_3_connections","name":"_call_3_connections","line":674,"end_line":710,"hash":"88f9e669aebbe55f102f1a491e96a23a31e806ef8785ee6ce67eefd866f03462"}]}
-# mutate4py-manifest-end
+        raise StageError(stage=STAGE, step="call_3_coordination", message=error_msg)
+    return coordination_analysis

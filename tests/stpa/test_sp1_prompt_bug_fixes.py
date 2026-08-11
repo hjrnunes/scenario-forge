@@ -21,7 +21,7 @@ _REQUIRED_CONTENT = {
         "by the use-case description",
         "Do not invent tools based on what a system like this might have",
     ),
-    "stage2_call2_system.j2": (
+    "stage2_call2a_system.j2": (
         "Check the capability profile's active zones",
         "When `tool_execution` is active: require a responsibility governing tool "
         "parameter validation and action selection",
@@ -30,22 +30,22 @@ _REQUIRED_CONTENT = {
         "When `hitl` is true: require a responsibility for escalation and human oversight",
         "When `inter_agent` is active: require a responsibility for inter-agent "
         "coordination and message validation",
-        "This should be a hard requirement, not a suggestion",
-        "Each control action must describe a single discrete action",
+        "This is a hard requirement, not a suggestion",
+    ),
+    "stage2_call2b_system.j2": (
+        "Each CA is a single discrete action the controller takes",
         "Split composite actions into separate CAs",
-        "Approve or reject request",
+        "approve or reject request",
         "CA-X-1 Approve request",
         "CA-X-2 Reject request",
-        "Execute or deny command",
-        "A control action that contains 'or', 'and', or similar conjunctions is likely "
+        "A CA containing \"or\", \"and\", or similar conjunctions is likely "
         "composite and should be split",
     ),
     "stage2_call3_system.j2": (
-        "Coordination links capture dependencies between responsibilities",
+        "Each coordination link represents a lateral coordination mechanism",
         "share state, data, or control flow",
-        "inter-controller coordination",
-        "Two responsibilities sharing a process model part not connected by a control action",
-        "One responsibility's feedback channel updates a PM part that another responsibility controls",
+        "Two responsibilities share a process model part not connected by a control action",
+        "One responsibility's feedback channel updates a PM part that another responsibility also depends on",
         "Two responsibilities need to agree on a shared resource",
         "An empty coordination_links list is acceptable only when no two responsibilities "
         "share state, data, or control flow",
@@ -74,8 +74,8 @@ def test_sp1_prompt_bug_fix_content_renders(
     (
         ("stage1a_risk_system.j2", "## Quality requirements"),
         ("stage1b_system.j2", "## Rules"),
-        ("stage2_call2_system.j2", "## ID conventions"),
-        ("stage2_call3_system.j2", "## Structural requirements"),
+        ("stage2_call2a_system.j2", "## ID conventions"),
+        ("stage2_call3_system.j2", "## Connection integrity checks"),
     ),
 )
 def test_sp1_prompt_bug_fixes_preserve_existing_sections(
@@ -104,7 +104,8 @@ _ZERO_VAR_SYSTEM_TEMPLATES = [
     "stage1a_gap_system.j2",
     "stage1b_system.j2",
     "stage2_call1_system.j2",
-    "stage2_call2_system.j2",
+    "stage2_call2a_system.j2",
+    "stage2_call2b_system.j2",
     "stage2_call3_system.j2",
 ]
 

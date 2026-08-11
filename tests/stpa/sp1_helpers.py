@@ -17,17 +17,16 @@ from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm import LLMResult
 
 
-def valid_empty_connection_set_dict() -> dict:
-    """Minimal ConnectionSet with no links, processes, or assignments.
+def valid_empty_coordination_analysis_dict() -> dict:
+    """Minimal CoordinationAnalysis with no links and no findings.
 
     Used by tests that only need Call 3 to produce a valid (but empty)
-    ConnectionSet so the merge produces a ControlStructure matching
-    the Call 2 ResponsibilitySet.
+    CoordinationAnalysis so the assembled ControlStructure has no
+    coordination links.
     """
     return {
         "coordination_links": [],
-        "controlled_processes": [],
-        "connection_assignments": [],
+        "integrity_findings": [],
     }
 
 
@@ -333,7 +332,11 @@ def valid_requirement_set_dict() -> dict:
 
 
 def valid_responsibility_set_dict() -> dict:
-    """Return a valid ResponsibilitySet dict for Stage 2 Call 2."""
+    """Return a valid ResponsibilitySet dict for Stage 2 Call 2a.
+
+    Only responsibilities with RCs and PM parts — no CAs, FBs, or CPs
+    (those come from Call 2b).
+    """
     return {
         "responsibilities": [
             {
@@ -345,17 +348,27 @@ def valid_responsibility_set_dict() -> dict:
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
                 ],
-                "control_actions": [
-                    {"ca_id": "CA-1-1", "description": "Execute action"}
-                ],
-                "feedback_channels": [
-                    {
-                        "fb_id": "FB-1-1",
-                        "description": "Action result",
-                        "updates": "PM-1-1",
-                        "source": {"type": "responsibility", "id": "RESP-1"},
-                    }
-                ],
+            }
+        ]
+    }
+
+
+def valid_control_element_set_dict() -> dict:
+    """Return a valid ControlElementSet dict for Stage 2 Call 2b.
+
+    Contains CAs, FBs, and CPs that match the responsibilities from
+    ``valid_responsibility_set_dict``.
+    """
+    return {
+        "control_actions": [
+            {"ca_id": "CA-1-1", "description": "Execute action"}
+        ],
+        "feedback_channels": [
+            {
+                "fb_id": "FB-1-1",
+                "description": "Action result",
+                "updates": "PM-1-1",
+                "source": {"type": "responsibility", "id": "RESP-1"},
             }
         ],
         "controlled_processes": [],
@@ -384,7 +397,8 @@ def setup_sp1_mock_client() -> MockLLMClient:
     from scenario_forge.models.capability_profile import Stage1Profile
     from scenario_forge.stpa.models.loss_analysis import LossAnalysisDraft
     from scenario_forge.stpa.system_model.control_structure import (
-        ConnectionSet,
+        ControlElementSet,
+        CoordinationAnalysis,
         RequirementSet,
         ResponsibilitySet,
     )
@@ -398,6 +412,7 @@ def setup_sp1_mock_client() -> MockLLMClient:
     client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, valid_responsibility_set_dict())
-    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+    client.set_response_for(ControlElementSet, valid_control_element_set_dict())
+    client.set_response_for(CoordinationAnalysis, valid_empty_coordination_analysis_dict())
     client.set_response_for(CriticFindings, valid_critic_findings_dict_no_gaps())
     return client

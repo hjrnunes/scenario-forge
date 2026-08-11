@@ -20,8 +20,8 @@ from scenario_forge.stpa.system_model.run import run_sp1
 from tests.stpa.sp1_helpers import (
     MockLLMClient,
     make_risk_cards,
-    valid_empty_connection_set_dict,
-    valid_loss_analysis_dict,
+    valid_control_element_set_dict,
+    valid_empty_coordination_analysis_dict,
     valid_requirement_set_dict,
     valid_responsibility_set_dict,
     valid_stage1_profile_dict,
@@ -87,19 +87,24 @@ def _setup_mock_client(
 
     # Stage 2 Call 1: RequirementSet
     from scenario_forge.stpa.system_model.control_structure import (
+        ControlElementSet,
+        CoordinationAnalysis,
         RequirementSet,
         ResponsibilitySet,
     )
 
     client.set_response_for(RequirementSet, valid_requirement_set_dict())
 
-    # Stage 2 Call 2: ResponsibilitySet
+    # Stage 2 Call 2a: ResponsibilitySet
     client.set_response_for(ResponsibilitySet, valid_responsibility_set_dict())
 
-    # Stage 2 Call 3: ConnectionSet
-    from scenario_forge.stpa.system_model.control_structure import ConnectionSet
+    # Stage 2 Call 2b: ControlElementSet
+    client.set_response_for(ControlElementSet, valid_control_element_set_dict())
 
-    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+    # Stage 2 Call 3: CoordinationAnalysis
+    client.set_response_for(
+        CoordinationAnalysis, valid_empty_coordination_analysis_dict()
+    )
 
     # Critic: CriticFindings
     if critic_findings is not None:
@@ -298,7 +303,8 @@ class TestRunOrchestration:
             "stage1a_gap_system.j2", "stage1a_gap_user.j2",
             "stage1b_system.j2", "stage1b_user.j2",
             "stage2_call1_system.j2", "stage2_call1_user.j2",
-            "stage2_call2_system.j2", "stage2_call2_user.j2",
+            "stage2_call2a_system.j2", "stage2_call2a_user.j2",
+            "stage2_call2b_system.j2", "stage2_call2b_user.j2",
             "stage2_call3_system.j2", "stage2_call3_user.j2",
             "critic_system.j2", "critic_user.j2",
             "revision_system.j2", "revision_user.j2",

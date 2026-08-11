@@ -1,10 +1,9 @@
-"""Tests for sanitizing invalid ElementRefs in merge fallback — Sanitize-01 through Sanitize-10.
+"""Tests for sanitizing invalid ElementRefs in assembly fallback — Sanitize-01 through Sanitize-10.
 
-When the ConnectionSet merge fails and the fallback path constructs a
-ControlStructure from the ResponsibilitySet alone, invalid ElementRefs
-that the LLM produced in Call 2 (which pass ResponsibilitySet parsing
-but fail ControlStructure validation) are nullified by _sanitize_for_fallback().
-If sanitization still fails, a further-degraded path strips ALL ElementRefs.
+When the _assemble_with_fallback() fails because the assembled
+ControlStructure contains invalid ElementRefs, the fallback path
+sanitizes them via _sanitize_for_fallback(). If sanitization still
+fails, a further-degraded path strips ALL ElementRefs.
 """
 
 from __future__ import annotations
@@ -22,9 +21,9 @@ from scenario_forge.stpa.models.control_structure import (
     Responsibility,
 )
 from scenario_forge.stpa.system_model.control_structure import (
-    ConnectionSet,
+    ControlElementSet,
     ResponsibilitySet,
-    _merge_with_fallback,
+    _assemble_with_fallback,
 )
 
 
@@ -112,55 +111,29 @@ def _make_resp(
 
 def _make_resp_set(
     responsibilities: list[Responsibility],
-    controlled_processes: list | None = None,
 ) -> ResponsibilitySet:
-    """Build a ResponsibilitySet."""
-
-    cps = controlled_processes or []
+    """Build a ResponsibilitySet (no controlled_processes in new model)."""
     return ResponsibilitySet(
         responsibilities=responsibilities,
-        controlled_processes=cps,
     )
 
 
-def _merge_failing_connection_set() -> ConnectionSet:
-    """A ConnectionSet that triggers merge failure (invalid cross-reference)."""
-    return ConnectionSet(
-        coordination_links=[],
-        controlled_processes=[],
-        connection_assignments=[
-            {
-                "element_id": "FB-1-1",
-                "source": {"type": "controlled_process", "id": "FB-1-1"},
-            }
-        ],
-    )
+def _empty_control_element_set() -> ControlElementSet:
+    """An empty ControlElementSet (no CAs, FBs, or CPs)."""
+    return ControlElementSet()
 
 
-def _valid_connection_set_with_cl1() -> ConnectionSet:
-    """A valid ConnectionSet with coordination link CL-1."""
-    from scenario_forge.stpa.models.control_structure import (
-        CoordinationLink,
-        CoordinationMechanism,
-    )
+def _control_element_set_with_cps(
+    cps: list,
+) -> ControlElementSet:
+    """A ControlElementSet with controlled processes only."""
+    from scenario_forge.stpa.models.control_structure import ControlledProcess
 
-    return ConnectionSet(
-        coordination_links=[
-            CoordinationLink(
-                link_id="CL-1",
-                source="RESP-1",
-                target="RESP-2",
-                shared_pm="PM-1-1",
-                coordination_mechanism=CoordinationMechanism(
-                    cm_id="CM-1",
-                    description="Shared state",
-                    payload="Payload",
-                ),
-                description="Coordination",
-            )
-        ],
-        controlled_processes=[],
-        connection_assignments=[],
+    return ControlElementSet(
+        controlled_processes=[
+            ControlledProcess(cp_id=cp["cp_id"], description=cp["description"])
+            for cp in cps
+        ]
     )
 
 
@@ -202,10 +175,10 @@ class TestSanitize01NullifyUnresolvable:
             else None,
         )
         resp_set = _make_resp_set([resp])
-        conn_set = _merge_failing_connection_set()
+        ces = _empty_control_element_set()
 
-        cs, warnings = _merge_with_fallback(
-            resp_set, conn_set, tmp_path, "test-model",
+        cs, warnings = _assemble_with_fallback(
+            resp_set, ces, tmp_path, "test-model",
         )
 
         assert isinstance(cs, ControlStructure)
@@ -236,8 +209,6 @@ class TestSanitize04ValidRefsPreserved:
         ids=["pm_feedback_source", "ca_target", "fb_source"],
     )
     def test_valid_refs_preserved(self, tmp_path, element_type, element_id, ref_field):
-        from scenario_forge.stpa.models.control_structure import ControlledProcess
-
         resp = _make_resp(
             pm_feedback_source={"type": "controlled_process", "id": "CP-1"}
             if ref_field == "feedback_source"
@@ -249,16 +220,13 @@ class TestSanitize04ValidRefsPreserved:
             if ref_field == "source"
             else None,
         )
-        resp_set = _make_resp_set(
-            [resp],
-            controlled_processes=[
-                ControlledProcess(cp_id="CP-1", description="Process"),
-            ],
-        )
-        conn_set = _merge_failing_connection_set()
+        resp_set = _make_resp_set([resp])
+        ces = _control_element_set_with_cps([
+            {"cp_id": "CP-1", "description": "Process"},
+        ])
 
-        cs, warnings = _merge_with_fallback(
-            resp_set, conn_set, tmp_path, "test-model",
+        cs, warnings = _assemble_with_fallback(
+            resp_set, ces, tmp_path, "test-model",
         )
 
         resp_out = cs.responsibilities[0]
@@ -287,15 +255,13 @@ class TestSanitize05PassesValidation:
             ca_target={"type": "controlled_process", "id": "INVALID-2"},
         )
         resp_set = _make_resp_set([resp])
-        conn_set = _merge_failing_connection_set()
+        ces = _empty_control_element_set()
 
-        cs, warnings = _merge_with_fallback(
-            resp_set, conn_set, tmp_path, "test-model",
+        cs, warnings = _assemble_with_fallback(
+            resp_set, ces, tmp_path, "test-model",
         )
 
-        # If the CS was constructed, it passed foundation validation
         assert isinstance(cs, ControlStructure)
-        # Invalid refs should be nullified
         assert cs.responsibilities[0].process_model_parts[0].feedback_source is None
         assert cs.responsibilities[0].control_actions[0].target is None
 
@@ -314,10 +280,10 @@ class TestSanitize06StrippedRefsLogged:
             ca_target={"type": "responsibility", "id": "RESP-99"},
         )
         resp_set = _make_resp_set([resp])
-        conn_set = _merge_failing_connection_set()
+        ces = _empty_control_element_set()
 
-        cs, warnings = _merge_with_fallback(
-            resp_set, conn_set, tmp_path, "test-model",
+        cs, warnings = _assemble_with_fallback(
+            resp_set, ces, tmp_path, "test-model",
         )
 
         warning_text = " ".join(warnings)
@@ -342,10 +308,10 @@ class TestSanitize07NoCrashInvalidValues:
             fb_source={"type": "responsibility", "id": "PM-3-1"},
         )
         resp_set = _make_resp_set([resp])
-        conn_set = _merge_failing_connection_set()
+        ces = _empty_control_element_set()
 
-        cs, warnings = _merge_with_fallback(
-            resp_set, conn_set, tmp_path, "test-model",
+        cs, warnings = _assemble_with_fallback(
+            resp_set, ces, tmp_path, "test-model",
         )
 
         assert isinstance(cs, ControlStructure)
@@ -368,10 +334,10 @@ class TestSanitize08FurtherDegradedPath:
         # Duplicate RESP-1 — causes duplicate ID validation failure
         resp2 = _make_resp(resp_id="RESP-1", description="Duplicate")
         resp_set = _make_resp_set([resp1, resp2])
-        conn_set = _merge_failing_connection_set()
+        ces = _empty_control_element_set()
 
-        cs, warnings = _merge_with_fallback(
-            resp_set, conn_set, tmp_path, "test-model",
+        cs, warnings = _assemble_with_fallback(
+            resp_set, ces, tmp_path, "test-model",
         )
 
         assert isinstance(cs, ControlStructure)
@@ -386,23 +352,18 @@ class TestSanitize08FurtherDegradedPath:
 
     def test_duplicate_cps_deduplicated_on_further_degradation(self, tmp_path):
         """CP dedup path in further-degraded fallback is exercised."""
-        from scenario_forge.stpa.models.control_structure import ControlledProcess
-
         resp1 = _make_resp(
             pm_feedback_source={"type": "controlled_process", "id": "FB-1-1"},
         )
         resp2 = _make_resp(resp_id="RESP-1", description="Duplicate")
-        resp_set = _make_resp_set(
-            [resp1, resp2],
-            controlled_processes=[
-                ControlledProcess(cp_id="CP-1", description="Process A"),
-                ControlledProcess(cp_id="CP-1", description="Process A dup"),
-            ],
-        )
-        conn_set = _merge_failing_connection_set()
+        resp_set = _make_resp_set([resp1, resp2])
+        ces = _control_element_set_with_cps([
+            {"cp_id": "CP-1", "description": "Process A"},
+            {"cp_id": "CP-1", "description": "Process A dup"},
+        ])
 
-        cs, _ = _merge_with_fallback(
-            resp_set, conn_set, tmp_path, "test-model",
+        cs, _ = _assemble_with_fallback(
+            resp_set, ces, tmp_path, "test-model",
         )
 
         cp_ids = [cp.cp_id for cp in cs.controlled_processes]
@@ -418,23 +379,18 @@ class TestSanitize09PreservesRespAndCp:
     """Sanitize-09: sanitized fallback preserves responsibilities and controlled processes."""
 
     def test_preserves_resps_and_cps(self, tmp_path):
-        from scenario_forge.stpa.models.control_structure import ControlledProcess
-
         resp1 = _make_resp(
             resp_id="RESP-1",
             pm_feedback_source={"type": "controlled_process", "id": "INVALID-1"},
         )
         resp2 = _make_resp(resp_id="RESP-2")
-        resp_set = _make_resp_set(
-            [resp1, resp2],
-            controlled_processes=[
-                ControlledProcess(cp_id="CP-1", description="Process"),
-            ],
-        )
-        conn_set = _merge_failing_connection_set()
+        resp_set = _make_resp_set([resp1, resp2])
+        ces = _control_element_set_with_cps([
+            {"cp_id": "CP-1", "description": "Process"},
+        ])
 
-        cs, warnings = _merge_with_fallback(
-            resp_set, conn_set, tmp_path, "test-model",
+        cs, warnings = _assemble_with_fallback(
+            resp_set, ces, tmp_path, "test-model",
         )
 
         resp_ids = {r.resp_id for r in cs.responsibilities}
@@ -445,23 +401,22 @@ class TestSanitize09PreservesRespAndCp:
 
 
 # ---------------------------------------------------------------------------
-# Sanitize-10: normal merge success path is unchanged
+# Sanitize-10: normal assembly success path is unchanged
 # ---------------------------------------------------------------------------
 
 
-class TestSanitize10NormalMergeUnchanged:
-    """Sanitize-10: normal merge success path is unchanged."""
+class TestSanitize10NormalAssemblyUnchanged:
+    """Sanitize-10: normal assembly success path is unchanged."""
 
-    def test_successful_merge_no_warnings(self, tmp_path):
+    def test_successful_assembly_no_warnings(self, tmp_path):
         resp1 = _make_resp(resp_id="RESP-1")
         resp2 = _make_resp(resp_id="RESP-2")
         resp_set = _make_resp_set([resp1, resp2])
-        conn_set = _valid_connection_set_with_cl1()
+        ces = _empty_control_element_set()
 
-        cs, warnings = _merge_with_fallback(
-            resp_set, conn_set, tmp_path, "test-model",
+        cs, warnings = _assemble_with_fallback(
+            resp_set, ces, tmp_path, "test-model",
         )
 
-        cl_ids = {cl.link_id for cl in cs.coordination_links}
-        assert "CL-1" in cl_ids
+        assert isinstance(cs, ControlStructure)
         assert warnings == []

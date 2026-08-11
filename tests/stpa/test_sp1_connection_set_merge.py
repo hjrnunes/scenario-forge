@@ -1,14 +1,19 @@
-"""Unit tests for SP1 Stage 2 Call 3 ConnectionSet merge.
+"""Unit tests for SP1 Stage 2 Call 3 CoordinationAnalysis and assembly.
 
-Covers ConnSet-01 through ConnSet-11 from the Gherkin feature file:
-  tests/stpa/features/sp1_connection_set_merge.feature
+Covers the coordination-link and controlled-process behavior that
+replaced the old ConnectionSet merge (ConnSet-01 through ConnSet-11).
+
+Stage 2 now has 4 calls:
+  Call 1  — Requirements
+  Call 2a — Responsibilities + RCs + PM parts
+  Call 2b — Control Actions + Feedback Channels + Controlled Processes
+  Call 3  — Coordination links + integrity findings
 """
 
 from __future__ import annotations
 
 import json
 
-import pytest
 
 from scenario_forge.stpa.infra.yaml_io import read_yaml
 from scenario_forge.stpa.models.control_structure import (
@@ -28,14 +33,11 @@ from scenario_forge.stpa.models.loss_analysis import (
     SecurityConstraint,
 )
 from scenario_forge.stpa.system_model.control_structure import (
-    ConnectionAssignment,
-    ConnectionSet,
+    ControlElementSet,
+    CoordinationAnalysis,
     RequirementSet,
     ResponsibilitySet,
-    _try_set_feedback_source,
-    _try_set_control_action_target,
     derive_control_structure,
-    merge_connection_set,
 )
 from scenario_forge.stpa.system_model.critic import (
     CriticFindings,
@@ -93,7 +95,7 @@ def _valid_requirement_set_dict() -> dict:
 
 
 def _valid_responsibility_set_dict() -> dict:
-    """ResponsibilitySet where FB-1-1 has no source and CA-1-1 has no target."""
+    """ResponsibilitySet with RCs and PMs only (Call 2a output)."""
     return {
         "responsibilities": [
             {
@@ -105,16 +107,6 @@ def _valid_responsibility_set_dict() -> dict:
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
                 ],
-                "control_actions": [
-                    {"ca_id": "CA-1-1", "description": "Execute payment"}
-                ],
-                "feedback_channels": [
-                    {
-                        "fb_id": "FB-1-1",
-                        "description": "Transaction result",
-                        "updates": "PM-1-1",
-                    }
-                ],
             },
             {
                 "resp_id": "RESP-2",
@@ -123,25 +115,40 @@ def _valid_responsibility_set_dict() -> dict:
                 "process_model_parts": [
                     {"pm_id": "PM-2-1", "description": "Response content state"}
                 ],
-                "control_actions": [
-                    {"ca_id": "CA-2-1", "description": "Send response"}
-                ],
-                "feedback_channels": [
-                    {
-                        "fb_id": "FB-2-1",
-                        "description": "Response confirmation",
-                        "updates": "PM-2-1",
-                        "source": {"type": "responsibility", "id": "RESP-2"},
-                    }
-                ],
             },
         ],
-        "controlled_processes": [],
     }
 
 
-def _valid_connection_set_dict() -> dict:
-    """ConnectionSet with coordination links, controlled processes, and assignments."""
+def _valid_control_element_set_dict() -> dict:
+    """ControlElementSet with CAs, FBs, and CPs (Call 2b output)."""
+    return {
+        "control_actions": [
+            {"ca_id": "CA-1-1", "description": "Execute payment"},
+            {"ca_id": "CA-2-1", "description": "Send response"},
+        ],
+        "feedback_channels": [
+            {
+                "fb_id": "FB-1-1",
+                "description": "Transaction result",
+                "updates": "PM-1-1",
+                "source": {"type": "controlled_process", "id": "CP-1"},
+            },
+            {
+                "fb_id": "FB-2-1",
+                "description": "Response confirmation",
+                "updates": "PM-2-1",
+                "source": {"type": "responsibility", "id": "RESP-2"},
+            },
+        ],
+        "controlled_processes": [
+            {"cp_id": "CP-1", "description": "Payment transaction system"}
+        ],
+    }
+
+
+def _valid_coordination_analysis_dict() -> dict:
+    """CoordinationAnalysis with coordination links and integrity findings (Call 3 output)."""
     return {
         "coordination_links": [
             {
@@ -157,41 +164,30 @@ def _valid_connection_set_dict() -> dict:
                 "description": "Payment controller coordinates with output controller",
             }
         ],
-        "controlled_processes": [
-            {"cp_id": "CP-1", "description": "Payment transaction system"}
-        ],
-        "connection_assignments": [
-            {
-                "element_id": "FB-1-1",
-                "source": {"type": "controlled_process", "id": "CP-1"},
-            },
-            {
-                "element_id": "CA-1-1",
-                "target": {"type": "controlled_process", "id": "CP-1"},
-            },
-        ],
+        "integrity_findings": [],
     }
 
 
 def _setup_mock_client() -> MockLLMClient:
-    """Set up a mock LLM client with valid responses for all three Stage 2 calls."""
+    """Set up a mock LLM client with valid responses for all four Stage 2 calls."""
     client = MockLLMClient()
     client.set_response_for(RequirementSet, _valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-    client.set_response_for(ConnectionSet, _valid_connection_set_dict())
+    client.set_response_for(ControlElementSet, _valid_control_element_set_dict())
+    client.set_response_for(CoordinationAnalysis, _valid_coordination_analysis_dict())
     return client
 
 
 # ---------------------------------------------------------------------------
-# ConnSet-01: Call 3 produces a ConnectionSet
+# ConnSet-01: Call 3 produces a CoordinationAnalysis
 # ---------------------------------------------------------------------------
 
 
-class TestConnSet01Call3ProducesConnectionSet:
-    """ConnSet-01: Call 3 produces a ConnectionSet (not ControlStructure)."""
+class TestConnSet01Call3ProducesCoordinationAnalysis:
+    """ConnSet-01: Call 3 produces a CoordinationAnalysis (not ControlStructure)."""
 
-    def test_connset_01_call_3_response_format_is_connection_set(self, tmp_path):
-        """Call 3 uses ConnectionSet as the response format."""
+    def test_connset_01_call_3_response_format_is_coordination_analysis(self, tmp_path):
+        """Call 3 uses CoordinationAnalysis as the response format."""
         client = _setup_mock_client()
         derive_control_structure(
             llm_client=client,
@@ -199,21 +195,21 @@ class TestConnSet01Call3ProducesConnectionSet:
             loss_analysis=_make_loss_analysis(),
             run_dir=tmp_path,
         )
-        # The third call (Call 3) should have response_format=ConnectionSet
-        call3 = client.calls[2]
-        assert call3.response_format is ConnectionSet
+        # Call 3 is the fourth call (index 3)
+        call3 = client.calls[3]
+        assert call3.response_format is CoordinationAnalysis
 
 
 # ---------------------------------------------------------------------------
-# ConnSet-02: ConnectionSet contains the expected outputs
+# ConnSet-02: CoordinationAnalysis and ControlElementSet contain expected outputs
 # ---------------------------------------------------------------------------
 
 
-class TestConnSet02ConnectionSetContents:
-    """ConnSet-02: ConnectionSet contains coordination links, CPs, and assignments."""
+class TestConnSet02Contents:
+    """ConnSet-02: CoordinationAnalysis has CL-1; ControlElementSet has CP-1."""
 
-    def test_connset_02_contains_coordination_links_cps_and_assignments(self, tmp_path):
-        """ConnectionSet has CL-1, CP-1, and assignment for FB-1-1."""
+    def test_connset_02_contains_coordination_links_and_cps(self, tmp_path):
+        """CoordinationAnalysis has CL-1, ControlElementSet has CP-1, FB-1-1 has source."""
         client = _setup_mock_client()
         derive_control_structure(
             llm_client=client,
@@ -221,8 +217,6 @@ class TestConnSet02ConnectionSetContents:
             loss_analysis=_make_loss_analysis(),
             run_dir=tmp_path,
         )
-        # Parse the Call 3 response to verify it's a valid ConnectionSet
-        # The merge produces the final ControlStructure — verify via the output
         cs = read_yaml(tmp_path / "control-structure.yaml", ControlStructure)
         # Coordination link CL-1 present
         cl_ids = {cl.link_id for cl in cs.coordination_links}
@@ -230,7 +224,7 @@ class TestConnSet02ConnectionSetContents:
         # Controlled process CP-1 present
         cp_ids = {cp.cp_id for cp in cs.controlled_processes}
         assert "CP-1" in cp_ids
-        # FB-1-1 has source set (from connection assignment)
+        # FB-1-1 has source set (from ControlElementSet)
         for resp in cs.responsibilities:
             for fb in resp.feedback_channels:
                 if fb.fb_id == "FB-1-1":
@@ -239,14 +233,14 @@ class TestConnSet02ConnectionSetContents:
 
 
 # ---------------------------------------------------------------------------
-# ConnSet-03: merge produces a valid ControlStructure
+# ConnSet-03: assembly produces a valid ControlStructure
 # ---------------------------------------------------------------------------
 
 
-class TestConnSet03MergeProducesValidControlStructure:
-    """ConnSet-03: merge produces a valid ControlStructure."""
+class TestConnSet03AssemblyProducesValidControlStructure:
+    """ConnSet-03: assembly produces a valid ControlStructure."""
 
-    def test_connset_03_merge_produces_valid_control_structure(self, tmp_path):
+    def test_connset_03_assembly_produces_valid_control_structure(self, tmp_path):
         """Full Stage 2 derivation produces a valid ControlStructure."""
         client = _setup_mock_client()
         cs, _ = derive_control_structure(
@@ -256,56 +250,7 @@ class TestConnSet03MergeProducesValidControlStructure:
             run_dir=tmp_path,
         )
         assert isinstance(cs, ControlStructure)
-        # Foundation validation passes (no exception raised by construction)
         assert len(cs.responsibilities) == 2
-
-
-# ---------------------------------------------------------------------------
-# ConnSet-04: connection assignment updates feedback source by element ID
-# ---------------------------------------------------------------------------
-
-
-class TestConnSet04FeedbackSourceUpdate:
-    """ConnSet-04: connection assignment updates feedback source by element ID."""
-
-    def test_connset_04_feedback_source_set_by_assignment(self):
-        """Merge sets FB-1-1 source to CP-1 via connection assignment."""
-        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
-        conn_set = ConnectionSet.model_validate(_valid_connection_set_dict())
-        cs = merge_connection_set(resp_set, conn_set)
-
-        for resp in cs.responsibilities:
-            for fb in resp.feedback_channels:
-                if fb.fb_id == "FB-1-1":
-                    assert fb.source is not None
-                    assert fb.source.type == ReferenceType.controlled_process
-                    assert fb.source.id == "CP-1"
-                    return
-        pytest.fail("FB-1-1 not found in any responsibility")
-
-
-# ---------------------------------------------------------------------------
-# ConnSet-05: connection assignment updates control action target by element ID
-# ---------------------------------------------------------------------------
-
-
-class TestConnSet05ControlActionTargetUpdate:
-    """ConnSet-05: connection assignment updates control action target by element ID."""
-
-    def test_connset_05_ca_target_set_by_assignment(self):
-        """Merge sets CA-1-1 target to CP-1 via connection assignment."""
-        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
-        conn_set = ConnectionSet.model_validate(_valid_connection_set_dict())
-        cs = merge_connection_set(resp_set, conn_set)
-
-        for resp in cs.responsibilities:
-            for ca in resp.control_actions:
-                if ca.ca_id == "CA-1-1":
-                    assert ca.target is not None
-                    assert ca.target.type == ReferenceType.controlled_process
-                    assert ca.target.id == "CP-1"
-                    return
-        pytest.fail("CA-1-1 not found in any responsibility")
 
 
 # ---------------------------------------------------------------------------
@@ -316,12 +261,15 @@ class TestConnSet05ControlActionTargetUpdate:
 class TestConnSet06CoordinationLinksInFinalCS:
     """ConnSet-06: coordination links appear in the final ControlStructure."""
 
-    def test_connset_06_coordination_link_present(self):
-        """Merge includes coordination link CL-1 from ConnectionSet."""
-        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
-        conn_set = ConnectionSet.model_validate(_valid_connection_set_dict())
-        cs = merge_connection_set(resp_set, conn_set)
-
+    def test_connset_06_coordination_link_present(self, tmp_path):
+        """Coordination link CL-1 from CoordinationAnalysis appears in final CS."""
+        client = _setup_mock_client()
+        cs, _ = derive_control_structure(
+            llm_client=client,
+            use_case_text="Test",
+            loss_analysis=_make_loss_analysis(),
+            run_dir=tmp_path,
+        )
         assert len(cs.coordination_links) == 1
         cl = cs.coordination_links[0]
         assert cl.link_id == "CL-1"
@@ -337,80 +285,17 @@ class TestConnSet06CoordinationLinksInFinalCS:
 class TestConnSet07ControlledProcessesInFinalCS:
     """ConnSet-07: controlled processes appear in the final ControlStructure."""
 
-    def test_connset_07_controlled_process_present(self):
-        """Merge includes controlled process CP-1 from ConnectionSet."""
-        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
-        conn_set = ConnectionSet.model_validate(_valid_connection_set_dict())
-        cs = merge_connection_set(resp_set, conn_set)
-
+    def test_connset_07_controlled_process_present(self, tmp_path):
+        """Controlled process CP-1 from ControlElementSet appears in final CS."""
+        client = _setup_mock_client()
+        cs, _ = derive_control_structure(
+            llm_client=client,
+            use_case_text="Test",
+            loss_analysis=_make_loss_analysis(),
+            run_dir=tmp_path,
+        )
         cp_ids = {cp.cp_id for cp in cs.controlled_processes}
         assert "CP-1" in cp_ids
-
-
-# ---------------------------------------------------------------------------
-# ConnSet-07a: merge with unmatched and None assignments is a no-op
-# ---------------------------------------------------------------------------
-
-
-class TestConnSet07aMergeEdgeCases:
-    """Edge cases: assignments with None source/target or unmatched element IDs."""
-
-    def test_merge_ignores_assignment_with_none_source_and_target(self):
-        """Assignment with both source and target None is a no-op."""
-        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
-        conn_set = ConnectionSet(
-            connection_assignments=[
-                ConnectionAssignment(element_id="FB-1-1"),  # no source, no target
-            ],
-        )
-        cs = merge_connection_set(resp_set, conn_set)
-        # FB-1-1 source should remain None (not set)
-        for resp in cs.responsibilities:
-            for fb in resp.feedback_channels:
-                if fb.fb_id == "FB-1-1":
-                    assert fb.source is None
-
-    def test_merge_ignores_assignment_with_unmatched_element_id(self):
-        """Assignment whose element_id matches no FB or CA is silently ignored."""
-        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
-        conn_set = ConnectionSet(
-            connection_assignments=[
-                ConnectionAssignment(
-                    element_id="FB-9-9",
-                    source={"type": "controlled_process", "id": "CP-1"},
-                ),
-            ],
-        )
-        cs = merge_connection_set(resp_set, conn_set)
-        # No feedback channel should have a source set from this unmatched assignment
-        for resp in cs.responsibilities:
-            for fb in resp.feedback_channels:
-                if fb.fb_id == "FB-1-1":
-                    assert fb.source is None
-
-    def test_merge_assignment_source_only_does_not_set_ca_target(self):
-        """Assignment with source but no target sets FB source but not CA target."""
-        resp_set = ResponsibilitySet.model_validate(_valid_responsibility_set_dict())
-        conn_set = ConnectionSet(
-            controlled_processes=[
-                {"cp_id": "CP-1", "description": "Payment system"},
-            ],
-            connection_assignments=[
-                ConnectionAssignment(
-                    element_id="FB-1-1",
-                    source={"type": "controlled_process", "id": "CP-1"},
-                ),
-            ],
-        )
-        cs = merge_connection_set(resp_set, conn_set)
-        for resp in cs.responsibilities:
-            for fb in resp.feedback_channels:
-                if fb.fb_id == "FB-1-1":
-                    assert fb.source is not None
-                    assert fb.source.id == "CP-1"
-            for ca in resp.control_actions:
-                if ca.ca_id == "CA-1-1":
-                    assert ca.target is None
 
 
 # ---------------------------------------------------------------------------
@@ -419,10 +304,10 @@ class TestConnSet07aMergeEdgeCases:
 
 
 class TestConnSet08Call3Logging:
-    """ConnSet-08: Call 3 logged with stage stage_2 and step call_3_connections."""
+    """ConnSet-08: Call 3 logged with stage stage_2 and step call_3_coordination."""
 
     def test_connset_08_call_3_logged(self, tmp_path):
-        """Call 3 is logged with stage=stage_2 and step=call_3_connections."""
+        """Call 3 is logged with stage=stage_2 and step=call_3_coordination."""
         client = _setup_mock_client()
         derive_control_structure(
             llm_client=client,
@@ -433,7 +318,7 @@ class TestConnSet08Call3Logging:
 
         calls_file = tmp_path / "calls.jsonl"
         entries = [json.loads(line) for line in calls_file.read_text().splitlines()]
-        call3 = [e for e in entries if e["step"] == "call_3_connections"]
+        call3 = [e for e in entries if e["step"] == "call_3_coordination"]
         assert len(call3) == 1
         assert call3[0]["stage"] == "stage_2"
 
@@ -480,13 +365,14 @@ class TestConnSet10Call3PromptContainsResponsibilities:
             loss_analysis=_make_loss_analysis(),
             run_dir=tmp_path,
         )
-        call3 = client.calls[2]
+        # Call 3 is the fourth call (index 3)
+        call3 = client.calls[3]
         assert "RESP-1" in call3.user_prompt
         assert "RESP-2" in call3.user_prompt
 
 
 # ---------------------------------------------------------------------------
-# ConnSet-11: revision still uses ControlStructure as response format
+# ConnSet-11: revision still uses RevisionDelta as response format
 # ---------------------------------------------------------------------------
 
 
@@ -552,84 +438,3 @@ class TestConnSet11RevisionUsesRevisionDelta:
         assert isinstance(revised, ControlStructure)
         # The revision call used response_format=RevisionDelta
         assert client.calls[0].response_format is RevisionDelta
-
-
-# ---------------------------------------------------------------------------
-# Helper return-value tests (mutation hardening)
-# ---------------------------------------------------------------------------
-
-
-class TestHelperReturnValues:
-    """Verify _try_set_feedback_source and _try_set_control_action_target return True on match."""
-
-    def test_try_set_feedback_source_returns_true_on_match(self):
-        """_try_set_feedback_source returns True when it sets the source."""
-        resp = Responsibility(
-            resp_id="RESP-1",
-            description="Controller",
-            process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
-            control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
-            feedback_channels=[
-                FeedbackChannel(fb_id="FB-1-1", description="FB", updates="PM-1-1"),
-            ],
-        )
-        assignment = ConnectionAssignment(
-            element_id="FB-1-1",
-            source=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
-        )
-        assert _try_set_feedback_source(resp, assignment) is True
-        assert resp.feedback_channels[0].source is not None
-        assert resp.feedback_channels[0].source.id == "CP-1"
-
-    def test_try_set_feedback_source_returns_false_on_no_match(self):
-        """_try_set_feedback_source returns False when element_id does not match."""
-        resp = Responsibility(
-            resp_id="RESP-1",
-            description="Controller",
-            process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
-            control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
-            feedback_channels=[
-                FeedbackChannel(fb_id="FB-1-1", description="FB", updates="PM-1-1"),
-            ],
-        )
-        assignment = ConnectionAssignment(
-            element_id="FB-9-9",
-            source=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
-        )
-        assert _try_set_feedback_source(resp, assignment) is False
-
-    def test_try_set_control_action_target_returns_true_on_match(self):
-        """_try_set_control_action_target returns True when it sets the target."""
-        resp = Responsibility(
-            resp_id="RESP-1",
-            description="Controller",
-            process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
-            control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
-            feedback_channels=[
-                FeedbackChannel(fb_id="FB-1-1", description="FB", updates="PM-1-1"),
-            ],
-        )
-        assignment = ConnectionAssignment(
-            element_id="CA-1-1",
-            target=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
-        )
-        assert _try_set_control_action_target(resp, assignment) is True
-        assert resp.control_actions[0].target is not None
-        assert resp.control_actions[0].target.id == "CP-1"
-
-    def test_try_set_control_action_target_returns_false_on_no_match(self):
-        """_try_set_control_action_target returns False when element_id does not match."""
-        resp = Responsibility(
-            resp_id="RESP-1",
-            description="Controller",
-            process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
-            control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
-            feedback_channels=[
-                FeedbackChannel(fb_id="FB-1-1", description="FB", updates="PM-1-1"),
-            ],
-        )
-        assignment = ConnectionAssignment(
-            element_id="CA-9-9",
-            target=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
-        )
-        assert _try_set_control_action_target(resp, assignment) is False

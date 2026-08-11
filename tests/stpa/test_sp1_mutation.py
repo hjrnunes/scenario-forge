@@ -34,7 +34,8 @@ from scenario_forge.stpa.models.loss_analysis import (
     SecurityConstraint,
 )
 from scenario_forge.stpa.system_model.control_structure import (
-    ConnectionSet,
+    ControlElementSet,
+    CoordinationAnalysis,
     RequirementSet,
     ResponsibilitySet,
 )
@@ -46,7 +47,11 @@ from scenario_forge.stpa.system_model.critic import (
     has_unjustified_gaps,
 )
 from scenario_forge.stpa.system_model.run import SP1RunResult, run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
+from tests.stpa.sp1_helpers import (
+    MockLLMClient,
+    valid_control_element_set_dict,
+    valid_empty_coordination_analysis_dict,
+)
 
 
 def _profile(
@@ -397,6 +402,24 @@ def _valid_responsibility_set_dict() -> dict:
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
                 ],
+            }
+        ],
+    }
+
+
+def _valid_control_structure_dict() -> dict:
+    """ControlStructure dict for revision mock (RESP-1 with CAs/FBs assembled)."""
+    return {
+        "responsibilities": [
+            {
+                "resp_id": "RESP-1",
+                "description": "Authorization controller",
+                "responsibility_constraints": [
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"}
+                ],
+                "process_model_parts": [
+                    {"pm_id": "PM-1-1", "description": "User intent state"}
+                ],
                 "control_actions": [
                     {"ca_id": "CA-1-1", "description": "Execute action"}
                 ],
@@ -410,14 +433,6 @@ def _valid_responsibility_set_dict() -> dict:
                 ],
             }
         ],
-        "controlled_processes": [],
-    }
-
-
-def _valid_control_structure_dict() -> dict:
-    rs = _valid_responsibility_set_dict()
-    return {
-        "responsibilities": rs["responsibilities"],
         "controlled_processes": [],
         "coordination_links": [],
     }
@@ -472,8 +487,9 @@ def _make_mock_client(
             _valid_loss_analysis_dict(),                # Stage 1a risk_derivation
             _valid_gap_draft_dict(),                    # Stage 1a gap_analysis
             _valid_requirement_set_dict(),              # Stage 2 Call 1
-            _valid_responsibility_set_dict(),           # Stage 2 Call 2
-            valid_empty_connection_set_dict(),          # Stage 2 Call 3
+            _valid_responsibility_set_dict(),           # Stage 2 Call 2a
+            valid_control_element_set_dict(),           # Stage 2 Call 2b
+            valid_empty_coordination_analysis_dict(),   # Stage 2 Call 3
             findings,                                   # Critic
             revised_cs,                                 # Revision
         ])
@@ -485,7 +501,10 @@ def _make_mock_client(
         client.set_response_for(_S1P, _valid_stage1_profile_dict())
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+        client.set_response_for(ControlElementSet, valid_control_element_set_dict())
+        client.set_response_for(
+            CoordinationAnalysis, valid_empty_coordination_analysis_dict()
+        )
         client.set_response_for(CriticFindings, findings)
 
     return client

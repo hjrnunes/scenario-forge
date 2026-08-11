@@ -26,7 +26,8 @@ from scenario_forge.stpa.models.control_structure import (
 )
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model.control_structure import (
-    ConnectionSet,
+    ControlElementSet,
+    CoordinationAnalysis,
     RequirementSet,
     ResponsibilitySet,
 )
@@ -55,17 +56,6 @@ _RESP_1 = {
     "process_model_parts": [
         {"pm_id": "PM-1-1", "description": "State 1"}
     ],
-    "control_actions": [
-        {"ca_id": "CA-1-1", "description": "Action 1"}
-    ],
-    "feedback_channels": [
-        {
-            "fb_id": "FB-1-1",
-            "description": "FB 1",
-            "updates": "PM-1-1",
-            "source": {"type": "responsibility", "id": "RESP-1"},
-        }
-    ],
 }
 
 _RESP_2 = {
@@ -74,17 +64,28 @@ _RESP_2 = {
     "process_model_parts": [
         {"pm_id": "PM-2-1", "description": "State 2"}
     ],
+}
+
+_CONTROL_ELEMENT_SET = {
     "control_actions": [
-        {"ca_id": "CA-2-1", "description": "Action 2"}
+        {"ca_id": "CA-1-1", "description": "Action 1"},
+        {"ca_id": "CA-2-1", "description": "Action 2"},
     ],
     "feedback_channels": [
+        {
+            "fb_id": "FB-1-1",
+            "description": "FB 1",
+            "updates": "PM-1-1",
+            "source": {"type": "responsibility", "id": "RESP-1"},
+        },
         {
             "fb_id": "FB-2-1",
             "description": "FB 2",
             "updates": "PM-2-1",
             "source": {"type": "responsibility", "id": "RESP-2"},
-        }
+        },
     ],
+    "controlled_processes": [],
 }
 
 
@@ -302,19 +303,17 @@ def make_degradation_delta() -> dict:
 # ---------------------------------------------------------------------------
 
 def _two_resp_set_dict() -> dict:
-    """ResponsibilitySet dict with RESP-1 and RESP-2."""
+    """ResponsibilitySet dict with RESP-1 and RESP-2 (RCs and PMs only)."""
     return {
         "responsibilities": [_RESP_1, _RESP_2],
-        "controlled_processes": [],
     }
 
 
-def _two_cl_connection_set_dict() -> dict:
-    """ConnectionSet dict with CL-1/CM-1 and CL-2/CM-2."""
+def _two_cl_coordination_analysis_dict() -> dict:
+    """CoordinationAnalysis dict with CL-1/CM-1 and CL-2/CM-2."""
     return {
         "coordination_links": _two_cl_dict(),
-        "controlled_processes": [],
-        "connection_assignments": [],
+        "integrity_findings": [],
     }
 
 
@@ -350,7 +349,8 @@ def setup_airbnb_sp1_mock_client() -> MockLLMClient:
     client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, _two_resp_set_dict())
-    client.set_response_for(ConnectionSet, _two_cl_connection_set_dict())
+    client.set_response_for(ControlElementSet, _CONTROL_ELEMENT_SET)
+    client.set_response_for(CoordinationAnalysis, _two_cl_coordination_analysis_dict())
     client.set_response_for(CriticFindings, _critic_with_unjustified_gaps())
     client.set_response_for(
         RevisionDelta,
@@ -375,7 +375,8 @@ def setup_degradation_sp1_mock_client() -> MockLLMClient:
     client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, _two_resp_set_dict())
-    client.set_response_for(ConnectionSet, _two_cl_connection_set_dict())
+    client.set_response_for(ControlElementSet, _CONTROL_ELEMENT_SET)
+    client.set_response_for(CoordinationAnalysis, _two_cl_coordination_analysis_dict())
     client.set_response_for(CriticFindings, _critic_with_unjustified_gaps())
     client.set_response_for(RevisionDelta, make_degradation_delta())
     return client

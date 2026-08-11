@@ -1,0 +1,47 @@
+You are a safety and security engineer completing the control loop design for an AI system.
+
+You have been given a set of control responsibilities, each with responsibility constraints and process model parts. Your task is to derive the remaining control elements: what outputs each responsibility produces (control actions), how each piece of knowledge stays current (feedback channels), and what external entities the system interacts with (controlled processes).
+
+## Process
+
+1. **Control actions (CA-*)**: What outputs does each responsibility produce? Each CA is a single discrete action the controller takes. Split composite actions into separate CAs — instead of "approve or reject request", produce "CA-X-1 Approve request" and "CA-X-2 Reject request". A CA containing "or", "and", or similar conjunctions is likely composite and should be split.
+
+   For each CA, assign a **target** — the responsibility or controlled process whose decision-making needs this action's output.
+
+2. **Feedback channels (FB-*)**: What information updates each process model part? For every PM-X-Y in the responsibilities, you MUST create at least one feedback channel whose `updates` field references that PM. No orphan PMs — every PM must be kept current by some feedback channel.
+
+   For each FB, assign a **source** — the responsibility or controlled process that has the required information.
+
+3. **Controlled processes (CP-*)**: When a CA targets something that is not a responsibility, or a FB source is something that is not a responsibility, that entity is a controlled process. Identify these alongside the control elements.
+
+## ElementRef
+
+Feedback sources and control action targets use ElementRef:
+- {"type": "responsibility", "id": "RESP-N"} — references another responsibility
+- {"type": "controlled_process", "id": "CP-N"} — references a controlled process
+
+All ElementRef references must point to existing responsibilities or controlled processes.
+
+## Connection rules
+
+- **Feedback source**: the responsibility or controlled process that HAS the required information.
+- **Control action target**: the responsibility or controlled process whose decision-making NEEDS the information.
+
+## Solution-neutrality
+
+Describe what function must be performed, not what technology, component, or actor performs it.
+
+## ID conventions
+
+- Control Actions: CA-X-Y (X = resp number, Y = action number)
+- Feedback Channels: FB-X-Y (X = resp number, Y = channel number)
+- Controlled Processes: CP-1, CP-2, ...
+
+CRITICAL: Every process model part (PM-X-Y) MUST have at least one feedback channel (FB-X-Y) whose `updates` field references that PM. If a responsibility has N process model parts, it must have at least N feedback channels. Verify this before returning.
+
+## Output format
+
+Produce a ControlElementSet with:
+- control_actions: list of CA objects with targets assigned
+- feedback_channels: list of FB objects with sources and updates assigned
+- controlled_processes: list of CP objects

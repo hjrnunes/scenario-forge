@@ -4,10 +4,10 @@ Covers SP1-PMFB-01 through SP1-PMFB-13 from the Gherkin feature file:
   tests/stpa/features/sp1_orphan_pm_repair.feature
 
 Tests verify that:
-- The Call 2 system and user prompts enforce 1:1 PM-FB correspondence.
+- The Call 2a system and user prompts enforce 1:1 PM-FB correspondence.
 - ``repair_orphan_pms`` finds orphan PM parts (no FB referencing them)
   and auto-generates stub FB channels.
-- Repair is called after Call 2 and before Call 3 in
+- Repair is called after Call 2a/2b assembly and before Call 3 in
   ``derive_control_structure``.
 """
 
@@ -18,6 +18,7 @@ from unittest.mock import patch
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.models.control_structure import (
     ControlAction,
+    ControlStructure,
     ElementRef,
     FeedbackChannel,
     ProcessModelPart,
@@ -26,6 +27,9 @@ from scenario_forge.stpa.models.control_structure import (
 )
 from scenario_forge.stpa.system_model import PROMPTS_DIR
 from scenario_forge.stpa.system_model.control_structure import (
+    ControlElementSet,
+    CoordinationAnalysis,
+    RequirementSet,
     ResponsibilitySet,
     _extract_resp_num,
     repair_orphan_pms,
@@ -37,34 +41,33 @@ from scenario_forge.stpa.system_model.control_structure import (
 # ---------------------------------------------------------------------------
 
 
-class TestCall2PromptPMFBCorrespondence:
+class TestCall2aPromptPMFBCorrespondence:
     """SP1-PMFB-01 through SP1-PMFB-03: prompt enforces PM-FB 1:1."""
 
     def test_pmfb_01_system_prompt_requires_pm_fb_correspondence(self):
         """SP1-PMFB-01: system prompt requires PM-FB correspondence."""
         loader = TemplateLoader(PROMPTS_DIR)
-        text = loader.render_prompt("stage2_call2_system.j2")
+        text = loader.render_prompt("stage2_call2b_system.j2")
         assert "Every process model part (PM-X-Y) MUST have at least one feedback channel" in text
-        assert "whose updates field references that PM" in text
+        assert "updates` field references that PM" in text
         assert "No orphan PMs" in text
 
     def test_pmfb_02_system_prompt_requires_n_fbs_for_n_pms(self):
         """SP1-PMFB-02: system prompt requires N FBs for N PMs."""
         loader = TemplateLoader(PROMPTS_DIR)
-        text = loader.render_prompt("stage2_call2_system.j2")
+        text = loader.render_prompt("stage2_call2b_system.j2")
         assert "If a responsibility has N process model parts, it must have at least N feedback channels" in text
 
     def test_pmfb_03_user_prompt_strengthens_step_5(self):
         """SP1-PMFB-03: user prompt strengthens step 5 with one FB per PM."""
         loader = TemplateLoader(PROMPTS_DIR)
         text = loader.render_prompt(
-            "stage2_call2_user.j2",
+            "stage2_call2b_user.j2",
             use_case_text="Test",
-            requirements=[],
-            capability_profile=None,
+            responsibilities=[],
         )
-        assert "One FB per PM part at minimum" in text
-        assert "Each PM-X-Y must appear in at least one FB" in text
+        assert "Every PM-X-Y must appear in at least one FB" in text
+        assert "every PM-X-Y listed above has at least one corresponding FB" in text
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +115,9 @@ def _make_resp(
     )
 
 
-def _make_resp_set(responsibilities: list[Responsibility]) -> ResponsibilitySet:
-    return ResponsibilitySet(responsibilities=responsibilities)
+def _make_cs(responsibilities: list[Responsibility]) -> ControlStructure:
+    """Build a ControlStructure from a list of responsibilities."""
+    return ControlStructure(responsibilities=responsibilities)
 
 
 # ---------------------------------------------------------------------------
@@ -131,8 +135,8 @@ class TestRepairOrphanPMs:
             ["PM-1-1", "PM-1-2"],
             fb_specs=[("FB-1-1", "PM-1-1")],
         )
-        resp_set = _make_resp_set([resp])
-        repaired, warnings = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp])
+        repaired, warnings = repair_orphan_pms(cs)
         r0 = repaired.responsibilities[0]
         updated_pms = {fb.updates for fb in r0.feedback_channels}
         assert "PM-1-2" in updated_pms
@@ -148,8 +152,8 @@ class TestRepairOrphanPMs:
         resp.process_model_parts.append(
             ProcessModelPart(pm_id="PM-2-2", description="Orphan")
         )
-        resp_set = _make_resp_set([resp])
-        repaired, _ = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp])
+        repaired, _ = repair_orphan_pms(cs)
         r0 = repaired.responsibilities[0]
         fb_ids = {fb.fb_id for fb in r0.feedback_channels}
         assert "FB-2-2" in fb_ids
@@ -157,8 +161,8 @@ class TestRepairOrphanPMs:
     def test_pmfb_06_description_indicates_auto_generation(self):
         """SP1-PMFB-06: stub FB description contains 'Auto-generated feedback for orphan PM'."""
         resp = _make_resp("RESP-1", ["PM-1-1", "PM-1-3"], fb_specs=[("FB-1-1", "PM-1-1")])
-        resp_set = _make_resp_set([resp])
-        repaired, _ = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp])
+        repaired, _ = repair_orphan_pms(cs)
         r0 = repaired.responsibilities[0]
         stub = [fb for fb in r0.feedback_channels if fb.updates == "PM-1-3"][0]
         assert "Auto-generated feedback for orphan PM-1-3" in stub.description
@@ -166,8 +170,8 @@ class TestRepairOrphanPMs:
     def test_pmfb_07_updates_references_orphan_pm(self):
         """SP1-PMFB-07: stub FB updates field equals the orphan PM id."""
         resp = _make_resp("RESP-1", ["PM-1-1", "PM-1-2"], fb_specs=[("FB-1-1", "PM-1-1")])
-        resp_set = _make_resp_set([resp])
-        repaired, _ = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp])
+        repaired, _ = repair_orphan_pms(cs)
         r0 = repaired.responsibilities[0]
         stub = [fb for fb in r0.feedback_channels if fb.updates == "PM-1-2"][0]
         assert stub.updates == "PM-1-2"
@@ -179,8 +183,8 @@ class TestRepairOrphanPMs:
             ["PM-1-1", "PM-1-2"],
             fb_specs=[("FB-1-1", "PM-1-1"), ("FB-1-2", "PM-1-2")],
         )
-        resp_set = _make_resp_set([resp])
-        repaired, warnings = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp])
+        repaired, warnings = repair_orphan_pms(cs)
         assert len(warnings) == 0
         r0 = repaired.responsibilities[0]
         assert len(r0.feedback_channels) == 2
@@ -192,8 +196,8 @@ class TestRepairOrphanPMs:
             ["PM-1-1", "PM-1-2", "PM-1-3"],
             fb_specs=[("FB-1-1", "PM-1-1")],
         )
-        resp_set = _make_resp_set([resp])
-        repaired, warnings = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp])
+        repaired, warnings = repair_orphan_pms(cs)
         assert len(warnings) == 2
         for w in warnings:
             assert "PM-1-2" in w or "PM-1-3" in w
@@ -201,8 +205,8 @@ class TestRepairOrphanPMs:
     def test_pmfb_10_multiple_orphans_get_sequential_fb_numbers(self):
         """SP1-PMFB-10: multiple orphans in same resp get sequential FB numbers."""
         resp = _make_resp("RESP-3", ["PM-3-1", "PM-3-2"], fb_specs=None)
-        resp_set = _make_resp_set([resp])
-        repaired, _ = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp])
+        repaired, _ = repair_orphan_pms(cs)
         r0 = repaired.responsibilities[0]
         fb_ids = {fb.fb_id for fb in r0.feedback_channels}
         assert "FB-3-1" in fb_ids
@@ -212,8 +216,8 @@ class TestRepairOrphanPMs:
         """SP1-PMFB-11: orphans across multiple responsibilities are all repaired."""
         resp1 = _make_resp("RESP-1", ["PM-1-1", "PM-1-2"], fb_specs=[("FB-1-1", "PM-1-1")])
         resp2 = _make_resp("RESP-2", ["PM-2-1"], fb_specs=None)
-        resp_set = _make_resp_set([resp1, resp2])
-        repaired, _ = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp1, resp2])
+        repaired, _ = repair_orphan_pms(cs)
         r0 = repaired.responsibilities[0]
         r1 = repaired.responsibilities[1]
         updated_0 = {fb.updates for fb in r0.feedback_channels}
@@ -225,8 +229,8 @@ class TestRepairOrphanPMs:
         """SP1-PMFB-12: after repair, every PM is referenced by at least one FB."""
         resp1 = _make_resp("RESP-1", ["PM-1-1", "PM-1-2"], fb_specs=[("FB-1-1", "PM-1-1")])
         resp2 = _make_resp("RESP-2", ["PM-2-1", "PM-2-2"], fb_specs=[("FB-2-1", "PM-2-1")])
-        resp_set = _make_resp_set([resp1, resp2])
-        repaired, _ = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp1, resp2])
+        repaired, _ = repair_orphan_pms(cs)
         for resp in repaired.responsibilities:
             updated_pms = {fb.updates for fb in resp.feedback_channels}
             for pm in resp.process_model_parts:
@@ -239,7 +243,7 @@ class TestRepairOrphanPMs:
         mutation in ``_create_stub_fb``.
         """
         existing_source = ElementRef(
-            type=ReferenceType.responsibility, id="RESP-2"
+            type=ReferenceType.responsibility, id="RESP-1"
         )
         resp = Responsibility(
             resp_id="RESP-1",
@@ -260,8 +264,8 @@ class TestRepairOrphanPMs:
                 ),
             ],
         )
-        resp_set = _make_resp_set([resp])
-        repaired, _ = repair_orphan_pms(resp_set)
+        cs = _make_cs([resp])
+        repaired, _ = repair_orphan_pms(cs)
         r0 = repaired.responsibilities[0]
         stub = [fb for fb in r0.feedback_channels if fb.updates == "PM-1-2"][0]
         assert stub.source is not None
@@ -285,10 +289,10 @@ class TestRepairOrphanPMs:
 
 
 class TestRepairCalledInDeriveControlStructure:
-    """SP1-PMFB-13: repair is called after Call 2 and before Call 3."""
+    """SP1-PMFB-13: repair is called after Call 2a/2b assembly and before Call 3."""
 
     def test_pmfb_13_repair_called_between_call2_and_call3(self, tmp_path):
-        """SP1-PMFB-13: repair_orphan_pms is called after Call 2, before Call 3."""
+        """SP1-PMFB-13: repair_orphan_pms is called after assembly, before Call 3."""
         from scenario_forge.stpa.models.loss_analysis import (
             Hazard,
             Loss,
@@ -296,14 +300,15 @@ class TestRepairCalledInDeriveControlStructure:
             LossProvenance,
             SecurityConstraint,
         )
-        from tests.stpa.sp1_helpers import MockLLMClient
+        from tests.stpa.sp1_helpers import (
+            MockLLMClient,
+            valid_empty_coordination_analysis_dict,
+        )
 
-        # Mock LLM responses for Call 1, Call 2, Call 3
+        # Mock LLM responses for Call 1, Call 2a, Call 2b, Call 3
         client = MockLLMClient()
 
         # Call 1: Requirements
-        from scenario_forge.stpa.system_model.control_structure import RequirementSet
-
         client.set_response_for(
             RequirementSet,
             {
@@ -318,7 +323,7 @@ class TestRepairCalledInDeriveControlStructure:
             },
         )
 
-        # Call 2: Responsibilities with an orphan PM
+        # Call 2a: Responsibilities with an orphan PM (no CAs/FBs)
         client.set_response_for(
             ResponsibilitySet,
             {
@@ -330,32 +335,33 @@ class TestRepairCalledInDeriveControlStructure:
                             {"pm_id": "PM-1-1", "description": "State 1"},
                             {"pm_id": "PM-1-2", "description": "Orphan state"},
                         ],
-                        "control_actions": [
-                            {"ca_id": "CA-1-1", "description": "Action 1"}
-                        ],
-                        "feedback_channels": [
-                            {
-                                "fb_id": "FB-1-1",
-                                "description": "FB 1",
-                                "updates": "PM-1-1",
-                            }
-                        ],
+                    }
+                ],
+            },
+        )
+
+        # Call 2b: Control elements (CA and FB for PM-1-1 only — PM-1-2 is orphan)
+        client.set_response_for(
+            ControlElementSet,
+            {
+                "control_actions": [
+                    {"ca_id": "CA-1-1", "description": "Action 1"}
+                ],
+                "feedback_channels": [
+                    {
+                        "fb_id": "FB-1-1",
+                        "description": "FB 1",
+                        "updates": "PM-1-1",
                     }
                 ],
                 "controlled_processes": [],
             },
         )
 
-        # Call 3: Empty connections
-        from scenario_forge.stpa.system_model.control_structure import ConnectionSet
-
+        # Call 3: Empty coordination analysis
         client.set_response_for(
-            ConnectionSet,
-            {
-                "coordination_links": [],
-                "controlled_processes": [],
-                "connection_assignments": [],
-            },
+            CoordinationAnalysis,
+            valid_empty_coordination_analysis_dict(),
         )
 
         loss_analysis = LossAnalysis(

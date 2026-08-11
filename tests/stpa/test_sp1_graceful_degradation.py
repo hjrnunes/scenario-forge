@@ -35,7 +35,8 @@ from scenario_forge.stpa.models.loss_analysis import (
     SecurityConstraint,
 )
 from scenario_forge.stpa.system_model.control_structure import (
-    ConnectionSet,
+    ControlElementSet,
+    CoordinationAnalysis,
     RequirementSet,
     ResponsibilitySet,
     derive_control_structure,
@@ -54,7 +55,8 @@ from tests.stpa.sp1_helpers import (
     make_risk_cards,
     read_calls_jsonl,
     valid_critic_findings_dict_no_gaps,
-    valid_empty_connection_set_dict,
+    valid_control_element_set_dict,
+    valid_empty_coordination_analysis_dict,
     valid_stage1_profile_dict,
 )
 
@@ -213,20 +215,8 @@ def _valid_responsibility_set_dict() -> dict:
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
                 ],
-                "control_actions": [
-                    {"ca_id": "CA-1-1", "description": "Execute action"}
-                ],
-                "feedback_channels": [
-                    {
-                        "fb_id": "FB-1-1",
-                        "description": "Action result",
-                        "updates": "PM-1-1",
-                        "source": {"type": "responsibility", "id": "RESP-1"},
-                    }
-                ],
             }
         ],
-        "controlled_processes": [],
     }
 
 
@@ -266,7 +256,10 @@ def _setup_valid_mock_client() -> MockLLMClient:
     client.set_response_for(Stage1Profile, valid_stage1_profile_dict())
     client.set_response_for(RequirementSet, _valid_requirement_set_dict())
     client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+    client.set_response_for(ControlElementSet, valid_control_element_set_dict())
+    client.set_response_for(
+        CoordinationAnalysis, valid_empty_coordination_analysis_dict()
+    )
     client.set_response_for(CriticFindings, valid_critic_findings_dict_no_gaps())
     return client
 
@@ -432,8 +425,8 @@ class TestDerivationStageFailure:
             ("stage_1a", "stage_1a", "risk_derivation", "_setup_stage_1a_failure"),
             ("stage_1b", "stage_1b", "capability_profile", "_setup_stage_1b_failure"),
             ("stage_2_call_1", "stage_2", "call_1_requirements", "_setup_stage_2_call_1_failure"),
-            ("stage_2_call_2", "stage_2", "call_2_responsibilities", "_setup_stage_2_call_2_failure"),
-            ("stage_2_call_3", "stage_2", "call_3_connections", "_setup_stage_2_call_3_failure"),
+            ("stage_2_call_2a", "stage_2", "call_2a_responsibilities", "_setup_stage_2_call_2_failure"),
+            ("stage_2_call_3", "stage_2", "call_3_coordination", "_setup_stage_2_call_3_failure"),
         ],
     )
     def test_gd_08_derivation_failure_raises_stage_error(
@@ -507,7 +500,8 @@ class TestDerivationStageFailure:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_invalid_response_for(ConnectionSet)
+        client.set_response_for(ControlElementSet, valid_control_element_set_dict())
+        client.set_invalid_response_for(CoordinationAnalysis)
         def invoke(c, d):
             derive_control_structure(
                 llm_client=c,

@@ -19,7 +19,7 @@ from scenario_forge.stpa.system_model.profile import (
     derive_capability_profile,
     load_capability_profile,
 )
-from tests.stpa.sp1_helpers import MockLLMClient, valid_stage1_profile_dict
+from tests.stpa.sp1_helpers import MockLLMClient
 
 
 def _valid_stage1_profile_dict() -> dict:

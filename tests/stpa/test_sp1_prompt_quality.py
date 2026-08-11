@@ -20,7 +20,8 @@ _ZERO_VAR_SYSTEM_TEMPLATES = [
     "stage1a_gap_system.j2",
     "stage1b_system.j2",
     "stage2_call1_system.j2",
-    "stage2_call2_system.j2",
+    "stage2_call2a_system.j2",
+    "stage2_call2b_system.j2",
     "stage2_call3_system.j2",
 ]
 

@@ -239,14 +239,16 @@ class TestSanitizationFlow:
     def test_san_09_sanitization_called_between_critic_and_revision(self, tmp_path):
         """SP1-CRITIC-SAN-09: sanitize_critic_ids called after critic, before revision."""
         from scenario_forge.stpa.system_model.control_structure import (
-            ConnectionSet,
+            ControlElementSet,
+            CoordinationAnalysis,
             RequirementSet,
             ResponsibilitySet,
         )
         from scenario_forge.stpa.system_model.critic import RevisionDelta
         from tests.stpa.sp1_helpers import (
             MockLLMClient,
-            valid_empty_connection_set_dict,
+            valid_control_element_set_dict,
+            valid_empty_coordination_analysis_dict,
             valid_loss_analysis_dict,
             valid_requirement_set_dict,
             valid_responsibility_set_dict,
@@ -256,10 +258,14 @@ class TestSanitizationFlow:
 
         # Stage 2 Call 1: RequirementSet
         client.set_response_for(RequirementSet, valid_requirement_set_dict())
-        # Stage 2 Call 2: ResponsibilitySet
+        # Stage 2 Call 2a: ResponsibilitySet
         client.set_response_for(ResponsibilitySet, valid_responsibility_set_dict())
-        # Stage 2 Call 3: ConnectionSet
-        client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+        # Stage 2 Call 2b: ControlElementSet
+        client.set_response_for(ControlElementSet, valid_control_element_set_dict())
+        # Stage 2 Call 3: CoordinationAnalysis
+        client.set_response_for(
+            CoordinationAnalysis, valid_empty_coordination_analysis_dict()
+        )
 
         # Critic findings with an unjustified gap and a non-conforming ID
         critic_dict = {
