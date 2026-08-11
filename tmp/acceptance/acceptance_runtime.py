@@ -21442,41 +21442,6 @@ def _h_ar_assemble(world: World, text: str, examples: dict) -> tuple[bool, str]:
         responsibility_set, control_elements, _ar_run_dir(world), "test-model"
     )
     world.san_merge_warnings = list(world.sp1_warnings)
-    # When the fallback path is used (warnings non-empty), the fallback
-    # ControlStructure is built from the ResponsibilitySet's
-    # responsibilities and the ControlElementSet's controlled_processes
-    # only — CAs and FBs are lost because they live in the
-    # ControlElementSet (Call 2b), not in the responsibilities (Call 2a).
-    # Manually merge CAs and FBs back into the responsibilities and
-    # sanitize invalid ElementRefs so Then-step handlers can verify them.
-    if world.sp1_warnings and control_elements.control_actions:
-        import copy as _copy
-        resps = _copy.deepcopy(responsibility_set.responsibilities)
-        resp_by_num = {
-            _sp1_extract_resp_num(r.resp_id): r for r in resps
-        }
-        for ca in control_elements.control_actions:
-            resp = resp_by_num.get(_sp1_extract_resp_num(ca.ca_id))
-            if resp is not None:
-                resp.control_actions.append(ca)
-        for fb in control_elements.feedback_channels:
-            resp = resp_by_num.get(_sp1_extract_resp_num(fb.fb_id))
-            if resp is not None:
-                resp.feedback_channels.append(fb)
-        try:
-            sanitized_resps, sanitized_cps, sanitize_warnings = (
-                _sp1_sanitize_for_fallback(
-                    resps, control_elements.controlled_processes
-                )
-            )
-            world.sp1_warnings.extend(sanitize_warnings)
-            world.san_merge_warnings = list(world.sp1_warnings)
-            world.control_structure = ControlStructure(
-                responsibilities=sanitized_resps,
-                controlled_processes=sanitized_cps,
-            )
-        except Exception:
-            pass
     return True, ""
 
 
