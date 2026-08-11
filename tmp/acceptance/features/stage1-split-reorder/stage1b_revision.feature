@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=4c0deb1c2bc7e840d5dfedb34fbca66783ef586a58f1c77e9daa080ff0cdc950
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-11T11:50:39.571058Z","feature_name":"Stage 1b Capability Profile Revision","feature_path":"../acceptance/features/stage1-split-reorder/stage1b_revision.feature","background_hash":"3ce4ce047c4808724701c3d5045ba13b821552e7e8a42e47ce48aacf8a16b50b","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 # stage1b-revision
 Feature: Stage 1b Capability Profile Revision
   The Stage 1b (capability profile inference) prompt is revised:
