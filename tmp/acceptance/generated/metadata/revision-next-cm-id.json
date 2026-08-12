@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "revision-next-cm-id",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/critic-revision-fix/revision-next-cm-id.json",
+  "implementation_hash": "sha256:0fe00852849d4503d99d42eaf27de0306bce9077be9ea326f34c02a873eb3ca1",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "revision-next-cm-id_acceptance_test.py"
+  ]
+}

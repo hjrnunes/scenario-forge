@@ -182,6 +182,11 @@ class World:
         self.enrichment_attack_tree: dict | None = None
         self.enrichment_narrative: str | None = None
         self.enrichment_primary_zone: str | None = None
+        # critic-revision-fix test state
+        self.sp1_call3_warnings: list[str] | None = None
+        self.sp1_next_ids: dict[str, int] | None = None
+        self.sp1_run_py_source: str | None = None
+        self.sp1_critic_run_fn: Any = None
 
 
 def _resolve_value(text: str, examples: dict[str, str]) -> str:
@@ -8217,6 +8222,17 @@ def _h_pqf_template_text_not_contains(world: World, text: str, examples: dict) -
         "{{ use_case_text }}",
         # sp1_revision_runaway_output: retired from revision_user.j2, moved to revision_system.j2
         "Current Control Structure",
+        # critic-revision-fix: bare-ID Jinja filters retired from critic_user.j2 and revision_system.j2
+        "map(attribute='pm_id')",
+        "map(attribute='ca_id')",
+        "map(attribute='fb_id')",
+        # critic-revision-fix: control-structure listing retired from revision_user.j2
+        "## Current Control Structure",
+        "{% for resp in control_structure.responsibilities %}",
+        # critic-revision-fix: STPA-Sec framing dropped from critic_system.j2 and revision_system.j2
+        "STPA-Sec",
+        # critic-revision-fix: mandatory-add directive retired from revision_user.j2
+        "You MUST add at least one element for EACH finding",
     })
     if world.template_rendered is None:
         return False, "No template text loaded"
@@ -11627,6 +11643,33 @@ def _h_rev_llm_delta(world: World, text: str, examples: dict) -> tuple[bool, str
         }]
     elif "empty RevisionDelta" in text:
         pass  # Empty delta
+    elif "dismissing a gap with the justification" in text:
+        m = re.search(r'justification "([^"]+)"', text)
+        justification = m.group(1) if m else "Not applicable"
+        delta_dict["dismissed_gaps"] = [justification]
+    elif "whose only content is" in text and "dismissed gaps" in text:
+        m = re.search(r"only content is (\d+) dismissed gaps", text)
+        count = int(m.group(1)) if m else 1
+        delta_dict["dismissed_gaps"] = [
+            f"Dismissed gap {i+1}: not applicable to this system"
+            for i in range(count)
+        ]
+    elif "reporting completion_tokens" in text:
+        # Valid RevisionDelta — completion_tokens is just metadata
+        delta_dict["new_responsibilities"] = [{
+            "resp_id": "RESP-3", "description": "Input validation controller",
+            "responsibility_constraints": [{"rc_id": "RC-3-1", "description": "Validate input"}],
+            "process_model_parts": [{"pm_id": "PM-3-1", "description": "Input state",
+                                     "feedback_source": {"type": "controlled_process", "id": "CP-1"}}],
+            "control_actions": [{"ca_id": "CA-3-1", "description": "Validate",
+                                 "target": {"type": "controlled_process", "id": "CP-1"}}],
+            "feedback_channels": [{"fb_id": "FB-3-1", "description": "Result", "updates": "PM-3-1",
+                                   "source": {"type": "controlled_process", "id": "CP-1"}}],
+        }]
+
+    # Handle "and one dismissed gap" suffix for new_responsibilities cases
+    if "and one dismissed gap" in text and "dismissed_gaps" not in delta_dict:
+        delta_dict["dismissed_gaps"] = ["Dismissed: not applicable to this system"]
 
     client.set_response_for(_FCRevisionDelta, delta_dict)
     return True, ""
@@ -11755,6 +11798,7 @@ def _h_rev_system_prompt_rendered(world: World, text: str, examples: dict) -> tu
     world.rev_rendered_system = loader.render_prompt(
         "revision_system.j2", control_structure=cs, **next_ids,
     )
+    world.template_rendered = world.rev_rendered_system
     return True, ""
 
 
@@ -11924,7 +11968,10 @@ def _h_rev_revision_run(world: World, text: str, examples: dict) -> tuple[bool, 
     through to the existing ControlStructure-based handler.
     """
     client = world.sp1_mock_client
-    if client is not None and _FCRevisionDelta in getattr(client, "_response_map", {}):
+    if client is not None and (
+        _FCRevisionDelta in getattr(client, "_response_map", {})
+        or _FCRevisionDelta in getattr(client, "_exception_types", {})
+    ):
         # Use the RevisionDelta path
         run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="rev_delta_"))
         world.sp1_run_dir = run_dir
@@ -12478,6 +12525,8 @@ def _h_bf2_function_signature_inspected(world: World, text: str, examples: dict)
         world.sp1_component_name = "derive_control_structure"
     elif "safe_llm_call" in text:
         world.sp1_component_name = "safe_llm_call"
+    elif "run_completeness_critic" in text:
+        world.sp1_component_name = "run_completeness_critic"
     else:
         return False, f"Unknown function in: {text}"
     return True, ""
@@ -12495,6 +12544,8 @@ def _h_bf2_function_accepts_param(world: World, text: str, examples: dict) -> tu
         func = _bf2_derive_control_structure
     elif func_name == "safe_llm_call":
         func = _bf2_safe_llm_call
+    elif func_name == "run_completeness_critic":
+        func = _sp1_run_critic
     else:
         return False, f"Unknown function: {func_name}"
 
@@ -12508,6 +12559,26 @@ def _h_bf2_function_accepts_param(world: World, text: str, examples: dict) -> tu
 
     if "max_completion_tokens" in text:
         param_name = "max_completion_tokens"
+        if param_name not in sig.parameters:
+            return False, f"Function {func_name} does not accept {param_name}"
+        param = sig.parameters[param_name]
+        if "default None" in text:
+            if param.default is not None:
+                return False, f"Parameter {param_name} default is {param.default}, expected None"
+        return True, ""
+
+    if "loss_analysis" in text:
+        param_name = "loss_analysis"
+        if param_name not in sig.parameters:
+            return False, f"Function {func_name} does not accept {param_name}"
+        param = sig.parameters[param_name]
+        if "default None" in text:
+            if param.default is not None:
+                return False, f"Parameter {param_name} default is {param.default}, expected None"
+        return True, ""
+
+    if "call3_warnings" in text:
+        param_name = "call3_warnings"
         if param_name not in sig.parameters:
             return False, f"Function {func_name} does not accept {param_name}"
         param = sig.parameters[param_name]
@@ -13784,6 +13855,9 @@ _register_first(r"the STPA system model llm_helpers module is importable", _h_bf
 _register_first(r"a control structure with responsibilities RESP-1 and RESP-2 is available", _h_bf2_cs_two_resps_with_cp)
 _register_first(r"the safe_llm_call function signature is inspected", _h_bf2_function_signature_inspected)
 _register_first(r"the function accepts a max_completion_tokens parameter", _h_bf2_function_accepts_param)
+_register_first(r"the run_completeness_critic function signature is inspected", _h_bf2_function_signature_inspected)
+_register_first(r"the function accepts a loss_analysis parameter", _h_bf2_function_accepts_param)
+_register_first(r"the function accepts a call3_warnings parameter", _h_bf2_function_accepts_param)
 _register_first(r"an LLM client with a mocked complete method", _h_bf2_llm_client_mocked_complete)
 _register_first(r"safe_llm_call is called with max_completion_tokens", _h_bf2_safe_llm_called_with_tokens)
 _register_first(r"safe_llm_call is called without max_completion_tokens", _h_bf2_safe_llm_called_without_tokens)
@@ -20613,11 +20687,16 @@ def _h_cmidup_passes_validation(world: World, text: str, examples: dict) -> tupl
 
 
 def _h_cmidup_warning_mentions(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the warnings list includes a warning that mentions X."""
-    m = re.search(r"includes a warning that mentions (\S+)", text)
-    if not m:
-        return False, f"Could not parse from: {text}"
-    token = m.group(1)
+    """Handle: the warnings list includes a warning that mentions X (quoted or unquoted)."""
+    # Try quoted text first, then fall back to single token
+    quoted = re.search(r'includes a warning that mentions "([^"]+)"', text)
+    if quoted:
+        token = quoted.group(1)
+    else:
+        m = re.search(r"includes a warning that mentions (\S+)", text)
+        if not m:
+            return False, f"Could not parse from: {text}"
+        token = m.group(1)
     warnings = world.sp1_post_revision_warnings or []
     wtext = " ".join(warnings)
     if token not in wtext:
@@ -21876,6 +21955,558 @@ _register_first(r"a ControlElementSet model is produced", _h_ar_control_elements
 _register_first(r"the ControlElementSet contains controlled process CP-1", _h_ar_control_elements_contains_cp)
 _register_first(r"the Call 2[ab] user prompt contains", _h_ar_prior_prompt_contains)
 _register_first(r"the Call 3 user prompt contains the assembled responsibilities and controlled processes", _h_ar_call3_prompt)
+
+
+# ============= critic-revision-fix handlers =============
+
+def _h_crf_critic_findings_checklist(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: CriticFindings whose checklist_results are <statuses>.
+
+    Builds (or updates) a CriticFindings model with the specified
+    checklist result statuses.  When the text is 'none', an empty
+    dict is used.
+    """
+    from scenario_forge.stpa.system_model.critic import CriticFindings as _CF
+    m = re.search(r"checklist_results are (.+)", text)
+    if not m:
+        return False, f"Could not parse checklist statuses from: {text}"
+    raw = m.group(1).strip()
+    if raw == "none":
+        checklist: dict[str, str] = {}
+    else:
+        parts = [p.strip() for p in raw.split(",")]
+        checklist = {f"Checklist item {i+1}": p for i, p in enumerate(parts)}
+    # Preserve existing taxonomy/gaps if already set, otherwise start clean
+    existing = world.sp1_critic_findings
+    if existing is not None:
+        world.sp1_critic_findings = _CF(
+            gaps=existing.gaps,
+            checklist_results=checklist,
+            taxonomy_probe_results=existing.taxonomy_probe_results,
+        )
+    else:
+        world.sp1_critic_findings = _CF(
+            gaps=[], checklist_results=checklist, taxonomy_probe_results={},
+        )
+    return True, ""
+
+
+def _h_crf_critic_findings_taxonomy(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: CriticFindings whose taxonomy_probe_results are <statuses>."""
+    from scenario_forge.stpa.system_model.critic import CriticFindings as _CF
+    m = re.search(r"taxonomy_probe_results are (.+)", text)
+    if not m:
+        return False, f"Could not parse taxonomy statuses from: {text}"
+    raw = m.group(1).strip()
+    if raw == "none":
+        taxonomy: dict[str, str] = {}
+    else:
+        parts = [p.strip() for p in raw.split(",")]
+        taxonomy = {f"Taxonomy probe {i+1}": p for i, p in enumerate(parts)}
+    existing = world.sp1_critic_findings
+    if existing is not None:
+        world.sp1_critic_findings = _CF(
+            gaps=existing.gaps,
+            checklist_results=existing.checklist_results,
+            taxonomy_probe_results=taxonomy,
+        )
+    else:
+        world.sp1_critic_findings = _CF(
+            gaps=[], checklist_results={}, taxonomy_probe_results=taxonomy,
+        )
+    return True, ""
+
+
+def _h_crf_critic_findings_gaps(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: CriticFindings with <N> adversarial gaps."""
+    from scenario_forge.stpa.system_model.critic import CriticFindings as _CF, CriticGap as _CG
+    m = re.search(r"with (\d+) adversarial gaps", text)
+    if not m:
+        return False, f"Could not parse gap count from: {text}"
+    count = int(m.group(1))
+    gaps = [
+        _CG(
+            gap_type="missing_responsibility",
+            description=f"Adversarial gap {i+1}",
+            related_attack_path=f"Attack path {i+1}",
+            suggested_remedy="Add a control",
+        )
+        for i in range(count)
+    ]
+    existing = world.sp1_critic_findings
+    if existing is not None:
+        world.sp1_critic_findings = _CF(
+            gaps=gaps,
+            checklist_results=existing.checklist_results,
+            taxonomy_probe_results=existing.taxonomy_probe_results,
+        )
+    else:
+        world.sp1_critic_findings = _CF(
+            gaps=gaps, checklist_results={}, taxonomy_probe_results={},
+        )
+    return True, ""
+
+
+def _h_crf_empty_critic_findings(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: empty CriticFindings."""
+    from scenario_forge.stpa.system_model.critic import CriticFindings as _CF
+    world.sp1_critic_findings = _CF()
+    return True, ""
+
+
+def _h_crf_llm_critic_fails(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM whose critic call fails."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_exception_for(_SP1CriticFindings, RuntimeError("Critic call failed"))
+    return True, ""
+
+
+def _h_crf_cs_element_desc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure whose <element_id> has the description "<desc>".
+
+    Builds a valid CS with two responsibilities (RESP-1, RESP-2) and
+    overrides the description of the specified nested element.
+    """
+    m = re.search(r'whose (\S+) has the description "([^"]+)"', text)
+    if not m:
+        return False, f"Could not parse element_id and description from: {text}"
+    element_id, description = m.group(1), m.group(2)
+    cs_dict = _sp1_valid_cs_dict()
+    _set_element_description(cs_dict, element_id, description)
+    world.control_structure = ControlStructure.model_validate(cs_dict)
+    return True, ""
+
+
+def _set_element_description(cs_dict: dict, element_id: str, description: str) -> None:
+    """Set the description of a nested element in a CS dict by ID."""
+    for resp in cs_dict["responsibilities"]:
+        if resp["resp_id"] == element_id:
+            resp["description"] = description
+            return
+        for rc in resp.get("responsibility_constraints", []):
+            if rc["rc_id"] == element_id:
+                rc["description"] = description
+                return
+        for pm in resp.get("process_model_parts", []):
+            if pm["pm_id"] == element_id:
+                pm["description"] = description
+                return
+        for ca in resp.get("control_actions", []):
+            if ca["ca_id"] == element_id:
+                ca["description"] = description
+                return
+        for fb in resp.get("feedback_channels", []):
+            if fb["fb_id"] == element_id:
+                fb["description"] = description
+                return
+
+
+def _h_crf_loss_analysis_l1_h1_sc1(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a loss analysis containing loss L-1, hazard H-1, and security constraint SC-1."""
+    world.loss_analysis = LossAnalysis(
+        risk_card_losses=[
+            Loss(
+                loss_id="L-1",
+                description="Unauthorised disclosure of customer records",
+                provenance=LossProvenance.risk_card,
+                source_risk_cards=["atlas-001"],
+            ),
+        ],
+        use_case_losses=[],
+        hazards=[
+            Hazard(
+                hazard_id="H-1",
+                description="Retrieval returns records outside the session scope",
+                related_losses=["L-1"],
+            ),
+        ],
+        security_constraints=[
+            SecurityConstraint(
+                constraint_id="SC-1",
+                description="Retrieval must be scoped to the active session",
+                related_hazards=["H-1"],
+            ),
+        ],
+    )
+    return True, ""
+
+
+def _h_crf_no_loss_analysis(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no loss analysis is available."""
+    world.loss_analysis = None
+    return True, ""
+
+
+def _h_crf_coord_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a coordination analysis warning "<text>"."""
+    m = re.search(r'coordination analysis warning "([^"]+)"', text)
+    if not m:
+        return False, f"Could not parse warning text from: {text}"
+    warning = m.group(1)
+    if world.sp1_call3_warnings is None:
+        world.sp1_call3_warnings = []
+    world.sp1_call3_warnings.append(warning)
+    return True, ""
+
+
+def _h_crf_no_coord_warnings(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no coordination analysis warnings are available."""
+    world.sp1_call3_warnings = None
+    return True, ""
+
+
+def _h_crf_critic_run_with_context(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the completeness critic is run with the loss analysis and coordination warnings."""
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_critic_"))
+    world.sp1_run_dir = run_dir
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    content = world.sp1_llm_content
+    if isinstance(content, dict):
+        client.set_response_for(_SP1CriticFindings, content)
+    else:
+        client.set_response_for(_SP1CriticFindings, _sp1_no_unjustified_critic_dict())
+    cs = world.control_structure
+    if cs is None:
+        cs = ControlStructure.model_validate(_sp1_valid_cs_dict())
+        world.control_structure = cs
+    profile = world.sp1_profile
+    if profile is None:
+        profile = _SP1Stage1Profile(**_sp1_valid_stage1_profile_dict()).to_capability_profile()
+    try:
+        findings = _sp1_run_critic(
+            llm_client=client,
+            control_structure=cs,
+            capability_profile=profile,
+            use_case_text=world.sp1_use_case_text or "Test use case",
+            run_dir=run_dir,
+            temperature=0.4,
+            loss_analysis=world.loss_analysis,
+            call3_warnings=world.sp1_call3_warnings,
+        )
+        world.sp1_critic_findings = findings
+    except Exception:
+        world.sp1_critic_findings = _SP1CriticFindings()
+    return True, ""
+
+
+def _h_crf_critic_prompt_contains(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the critic user prompt sent to the LLM contains "<text>"."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return False, "No LLM calls recorded"
+    prompt = client.calls[-1]["user_prompt"]
+    quoted = re.search(r'"([^"]+)"', text)
+    if not quoted:
+        return False, f"Could not extract quoted text from: {text}"
+    expected = quoted.group(1)
+    if expected not in prompt:
+        snippet = prompt[:300]
+        return False, f"Expected '{expected}' in critic user prompt but not found. Start: {snippet}..."
+    return True, ""
+
+
+def _h_crf_run_py_inspected(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP1 orchestrator run.py is inspected."""
+    run_py = _FC_PROMPTS_DIR.parent / "run.py"
+    if not run_py.is_file():
+        return False, f"run.py not found at {run_py}"
+    world.sp1_run_py_source = run_py.read_text(encoding="utf-8")
+    return True, ""
+
+
+def _h_crf_run_py_passes_arg(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the run_completeness_critic call in _run_stage_2_block passes the <param> argument."""
+    if world.sp1_run_py_source is None:
+        return False, "run.py source not loaded"
+    m = re.search(r"passes the (\w+) argument", text)
+    if not m:
+        return False, f"Could not parse parameter name from: {text}"
+    param_name = m.group(1)
+    src = world.sp1_run_py_source
+    # Find the run_completeness_critic call block
+    idx = src.find("run_completeness_critic(")
+    if idx == -1:
+        return False, "run_completeness_critic call not found in run.py"
+    # Extract a window around the call
+    call_block = src[idx:idx + 500]
+    if param_name not in call_block:
+        return False, f"Parameter '{param_name}' not found in run_completeness_critic call. Block: {call_block[:200]}"
+    return True, ""
+
+
+def _h_crf_revision_delta_no_args(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a RevisionDelta is constructed with no arguments."""
+    world.rev_delta = _FCRevisionDelta()
+    return True, ""
+
+
+def _h_crf_revision_delta_empty_dismissed(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the RevisionDelta dismissed_gaps list is empty."""
+    if world.rev_delta is None:
+        return False, "No RevisionDelta constructed"
+    if world.rev_delta.dismissed_gaps:
+        return False, f"Expected empty dismissed_gaps but got: {world.rev_delta.dismissed_gaps}"
+    return True, ""
+
+
+def _h_crf_dismissal_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list includes a dismissal warning."""
+    warnings = world.sp1_post_revision_warnings or []
+    if not any("dismiss" in w.lower() for w in warnings):
+        return False, f"Expected a dismissal warning but got: {warnings}"
+    return True, ""
+
+
+def _h_crf_no_dismissal_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list does not include a dismissal warning."""
+    warnings = world.sp1_post_revision_warnings or []
+    if any("dismiss" in w.lower() for w in warnings):
+        return False, f"Expected no dismissal warning but found one: {warnings}"
+    return True, ""
+
+
+def _h_crf_next_ids_computed(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the next available ID numbers are computed."""
+    cs = world.control_structure
+    if cs is None:
+        cs = ControlStructure.model_validate(_sp1_valid_cs_dict())
+        world.control_structure = cs
+    world.sp1_next_ids = _fc_compute_next_ids(cs)
+    return True, ""
+
+
+def _h_crf_cs_with_cm_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure whose coordination links carry the coordination mechanisms <cm_ids>."""
+    m = re.search(r"coordination mechanisms (.+)", text)
+    if not m:
+        return False, f"Could not parse CM IDs from: {text}"
+    raw = m.group(1).strip()
+    cs_dict = _sp1_valid_cs_dict()
+    if raw == "none":
+        cs_dict["coordination_links"] = []
+    else:
+        cm_ids = [c.strip() for c in raw.split(",")]
+        links = []
+        for i, cm_id in enumerate(cm_ids):
+            cl_id = f"CL-{i+1}"
+            links.append({
+                "link_id": cl_id, "source": "RESP-1", "target": "RESP-2",
+                "shared_pm": "PM-1-1",
+                "coordination_mechanism": {"cm_id": cm_id, "description": f"Mechanism {cm_id}", "payload": "data"},
+                "description": f"Link {cl_id}",
+            })
+        cs_dict["coordination_links"] = links
+    world.control_structure = ControlStructure.model_validate(cs_dict)
+    return True, ""
+
+
+def _h_crf_cs_with_cl_cm(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure whose coordination link <link_id> carries the coordination mechanism <cm_id>."""
+    m = re.search(r"coordination link (CL-\d+) carries the coordination mechanism (CM-\d+)", text)
+    if not m:
+        return False, f"Could not parse link_id and cm_id from: {text}"
+    link_id, cm_id = m.group(1), m.group(2)
+    cs_dict = _sp1_valid_cs_dict()
+    cs_dict["coordination_links"] = [{
+        "link_id": link_id, "source": "RESP-1", "target": "RESP-2",
+        "shared_pm": "PM-1-1",
+        "coordination_mechanism": {"cm_id": cm_id, "description": f"Mechanism {cm_id}", "payload": "data"},
+        "description": f"Link {link_id}",
+    }]
+    world.control_structure = ControlStructure.model_validate(cs_dict)
+    return True, ""
+
+
+def _h_crf_next_cm_key(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the computed next-ID mapping has a next_cm_num key."""
+    if world.sp1_next_ids is None:
+        return False, "No next-ID mapping computed"
+    if "next_cm_num" not in world.sp1_next_ids:
+        return False, f"next_cm_num key not found in: {world.sp1_next_ids}"
+    return True, ""
+
+
+def _h_crf_next_id_value(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: next_cm_num is <N> or next_cl_num is <N>."""
+    if world.sp1_next_ids is None:
+        return False, "No next-ID mapping computed"
+    m = re.search(r"(next_\w+) is (\d+)", text)
+    if not m:
+        return False, f"Could not parse key and value from: {text}"
+    key, expected = m.group(1), int(m.group(2))
+    if key not in world.sp1_next_ids:
+        return False, f"Key '{key}' not found in: {world.sp1_next_ids}"
+    actual = world.sp1_next_ids[key]
+    if actual != expected:
+        return False, f"Expected {key}={expected} but got {actual}"
+    return True, ""
+
+
+def _h_crf_rendering_succeeds(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the rendering succeeds."""
+    if world.template_rendered is None and world.rev_rendered_system is None:
+        return False, "No rendered text available — rendering may have failed"
+    return True, ""
+
+
+def _h_crf_no_unrendered_jinja(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the rendered text does not contain an unrendered Jinja expression."""
+    rendered = world.template_rendered or world.rev_rendered_system
+    if rendered is None:
+        return False, "No rendered text available"
+    # Check for unrendered Jinja expressions ({{ ... }}) or tags ({% ... %})
+    # Allow literal Jinja-like text in template source that is meant to be
+    # shown as-is (e.g., in "ID format rules" sections).  The pattern we
+    # check for is {{ variable }} that was NOT rendered — i.e., it still
+    # has double curly braces with a variable name inside.
+    if re.search(r"\{\{\s*\w+", rendered):
+        return False, f"Unrendered Jinja expression found in rendered text: {rendered[:200]}"
+    return True, ""
+
+
+def _h_crf_cs_pm_no_feedback_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure whose PM-1-1 has no feedback source."""
+    cs_dict = _sp1_valid_cs_dict()
+    # PM-1-1 already has no feedback_source in the default dict
+    world.control_structure = ControlStructure.model_validate(cs_dict)
+    return True, ""
+
+
+def _h_crf_revision_max_tokens(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the critic module constant REVISION_MAX_COMPLETION_TOKENS equals <N>."""
+    m = re.search(r"REVISION_MAX_COMPLETION_TOKENS equals (\d+)", text)
+    if not m:
+        return False, f"Could not parse expected value from: {text}"
+    expected = int(m.group(1))
+    from scenario_forge.stpa.system_model.critic import REVISION_MAX_COMPLETION_TOKENS
+    if REVISION_MAX_COMPLETION_TOKENS != expected:
+        return False, f"Expected REVISION_MAX_COMPLETION_TOKENS={expected} but got {REVISION_MAX_COMPLETION_TOKENS}"
+    return True, ""
+
+
+def _h_crf_revision_succeeds_no_truncation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the revision succeeds without a truncation warning."""
+    if not world.sp1_revised:
+        return False, "Revision was not triggered"
+    warnings = world.sp1_post_revision_warnings or []
+    if any("truncat" in w.lower() or "LengthFinishReason" in w for w in warnings):
+        return False, f"Expected no truncation warning but found: {warnings}"
+    return True, ""
+
+
+def _h_crf_llm_length_finish_error(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an LLM whose revision call raises LengthFinishReasonError."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_exception_for(_FCRevisionDelta, RuntimeError("LengthFinishReasonError"))
+    return True, ""
+
+
+def _h_crf_llm_no_max_tokens_cap(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the LLM complete call is made without a max_completion_tokens cap."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return False, "No LLM calls recorded"
+    # The critic call should NOT have max_completion_tokens set
+    critic_calls = [
+        c for c in client.calls
+        if c.get("response_format") is _SP1CriticFindings
+    ]
+    if not critic_calls:
+        # Fall back to any call that is not for RevisionDelta
+        critic_calls = [
+            c for c in client.calls
+            if c.get("response_format") is not _FCRevisionDelta
+        ]
+    if not critic_calls:
+        return False, "No critic LLM calls found"
+    for call in critic_calls:
+        if call.get("max_completion_tokens") is not None:
+            return False, f"Critic call has max_completion_tokens={call['max_completion_tokens']}"
+    return True, ""
+
+
+def _h_crf_critic_user_prompt_rendered(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the critic user prompt is rendered."""
+    from scenario_forge.stpa.system_model.critic import _build_taxonomy_probes as _build_probes
+    loader = TemplateLoader(_FC_PROMPTS_DIR)
+    cs = world.control_structure
+    if cs is None:
+        cs = ControlStructure.model_validate(_sp1_valid_cs_dict())
+    profile = world.sp1_profile
+    if profile is None:
+        profile = _SP1Stage1Profile(**_sp1_valid_stage1_profile_dict()).to_capability_profile()
+    taxonomy_probes = _build_probes(profile)
+    world.template_rendered = loader.render_prompt(
+        "critic_user.j2",
+        use_case_text=world.sp1_use_case_text or "Test use case",
+        control_structure=cs,
+        capability_profile=profile,
+        taxonomy_probes=taxonomy_probes,
+        loss_analysis=world.loss_analysis,
+        call3_warnings=world.sp1_call3_warnings,
+    )
+    return True, ""
+
+
+def _h_crf_rev_system_prompt_has_cm_next(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the revision system prompt sent to the LLM contains a coordination mechanism next number."""
+    client = world.sp1_mock_client
+    if client is None or not client.calls:
+        return False, "No LLM calls recorded"
+    # Find the revision call (RevisionDelta as response_format)
+    rev_calls = [
+        c for c in client.calls
+        if c.get("response_format") is _FCRevisionDelta
+    ]
+    if not rev_calls:
+        return False, "No revision LLM calls found"
+    system_prompt = rev_calls[-1]["system_prompt"]
+    # The rendered system prompt should contain "CM-" with a number
+    # (from the "New coordination mechanisms: CM-{next_cm_num}" line)
+    if not re.search(r"CM-\{?next_cm_num\}?|CM-\d", system_prompt):
+        return False, f"No coordination mechanism next number in system prompt. Start: {system_prompt[:200]}"
+    return True, ""
+
+
+# Register critic-revision-fix handlers
+_register(r"CriticFindings whose checklist_results are", _h_crf_critic_findings_checklist)
+_register(r"CriticFindings whose taxonomy_probe_results are", _h_crf_critic_findings_taxonomy)
+_register(r"CriticFindings with \d+ adversarial gaps", _h_crf_critic_findings_gaps)
+_register(r"empty CriticFindings", _h_crf_empty_critic_findings)
+_register(r"an LLM whose critic call fails", _h_crf_llm_critic_fails)
+_register(r"a control structure whose \S+ has the description", _h_crf_cs_element_desc)
+_register(r"a control structure whose \S+ has no feedback source", _h_crf_cs_pm_no_feedback_source)
+_register(r"a loss analysis containing loss L-1, hazard H-1, and security constraint SC-1", _h_crf_loss_analysis_l1_h1_sc1)
+_register(r"no loss analysis is available", _h_crf_no_loss_analysis)
+_register(r"a coordination analysis warning", _h_crf_coord_warning)
+_register(r"no coordination analysis warnings are available", _h_crf_no_coord_warnings)
+_register(r"the critic user prompt sent to the LLM contains", _h_crf_critic_prompt_contains)
+_register(r"the SP1 orchestrator run\.py is inspected", _h_crf_run_py_inspected)
+_register(r"the run_completeness_critic call in _run_stage_2_block passes", _h_crf_run_py_passes_arg)
+_register(r"a RevisionDelta is constructed with no arguments", _h_crf_revision_delta_no_args)
+_register(r"the RevisionDelta dismissed_gaps list is empty", _h_crf_revision_delta_empty_dismissed)
+_register(r"the next available ID numbers are computed", _h_crf_next_ids_computed)
+_register(r"the computed next-ID mapping has a next_cm_num key", _h_crf_next_cm_key)
+_register(r"next_cm_num is \d+", _h_crf_next_id_value)
+_register(r"next_cl_num is \d+", _h_crf_next_id_value)
+_register(r"the rendering succeeds", _h_crf_rendering_succeeds)
+_register(r"the critic module constant REVISION_MAX_COMPLETION_TOKENS equals", _h_crf_revision_max_tokens)
+_register(r"the revision succeeds without a truncation warning", _h_crf_revision_succeeds_no_truncation)
+_register(r"an LLM whose revision call raises LengthFinishReasonError", _h_crf_llm_length_finish_error)
+_register(r"the LLM complete call is made without a max_completion_tokens cap", _h_crf_llm_no_max_tokens_cap)
+_register(r"the critic user prompt is rendered", _h_crf_critic_user_prompt_rendered)
+
+# Register first-priority handlers (must match before broader existing patterns)
+_register_first(r"the completeness critic is run with the loss analysis", _h_crf_critic_run_with_context)
+_register_first(r"the warnings list includes a dismissal warning", _h_crf_dismissal_warning)
+_register_first(r"the warnings list does not include a dismissal warning", _h_crf_no_dismissal_warning)
+_register_first(r"the revision system prompt sent to the LLM contains a coordination mechanism", _h_crf_rev_system_prompt_has_cm_next)
+_register_first(r"a control structure whose coordination links carry the coordination mechanisms", _h_crf_cs_with_cm_ids)
+_register_first(r"a control structure whose coordination link CL-\d+ carries the coordination mechanism", _h_crf_cs_with_cl_cm)
+_register_first(r"the rendered text does not contain an unrendered Jinja expression", _h_crf_no_unrendered_jinja)
 
 
 def execute_ir(ir_path: str) -> tuple[bool, str]:

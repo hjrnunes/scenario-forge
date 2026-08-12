@@ -411,18 +411,27 @@ class TestRevisionDelta06MergeNewCoordLinks:
 
 
 class TestRevisionDelta07UserPromptChecklist:
-    """RevisionDelta-07: revision_user.j2 contains numbered per-finding checklist."""
+    """RevisionDelta-07: revision_user.j2 contains the add-or-dismiss per-finding checklist."""
 
     def test_template_contains_checklist_directive(self):
         text = _load_template_text("revision_user.j2")
-        assert "You MUST add at least one element for EACH finding" in text
+        # Spec issue 7 replaced the mandatory-add directive with add-or-dismiss.
+        # The template must offer both options: add the missing element(s)
+        # to the RevisionDelta, or dismiss with a one-sentence justification
+        # in dismissed_gaps.
+        assert "add the missing element(s)" in text
+        assert "dismiss it with a one-sentence justification" in text
+        assert "dismissed_gaps" in text
+        # The old mandatory-add directive must NOT be present
+        assert "You MUST add at least one element for EACH finding" not in text
 
     def test_template_contains_numbered_list_format(self):
         text = _load_template_text("revision_user.j2")
-        # The template should have a for loop with gap_type and suggested_remedy
+        # The numbered per-finding list (loop.index) is gone; the per-gap
+        # rendering is now a simple for loop over critic_findings.gaps.
+        assert "{% for gap in critic_findings.gaps %}" in text
         assert "gap_type" in text
         assert "suggested_remedy" in text
-        assert "loop.index" in text or "{{ loop.index }}" in text
 
 
 # ---------------------------------------------------------------------------
@@ -472,14 +481,21 @@ class TestRevisionDelta09NextAvailableIds:
 
     def test_rendered_prompt_contains_next_numbers(self):
         cs = _make_control_structure()
+        # The next-number guidance now lives in revision_system.j2 (not
+        # revision_user.j2).  Render the system prompt with the computed
+        # next-ID values and verify they appear.
+        next_ids = _compute_next_ids(cs)
         rendered = _render_template(
             "revision_system.j2",
             control_structure=cs,
-            next_resp_num=3,
-            next_cl_num=2,
+            **next_ids,
         )
+        # next_resp_num: RESP-1/RESP-2 -> max=2, next=3
         assert "3" in rendered  # next available responsibility number
+        # next_cl_num: CL-1 -> max=1, next=2
         assert "2" in rendered  # next available coordination link number
+        # next_cm_num: CM-1 -> max=1, next=2 (lrya bead — unit-level guard)
+        assert str(next_ids["next_cm_num"]) in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -610,9 +626,10 @@ class TestRevisionDelta13ChecklistEachGap:
         assert "Missing outcome feedback" in rendered
         assert "Add input validation responsibility" in rendered
         assert "Add outcome verification feedback" in rendered
-        # Should have numbered items (1. and 2.)
-        assert "1." in rendered
-        assert "2." in rendered
+        # Each gap's gap_type appears in the rendered output (per-gap
+        # rendering is a for loop, not a numbered list)
+        assert rendered.count("missing_responsibility") >= 1
+        assert rendered.count("missing_feedback") >= 1
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "critic-prompt-context",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/critic-revision-fix/critic-prompt-context.json",
+  "implementation_hash": "sha256:bf3eb7a25372eb561d6da6856637d9eb96a9cbbe16bde2c0b1b5e824083a31c8",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "critic-prompt-context_acceptance_test.py"
+  ]
+}

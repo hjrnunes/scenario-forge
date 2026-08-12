@@ -1582,7 +1582,7 @@ def main() -> int:
         print("--- Dynamic checks (direct invocation + acceptance runtime) ---")
         run_dynamic_checks(runner)
 
-    if args.pipeline:
+    if args.pipeline or args.all:
         print("--- Pipeline-mode checks (live LLM endpoint) ---")
         run_pipeline_checks(runner, args.run_dir)
 

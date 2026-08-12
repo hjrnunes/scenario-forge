@@ -289,10 +289,20 @@ class TestCriticExecution:
     def test_critic_11_only_justified_gaps_no_revision(self):
         """SP1-CRITIC-11: only justified gaps do not trigger revision."""
         data = _valid_critic_findings_dict()
+        # Clear all three probes so the fixture genuinely matches the
+        # scenario name ("only justified gaps").  The original test only
+        # overrode checklist_results but left gaps and taxonomy_probe_results
+        # from _valid_critic_findings_dict() — which contains real
+        # structural gaps.  Under the corrected three-probe logic
+        # (has_unjustified_gaps checks gaps, checklist, AND taxonomy),
+        # those gaps correctly trigger revision.  Fix the fixture, not
+        # the implementation.
         data["checklist_results"] = {
             "Input validation": "present",
             "Authorization": "absent_justified",
         }
+        data["gaps"] = []
+        data["taxonomy_probe_results"] = {}
         findings = CriticFindings.model_validate(data)
         assert has_unjustified_gaps(findings) is False
 
@@ -366,7 +376,12 @@ class TestRevision:
         assert rev_entries[0]["stage"] == "stage_2"
 
     def test_rev_03_prompt_contains_cs_and_findings(self, tmp_path):
-        """SP1-REV-03: revision prompt contains current CS and critic findings."""
+        """SP1-REV-03: revision prompt contains current CS (system) and critic findings (user).
+
+        The control-structure listing was deliberately moved from
+        revision_user.j2 into revision_system.j2 to avoid duplication.
+        The critic findings remain in revision_user.j2.
+        """
         client = MockLLMClient()
         delta_dict = {
             "new_responsibilities": [],
@@ -383,8 +398,11 @@ class TestRevision:
             use_case_text="Test",
             run_dir=tmp_path,
         )
+        system_prompt = client.calls[0].system_prompt
         user_prompt = client.calls[0].user_prompt
-        assert "RESP-1" in user_prompt or "RESP-2" in user_prompt
+        # Control structure listing is in the system prompt
+        assert "RESP-1" in system_prompt or "RESP-2" in system_prompt
+        # Critic findings are in the user prompt
         assert "Missing input validation" in user_prompt or "gaps" in user_prompt.lower()
 
     def test_rev_04_heuristics_rerun_after_revision(self, tmp_path):
