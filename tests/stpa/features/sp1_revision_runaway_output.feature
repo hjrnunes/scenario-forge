@@ -1,6 +1,6 @@
-# mutation-stamp: sha256=33e7237d23d9481d63635635eefb83a2c674b7dd7b747d4e78fb3913cbc9f015
+# mutation-stamp: sha256=4829187a10d092ef1836f0c311c28312d3698865db0dd6af3d79329feaa415ac
 # acceptance-mutation-manifest-begin
-# {"version":1,"tested_at":"2026-08-12T09:15:01.229101Z","feature_name":"SP1 — Prevent RevisionDelta runaway output","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_revision_runaway_output.feature","background_hash":"d2c1bb399d1f338a359aea1d66186f71082f313642a60b85f65f7cf0ce4affd3","implementation_hash":"sha256:7732738e87189a6cf0181c6570b6ab8b407f1098e6bcac546760c9fb40310ce3","scenarios":[]}
+# {"version":1,"tested_at":"2026-08-12T10:32:47.004436Z","feature_name":"SP1 — Prevent RevisionDelta runaway output","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_revision_runaway_output.feature","background_hash":"d2c1bb399d1f338a359aea1d66186f71082f313642a60b85f65f7cf0ce4affd3","implementation_hash":"sha256:7732738e87189a6cf0181c6570b6ab8b407f1098e6bcac546760c9fb40310ce3","scenarios":[{"index":0,"name":"RevRunaway-01 revision_system.j2 instructs modified_responsibilities contains only changes","scenario_hash":"7b8f2922875595d960ddbe6c003a94a12eadbe16d878020af6eb713aed707ecd","mutation_count":3,"result":{"Total":3,"Killed":3,"Survived":0,"Errors":0},"tested_at":"2026-08-12T10:32:47.004436Z"},{"index":2,"name":"RevRunaway-03 revision_system.j2 contains control structure listing, not revision_user.j2","scenario_hash":"d62444dc049d950476776718ce98f58f610febfce7ef66a7ec9699d4488c44bc","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-12T10:32:47.004436Z"},{"index":6,"name":"RevRunaway-07 run_revision passes max_completion_tokens 8192","scenario_hash":"d3b105144d401bfd6f242f0a7084ba1095e1f874d1ea6f4a05a49c1dad536346","mutation_count":1,"result":{"Total":1,"Killed":1,"Survived":0,"Errors":0},"tested_at":"2026-08-12T10:32:47.004436Z"}]}
 # acceptance-mutation-manifest-end
 
 Feature: SP1 — Prevent RevisionDelta runaway output
@@ -21,11 +21,15 @@ Feature: SP1 — Prevent RevisionDelta runaway output
     And a run directory for call logging
 
   # RevRunaway-01
-  Scenario: RevRunaway-01 revision_system.j2 instructs modified_responsibilities contains only changes
+  Scenario Outline: RevRunaway-01 revision_system.j2 instructs modified_responsibilities contains only changes
     Given the template revision_system.j2 is loaded
-    Then the template text contains "modified_responsibilities list must contain ONLY responsibilities you are CHANGING"
-    And the template text contains "Do NOT restate the entire control structure"
-    And the template text contains "only new and modified elements"
+    Then the template text contains "<fragment>"
+
+    Examples:
+      | fragment                                                                      |
+      | modified_responsibilities list must contain ONLY responsibilities you are CHANGING |
+      | Do NOT restate the entire control structure                                    |
+      | only new and modified elements                                                 |
 
   # RevRunaway-02
   Scenario: RevRunaway-02 revision_user.j2 does not include use_case_text
@@ -34,13 +38,17 @@ Feature: SP1 — Prevent RevisionDelta runaway output
     And the template text does not contain "{{ use_case_text }}"
 
   # RevRunaway-03
-  Scenario: RevRunaway-03 revision_system.j2 contains control structure listing, not revision_user.j2
-    Given the template revision_system.j2 is loaded
-    Then the template text contains "Existing Control Structure"
-    And the template text contains "Responsibilities"
+  Scenario Outline: RevRunaway-03 revision_system.j2 contains control structure listing, not revision_user.j2
+    Given the template <template> is loaded
+    Then the template text contains "<fragment>"
     And the template revision_user.j2 is loaded
     And the template text does not contain "Current Control Structure"
     And the template text contains "Critic Findings"
+
+    Examples:
+      | template           | fragment                    |
+      | revision_system.j2 | Existing Control Structure  |
+      | revision_system.j2 | Responsibilities             |
 
   # RevRunaway-04
   Scenario: RevRunaway-04 safe_llm_call accepts a max_completion_tokens parameter
@@ -60,10 +68,14 @@ Feature: SP1 — Prevent RevisionDelta runaway output
     Then the complete method is called with max_completion_tokens None
 
   # RevRunaway-07
-  Scenario: RevRunaway-07 run_revision passes max_completion_tokens 8192
+  Scenario Outline: RevRunaway-07 run_revision passes max_completion_tokens 8192
     Given an LLM that returns a valid RevisionDelta
     When the revision is run
-    Then the LLM complete call is made with max_completion_tokens 8192
+    Then the LLM complete call is made with max_completion_tokens <max_tokens>
+
+    Examples:
+      | max_tokens |
+      | 8192       |
 
   # RevRunaway-08
   Scenario: RevRunaway-08 new_responsibilities with existing resp_id is rejected

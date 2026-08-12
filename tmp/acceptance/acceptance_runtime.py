@@ -11787,10 +11787,13 @@ def _h_rev_template_rule_for(world: World, text: str, examples: dict) -> tuple[b
     element_kind, id_format = m.groups()
     if element_kind.strip() not in world.template_rendered:
         return False, f"'{element_kind.strip()}' not found in template"
-    # id_format may contain template variables like {next_resp_num} — check the prefix
-    id_prefix = re.split(r"[{]", id_format.strip())[0]
-    if id_prefix and id_prefix not in world.template_rendered:
-        return False, f"'{id_prefix}' not found in template"
+    # id_format values (e.g. "PM-{resp_num}-{next_pm_num}") appear as
+    # literal text in the template with single braces — the Jinja2
+    # expressions use double braces {{ }}.  Check the full string so
+    # mutations inside the braces are caught, not just the prefix.
+    id_fmt_stripped = id_format.strip()
+    if id_fmt_stripped not in world.template_rendered:
+        return False, f"'{id_fmt_stripped}' not found in template"
     return True, ""
 
 

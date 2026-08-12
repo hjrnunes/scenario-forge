@@ -1,6 +1,6 @@
-# mutation-stamp: sha256=0122d4588ea4d681aef7bce0c3ecf71749ea50de6717942026ddc6b5266cc6da
+# mutation-stamp: sha256=6199672de1b71111b41f3fdf618989caeff326d8b723ed1b685b6e2c91ae5f52
 # acceptance-mutation-manifest-begin
-# {"version":1,"tested_at":"2026-08-12T09:15:00.928896Z","feature_name":"SP1 Stage 2 — RevisionDelta pattern for revision step","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_revision_delta.feature","background_hash":"c42e690021d0020f9a64a3dc0b7b3c75c268a2b316f6b739f401709926a7a073","implementation_hash":"sha256:d853b91786c6d7c36486aa330a28f2a3d81a4cfdc2e36a177f3f817c6a3b9001","scenarios":[{"index":7,"name":"RevisionDelta-08 revision_system.j2 contains ID format rules with next-available numbers","scenario_hash":"2c43e647fa37ca387576ada729ce889a798a4c144126db683b12e8deba111083","mutation_count":12,"result":{"Total":12,"Killed":12,"Survived":0,"Errors":0},"tested_at":"2026-08-09T17:44:59.924820Z"}]}
+# {"version":1,"tested_at":"2026-08-12T10:34:29.652153Z","feature_name":"SP1 Stage 2 — RevisionDelta pattern for revision step","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_revision_delta.feature","background_hash":"c42e690021d0020f9a64a3dc0b7b3c75c268a2b316f6b739f401709926a7a073","implementation_hash":"sha256:d853b91786c6d7c36486aa330a28f2a3d81a4cfdc2e36a177f3f817c6a3b9001","scenarios":[{"index":7,"name":"RevisionDelta-08 revision_system.j2 contains ID format rules with next-available numbers","scenario_hash":"2c43e647fa37ca387576ada729ce889a798a4c144126db683b12e8deba111083","mutation_count":12,"result":{"Total":12,"Killed":12,"Survived":0,"Errors":0},"tested_at":"2026-08-12T10:34:29.652153Z"},{"index":6,"name":"RevisionDelta-07 revision_user.j2 contains per-finding add-or-dismiss directive","scenario_hash":"cba7b9b1b6b976b8cb6b82ccc7539b3b0117e6758d428045b8a7401aa1ffbd9b","mutation_count":3,"result":{"Total":3,"Killed":3,"Survived":0,"Errors":0},"tested_at":"2026-08-12T10:32:45.540462Z"},{"index":12,"name":"RevisionDelta-13 revision_user.j2 checklist includes each gap with add-or-dismiss directive","scenario_hash":"e53427f4d9c8120a93139e2b0ea714e402da67ff84ebf3ce4c0bdde4db2676d4","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-12T10:32:45.540462Z"}]}
 # acceptance-mutation-manifest-end
 
 Feature: SP1 Stage 2 — RevisionDelta pattern for revision step
@@ -65,11 +65,15 @@ Feature: SP1 Stage 2 — RevisionDelta pattern for revision step
     Then the final control structure contains coordination link CL-1
 
   # RevisionDelta-07
-  Scenario: RevisionDelta-07 revision_user.j2 contains per-finding add-or-dismiss directive
+  Scenario Outline: RevisionDelta-07 revision_user.j2 contains per-finding add-or-dismiss directive
     Given the template revision_user.j2 is loaded
-    Then the template text contains "add the missing element(s) to the RevisionDelta"
-    And the template text contains "dismiss it with a one-sentence justification in dismissed_gaps"
-    And the template text contains "gap_type"
+    Then the template text contains "<fragment>"
+
+    Examples:
+      | fragment                                                        |
+      | add the missing element(s) to the RevisionDelta                 |
+      | dismiss it with a one-sentence justification in dismissed_gaps  |
+      | gap_type                                                        |
 
   # RevisionDelta-08
   Scenario Outline: RevisionDelta-08 revision_system.j2 contains ID format rules with next-available numbers
@@ -115,14 +119,17 @@ Feature: SP1 Stage 2 — RevisionDelta pattern for revision step
     And the final control structure responsibilities count is 2
 
   # RevisionDelta-13
-  Scenario: RevisionDelta-13 revision_user.j2 checklist includes each gap with add-or-dismiss directive
+  Scenario Outline: RevisionDelta-13 revision_user.j2 checklist includes each gap with add-or-dismiss directive
     Given the template revision_user.j2 is loaded
     And CriticFindings with gaps of type missing_responsibility and missing_feedback are available
     When the template is rendered with the critic findings
-    Then the rendered text contains a numbered item for the missing_responsibility gap
-    And the rendered text contains a numbered item for the missing_feedback gap
-    And the rendered text contains "add the missing element(s) to the RevisionDelta"
-    And the rendered text contains "dismiss it with a one-sentence justification in dismissed_gaps"
+    Then the rendered text contains a numbered item for the <gap_type> gap
+    And the rendered text contains "<fragment>"
+
+    Examples:
+      | gap_type               | fragment                                                        |
+      | missing_responsibility | add the missing element(s) to the RevisionDelta                 |
+      | missing_feedback       | dismiss it with a one-sentence justification in dismissed_gaps  |
 
   # RevisionDelta-14
   Scenario: RevisionDelta-14 revision_system.j2 preserves existing rules about solution neutrality and valid references
