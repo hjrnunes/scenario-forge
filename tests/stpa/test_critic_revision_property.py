@@ -14,14 +14,19 @@ Covers five invariant families:
 5. **Merge conservation**: when the RevisionDelta contains no
    modifications to existing elements, all existing resp_ids, cp_ids,
    and link_ids survive the merge.
+6. **All-dismissed warning**: ``run_revision`` emits exactly one
+   all-dismissed warning iff the findings are non-empty, every finding
+   is dismissed, and the delta carries no additions or modifications.
 """
 
 from __future__ import annotations
 
+import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from scenario_forge.stpa.models.control_structure import (
     ControlAction,
+    ControlledProcess,
     ControlStructure,
     CoordinationLink,
     CoordinationMechanism,
@@ -752,3 +757,176 @@ class TestMergeConservation:
             run_dir=tmp_path,
         )
         assert len(revised.responsibilities) == len(cs.responsibilities)
+
+
+# ---------------------------------------------------------------------------
+# 6. All-dismissed / no-change warning
+# ---------------------------------------------------------------------------
+
+ALL_DISMISSED_FRAGMENT = "dismissed all findings"
+
+
+def _revision_warnings(
+    tmp_path,
+    *,
+    delta: RevisionDelta,
+    findings: CriticFindings,
+    control_structure: ControlStructure | None = None,
+) -> list[str]:
+    """Run a revision with a canned delta and return the warnings."""
+    client = MockLLMClient()
+    client.set_response_for(RevisionDelta, delta.model_dump())
+    _, warnings = run_revision(
+        llm_client=client,
+        control_structure=control_structure or _make_base_cs(),
+        critic_findings=findings,
+        use_case_text="Test",
+        run_dir=tmp_path,
+    )
+    return warnings
+
+
+def _count_all_dismissed(warnings: list[str]) -> int:
+    return sum(1 for w in warnings if ALL_DISMISSED_FRAGMENT in w)
+
+
+def _dismiss_all(findings: CriticFindings) -> list[str]:
+    """One dismissal justification per finding in *findings*."""
+    n = (
+        len(findings.gaps)
+        + sum(
+            1
+            for status in findings.checklist_results.values()
+            if status == "absent_unjustified"
+        )
+        + sum(
+            1
+            for status in findings.taxonomy_probe_results.values()
+            if status == "absent_unjustified"
+        )
+    )
+    return [f"finding {i + 1} is a false positive" for i in range(n)]
+
+
+class TestAllDismissedWarning:
+    """A revision that dismisses everything and changes nothing warns once."""
+
+    def test_all_dismissed_with_no_changes_warns(self, tmp_path):
+        findings = _make_critic_findings_for_revision()
+        warnings = _revision_warnings(
+            tmp_path,
+            delta=RevisionDelta(dismissed_gaps=_dismiss_all(findings)),
+            findings=findings,
+        )
+        assert _count_all_dismissed(warnings) == 1, warnings
+
+    def test_partial_dismissal_does_not_warn(self, tmp_path):
+        findings = _make_critic_findings_for_revision()
+        partial = _dismiss_all(findings)[:-1]
+        assert partial, "fixture must have more than one finding"
+        warnings = _revision_warnings(
+            tmp_path,
+            delta=RevisionDelta(dismissed_gaps=partial),
+            findings=findings,
+        )
+        assert _count_all_dismissed(warnings) == 0, warnings
+
+    def test_empty_findings_does_not_warn(self, tmp_path):
+        warnings = _revision_warnings(
+            tmp_path,
+            delta=RevisionDelta(dismissed_gaps=["not applicable"]),
+            findings=CriticFindings(),
+        )
+        assert _count_all_dismissed(warnings) == 0, warnings
+
+    def test_no_dismissals_does_not_warn(self, tmp_path):
+        findings = _make_critic_findings_for_revision()
+        warnings = _revision_warnings(
+            tmp_path, delta=RevisionDelta(), findings=findings
+        )
+        assert _count_all_dismissed(warnings) == 0, warnings
+
+    @pytest.mark.parametrize(
+        "change_field,change_value",
+        [
+            ("new_responsibilities", [_make_resp(3)]),
+            (
+                "new_controlled_processes",
+                [ControlledProcess(cp_id="CP-2", description="New process")],
+            ),
+            ("new_coordination_links", [_make_cl(2, 2, 1, 2)]),
+            ("modified_responsibilities", [_make_resp(1)]),
+        ],
+    )
+    def test_any_change_suppresses_warning(
+        self, tmp_path, change_field, change_value
+    ):
+        findings = _make_critic_findings_for_revision()
+        delta = RevisionDelta(
+            dismissed_gaps=_dismiss_all(findings),
+            **{change_field: change_value},
+        )
+        warnings = _revision_warnings(tmp_path, delta=delta, findings=findings)
+        assert _count_all_dismissed(warnings) == 0, warnings
+
+    def test_per_dismissal_warnings_and_structure_preserved(self, tmp_path):
+        findings = _make_critic_findings_for_revision()
+        dismissals = _dismiss_all(findings)
+        client = MockLLMClient()
+        client.set_response_for(
+            RevisionDelta,
+            RevisionDelta(dismissed_gaps=dismissals).model_dump(),
+        )
+        cs = _make_base_cs()
+        revised, warnings = run_revision(
+            llm_client=client,
+            control_structure=cs,
+            critic_findings=findings,
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+        per_dismissal = [
+            w for w in warnings if w.startswith("Revision dismissed finding:")
+        ]
+        assert len(per_dismissal) == len(dismissals)
+        for justification in dismissals:
+            assert any(justification in w for w in per_dismissal)
+        assert [r.resp_id for r in revised.responsibilities] == [
+            r.resp_id for r in cs.responsibilities
+        ]
+        assert [cl.link_id for cl in revised.coordination_links] == [
+            cl.link_id for cl in cs.coordination_links
+        ]
+
+    def test_warning_is_actionable(self, tmp_path):
+        findings = _make_critic_findings_for_revision()
+        warnings = _revision_warnings(
+            tmp_path,
+            delta=RevisionDelta(dismissed_gaps=_dismiss_all(findings)),
+            findings=findings,
+        )
+        warning = next(w for w in warnings if ALL_DISMISSED_FRAGMENT in w)
+        assert not warning.startswith("Revision dismissed finding:")
+        assert "no changes" in warning
+
+    @given(findings=st_critic_findings(), extra_dismissals=st.integers(0, 3))
+    @settings(
+        max_examples=50,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_warns_iff_findings_all_dismissed_without_changes(
+        self, tmp_path, findings, extra_dismissals
+    ):
+        """The warning fires exactly when findings exist and all are dismissed."""
+        required = _dismiss_all(findings)
+        dismissals = required + [
+            f"extra {i}" for i in range(extra_dismissals)
+        ]
+        warnings = _revision_warnings(
+            tmp_path,
+            delta=RevisionDelta(dismissed_gaps=dismissals),
+            findings=findings,
+        )
+        expected = 1 if required else 0
+        assert _count_all_dismissed(warnings) == expected, warnings

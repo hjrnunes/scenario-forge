@@ -162,10 +162,31 @@ def has_unjustified_gaps(findings: CriticFindings) -> bool:
     Returns:
         True if revision should be triggered, False otherwise.
     """
-    has_checklist_gaps = any(status == "absent_unjustified" for status in findings.checklist_results.values())
-    has_taxonomy_gaps = any(status == "absent_unjustified" for status in findings.taxonomy_probe_results.values())
+    has_checklist_gaps = _count_unjustified(findings.checklist_results) > 0
+    has_taxonomy_gaps = _count_unjustified(findings.taxonomy_probe_results) > 0
     has_structural_gaps = len(findings.gaps) > 0
     return has_checklist_gaps or has_taxonomy_gaps or has_structural_gaps
+
+
+def _count_unjustified(probe_results: dict[str, str]) -> int:
+    """Count ``absent_unjustified`` entries in a probe-result mapping."""
+    return sum(
+        1 for status in probe_results.values() if status == "absent_unjustified"
+    )
+
+
+def count_findings(findings: CriticFindings) -> int:
+    """Count the findings the revision is asked to address.
+
+    A finding is an adversarial structural gap, an ``absent_unjustified``
+    checklist result, or an ``absent_unjustified`` taxonomy probe result —
+    the same three sources that trigger revision.
+    """
+    return (
+        len(findings.gaps)
+        + _count_unjustified(findings.checklist_results)
+        + _count_unjustified(findings.taxonomy_probe_results)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +363,11 @@ def run_revision(
         f"Revision dismissed finding: {justification}"
         for justification in revision_delta.dismissed_gaps
     ]
+    all_findings_dismissed = _all_dismissed_no_change_warning(
+        critic_findings, revision_delta
+    )
+    if all_findings_dismissed is not None:
+        dismissal_warnings.append(all_findings_dismissed)
 
     # Merge the delta into the existing ControlStructure
     try:
@@ -368,6 +394,36 @@ def run_revision(
     post_warnings.extend(post_revision.warnings)
 
     return revised_cs, post_warnings
+
+
+def _all_dismissed_no_change_warning(
+    critic_findings: CriticFindings,
+    revision_delta: RevisionDelta,
+) -> str | None:
+    """Build the warning for a revision that dismissed everything.
+
+    Returns a single warning string when there was at least one finding,
+    the delta dismisses every finding, and the delta adds or modifies
+    nothing — the revision accomplished no structural work. Returns
+    ``None`` otherwise.
+    """
+    finding_count = count_findings(critic_findings)
+    if finding_count == 0:
+        return None
+    if len(revision_delta.dismissed_gaps) < finding_count:
+        return None
+    if (
+        revision_delta.new_responsibilities
+        or revision_delta.new_controlled_processes
+        or revision_delta.new_coordination_links
+        or revision_delta.modified_responsibilities
+    ):
+        return None
+    return (
+        f"Revision dismissed all findings ({finding_count}) and made no "
+        "changes: the control structure is unchanged. Review each dismissal "
+        "justification above to confirm the findings were false positives."
+    )
 
 
 def _compute_next_ids(
