@@ -5823,14 +5823,14 @@ def _h_sp1_critic_valid_llm(world: World, text: str, examples: dict) -> tuple[bo
                       "related_attack_path": "Path", "suggested_remedy": "Fix"}],
             "checklist_results": {}, "taxonomy_probe_results": {},
         }
-    elif "checklist results" in text:
-        world.sp1_llm_content = _sp1_valid_critic_findings_dict()
+    elif "absent_justified or present" in text:
+        world.sp1_llm_content = _sp1_no_unjustified_critic_dict()
     elif "absent_unjustified" in text:
         d = _sp1_valid_critic_findings_dict()
         d["checklist_results"]["Input validation"] = "absent_unjustified"
         world.sp1_llm_content = d
-    elif "absent_justified or present" in text:
-        world.sp1_llm_content = _sp1_no_unjustified_critic_dict()
+    elif "checklist results" in text:
+        world.sp1_llm_content = _sp1_valid_critic_findings_dict()
     elif "two gaps" in text:
         world.sp1_llm_content = _sp1_valid_critic_findings_dict()
     else:
@@ -8215,6 +8215,8 @@ def _h_pqf_template_text_not_contains(world: World, text: str, examples: dict) -
         # sp1_revision_runaway_output: literal absent values
         "use_case_text",
         "{{ use_case_text }}",
+        # sp1_revision_runaway_output: retired from revision_user.j2, moved to revision_system.j2
+        "Current Control Structure",
     })
     if world.template_rendered is None:
         return False, "No template text loaded"

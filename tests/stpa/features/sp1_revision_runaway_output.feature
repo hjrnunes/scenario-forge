@@ -24,8 +24,8 @@ Feature: SP1 — Prevent RevisionDelta runaway output
   Scenario: RevRunaway-01 revision_system.j2 instructs modified_responsibilities contains only changes
     Given the template revision_system.j2 is loaded
     Then the template text contains "modified_responsibilities list must contain ONLY responsibilities you are CHANGING"
-    And the template text contains "Do not include unmodified responsibilities"
-    And the template text contains "If a responsibility needs no changes, do not include it in the delta at all"
+    And the template text contains "Do NOT restate the entire control structure"
+    And the template text contains "only new and modified elements"
 
   # RevRunaway-02
   Scenario: RevRunaway-02 revision_user.j2 does not include use_case_text
@@ -34,10 +34,12 @@ Feature: SP1 — Prevent RevisionDelta runaway output
     And the template text does not contain "{{ use_case_text }}"
 
   # RevRunaway-03
-  Scenario: RevRunaway-03 revision_user.j2 still contains control structure listing
-    Given the template revision_user.j2 is loaded
-    Then the template text contains "Current Control Structure"
+  Scenario: RevRunaway-03 revision_system.j2 contains control structure listing, not revision_user.j2
+    Given the template revision_system.j2 is loaded
+    Then the template text contains "Existing Control Structure"
     And the template text contains "Responsibilities"
+    And the template revision_user.j2 is loaded
+    And the template text does not contain "Current Control Structure"
     And the template text contains "Critic Findings"
 
   # RevRunaway-04
@@ -58,10 +60,10 @@ Feature: SP1 — Prevent RevisionDelta runaway output
     Then the complete method is called with max_completion_tokens None
 
   # RevRunaway-07
-  Scenario: RevRunaway-07 run_revision passes max_completion_tokens 4096
+  Scenario: RevRunaway-07 run_revision passes max_completion_tokens 8192
     Given an LLM that returns a valid RevisionDelta
     When the revision is run
-    Then the LLM complete call is made with max_completion_tokens 4096
+    Then the LLM complete call is made with max_completion_tokens 8192
 
   # RevRunaway-08
   Scenario: RevRunaway-08 new_responsibilities with existing resp_id is rejected

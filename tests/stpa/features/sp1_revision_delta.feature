@@ -65,10 +65,11 @@ Feature: SP1 Stage 2 — RevisionDelta pattern for revision step
     Then the final control structure contains coordination link CL-1
 
   # RevisionDelta-07
-  Scenario: RevisionDelta-07 revision_user.j2 contains numbered per-finding checklist
+  Scenario: RevisionDelta-07 revision_user.j2 contains per-finding add-or-dismiss directive
     Given the template revision_user.j2 is loaded
-    Then the template text contains "You MUST add at least one element for EACH finding"
-    And the template text contains a numbered list format with gap_type and required action
+    Then the template text contains "add the missing element(s) to the RevisionDelta"
+    And the template text contains "dismiss it with a one-sentence justification in dismissed_gaps"
+    And the template text contains "gap_type"
 
   # RevisionDelta-08
   Scenario Outline: RevisionDelta-08 revision_system.j2 contains ID format rules with next-available numbers
@@ -114,13 +115,14 @@ Feature: SP1 Stage 2 — RevisionDelta pattern for revision step
     And the final control structure responsibilities count is 2
 
   # RevisionDelta-13
-  Scenario: RevisionDelta-13 revision_user.j2 checklist includes each gap with required action
+  Scenario: RevisionDelta-13 revision_user.j2 checklist includes each gap with add-or-dismiss directive
     Given the template revision_user.j2 is loaded
     And CriticFindings with gaps of type missing_responsibility and missing_feedback are available
     When the template is rendered with the critic findings
     Then the rendered text contains a numbered item for the missing_responsibility gap
     And the rendered text contains a numbered item for the missing_feedback gap
-    And each numbered item includes the gap_type and a required action
+    And the rendered text contains "add the missing element(s) to the RevisionDelta"
+    And the rendered text contains "dismiss it with a one-sentence justification in dismissed_gaps"
 
   # RevisionDelta-14
   Scenario: RevisionDelta-14 revision_system.j2 preserves existing rules about solution neutrality and valid references

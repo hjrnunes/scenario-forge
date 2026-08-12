@@ -10,10 +10,10 @@
       "text" : "the template text contains \"modified_responsibilities list must contain ONLY responsibilities you are CHANGING\""
     }, {
       "keyword" : "And",
-      "text" : "the template text contains \"Do not include unmodified responsibilities\""
+      "text" : "the template text contains \"Do NOT restate the entire control structure\""
     }, {
       "keyword" : "And",
-      "text" : "the template text contains \"If a responsibility needs no changes, do not include it in the delta at all\""
+      "text" : "the template text contains \"only new and modified elements\""
     } ],
     "examples" : [ ]
   }, {
@@ -30,16 +30,22 @@
     } ],
     "examples" : [ ]
   }, {
-    "name" : "RevRunaway-03 revision_user.j2 still contains control structure listing",
+    "name" : "RevRunaway-03 revision_system.j2 contains control structure listing, not revision_user.j2",
     "steps" : [ {
       "keyword" : "Given",
-      "text" : "the template revision_user.j2 is loaded"
+      "text" : "the template revision_system.j2 is loaded"
     }, {
       "keyword" : "Then",
-      "text" : "the template text contains \"Current Control Structure\""
+      "text" : "the template text contains \"Existing Control Structure\""
     }, {
       "keyword" : "And",
       "text" : "the template text contains \"Responsibilities\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template revision_user.j2 is loaded"
+    }, {
+      "keyword" : "And",
+      "text" : "the template text does not contain \"Current Control Structure\""
     }, {
       "keyword" : "And",
       "text" : "the template text contains \"Critic Findings\""
@@ -82,7 +88,7 @@
     } ],
     "examples" : [ ]
   }, {
-    "name" : "RevRunaway-07 run_revision passes max_completion_tokens 4096",
+    "name" : "RevRunaway-07 run_revision passes max_completion_tokens 8192",
     "steps" : [ {
       "keyword" : "Given",
       "text" : "an LLM that returns a valid RevisionDelta"
@@ -91,7 +97,7 @@
       "text" : "the revision is run"
     }, {
       "keyword" : "Then",
-      "text" : "the LLM complete call is made with max_completion_tokens 4096"
+      "text" : "the LLM complete call is made with max_completion_tokens 8192"
     } ],
     "examples" : [ ]
   }, {
