@@ -363,11 +363,12 @@ def run_revision(
         f"Revision dismissed finding: {justification}"
         for justification in revision_delta.dismissed_gaps
     ]
+    # all_findings_dismissed is empty when not applicable; extend is a
+    # no-op so no conditional branch is needed here.
     all_findings_dismissed = _all_dismissed_no_change_warning(
         critic_findings, revision_delta
     )
-    if all_findings_dismissed is not None:
-        dismissal_warnings.append(all_findings_dismissed)
+    dismissal_warnings.extend(all_findings_dismissed)
 
     # Merge the delta into the existing ControlStructure
     try:
@@ -396,34 +397,39 @@ def run_revision(
     return revised_cs, post_warnings
 
 
+def _delta_has_changes(delta: RevisionDelta) -> bool:
+    """Check whether a revision delta carries any additions or modifications."""
+    return bool(
+        delta.new_responsibilities
+        or delta.new_controlled_processes
+        or delta.new_coordination_links
+        or delta.modified_responsibilities
+    )
+
+
 def _all_dismissed_no_change_warning(
     critic_findings: CriticFindings,
     revision_delta: RevisionDelta,
-) -> str | None:
+) -> list[str]:
     """Build the warning for a revision that dismissed everything.
 
-    Returns a single warning string when there was at least one finding,
-    the delta dismisses every finding, and the delta adds or modifies
-    nothing — the revision accomplished no structural work. Returns
-    ``None`` otherwise.
+    Returns a single-element list with the warning string when there was
+    at least one finding, the delta dismisses every finding, and the delta
+    adds or modifies nothing — the revision accomplished no structural
+    work. Returns an empty list otherwise.
     """
     finding_count = count_findings(critic_findings)
     if finding_count == 0:
-        return None
+        return []
     if len(revision_delta.dismissed_gaps) < finding_count:
-        return None
-    if (
-        revision_delta.new_responsibilities
-        or revision_delta.new_controlled_processes
-        or revision_delta.new_coordination_links
-        or revision_delta.modified_responsibilities
-    ):
-        return None
-    return (
+        return []
+    if _delta_has_changes(revision_delta):
+        return []
+    return [
         f"Revision dismissed all findings ({finding_count}) and made no "
         "changes: the control structure is unchanged. Review each dismissal "
         "justification above to confirm the findings were false positives."
-    )
+    ]
 
 
 def _compute_next_ids(
