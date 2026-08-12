@@ -2297,9 +2297,21 @@ def _h_rev_llm_delta(world: World, text: str, examples: dict) -> tuple[bool, str
                                    "source": {"type": "controlled_process", "id": "CP-1"}}],
         }]
 
-    # Handle "and one dismissed gap" suffix for new_responsibilities cases
-    if "and one dismissed gap" in text and "dismissed_gaps" not in delta_dict:
-        delta_dict["dismissed_gaps"] = ["Dismissed: not applicable to this system"]
+    # Handle "and N dismissed gaps" suffix for cases with changes.
+    # Supports both "and one dismissed gap" (word form) and
+    # "and 2 dismissed gaps" (numeric form).
+    if "dismissed_gaps" not in delta_dict:
+        m_dg = re.search(r"and (\d+) dismissed gaps", text)
+        if m_dg:
+            count = int(m_dg.group(1))
+            if count not in _VALID_DISMISSAL_COUNTS:
+                return False, f"Unexpected dismissal count {count} (expected one of {sorted(_VALID_DISMISSAL_COUNTS)})"
+            delta_dict["dismissed_gaps"] = [
+                f"Dismissed gap {i+1}: not applicable to this system"
+                for i in range(count)
+            ]
+        elif "and one dismissed gap" in text:
+            delta_dict["dismissed_gaps"] = ["Dismissed: not applicable to this system"]
 
     client.set_response_for(_FCRevisionDelta, delta_dict)
     return True, ""

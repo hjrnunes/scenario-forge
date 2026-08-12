@@ -102,6 +102,7 @@ FEATURE_STEMS = [
     "critic-gap-detection",
     "critic-prompt-context",
     "revision-gap-dismissal",
+    "revision-all-dismissed-warning",
     "revision-next-cm-id",
     "revision-prompt-context",
     "revision-token-ceiling",
@@ -637,6 +638,25 @@ def run_static_checks(runner: QARunner) -> None:
             f"Missing: {feature}",
         )
 
+    # --- All-dismissed warning (scenario-forge-dy5n) ------------------------
+    if run_revision is not None:
+        rev_src = ast.get_source_segment(_read(CRITIC_FILE), run_revision) or ""
+        runner.check(
+            "crf-static-38: run_revision checks for all-dismissed + no-change "
+            "condition",
+            "dismissed all findings" in rev_src
+            or "all_findings_dismissed" in rev_src,
+            "A distinct deterministic warning must be emitted when all "
+            "findings are dismissed and no changes are produced",
+        )
+        runner.check(
+            "crf-static-39: the all-dismissed warning is emitted at most once",
+            rev_src.count("dismissed all findings") <= 1
+            or "all_findings_dismissed" in rev_src,
+            "The warning must appear at most once per revision call — no "
+            "duplicates",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Dynamic checks — no LLM endpoint required
@@ -1154,6 +1174,289 @@ def run_dynamic_checks(runner: QARunner) -> None:
             f"{exc}\n{traceback.format_exc()}",
         )
 
+    # --- D4b: all-dismissed warning (scenario-forge-dy5n) -------------------
+    try:
+        from scenario_forge.stpa.system_model.critic import (
+            RevisionDelta,
+            run_revision,
+        )
+
+        cs = _qa_control_structure()
+
+        # Findings with 2 unjustified items (1 gap + 1 checklist).
+        findings_two = _qa_findings(
+            gaps=[_gap()],
+            checklist_results={"Input validation": "absent_unjustified"},
+        )
+
+        # All dismissed, no changes → distinct warning.
+        delta_all = RevisionDelta(
+            dismissed_gaps=[
+                "gap 1 is a false positive",
+                "checklist item is a false positive",
+            ]
+        )
+        client = _StubLLMClient({RevisionDelta: delta_all})
+        with tempfile.TemporaryDirectory(prefix="qa_crf_alldis_") as tmpdir:
+            _, warnings = run_revision(
+                llm_client=client,
+                control_structure=cs,
+                critic_findings=findings_two,
+                use_case_text="QA use case",
+                run_dir=Path(tmpdir),
+            )
+        runner.check(
+            "crf-dynamic-30: all findings dismissed + no changes emits an "
+            "all-dismissed warning",
+            any("dismissed all findings" in w for w in warnings),
+            f"Warnings: {warnings}",
+        )
+        # Per-dismissal warnings are still present.
+        runner.check(
+            "crf-dynamic-31: per-dismissal warnings remain when all are "
+            "dismissed",
+            sum(1 for w in warnings if "Revision dismissed finding" in w) == 2,
+            f"Expected 2 per-dismissal warnings, got: {warnings}",
+        )
+        # Exactly one all-dismissed warning (no duplicates).
+        all_dismissed_count = sum(
+            1 for w in warnings if "dismissed all findings" in w
+        )
+        runner.check(
+            "crf-dynamic-32: exactly one all-dismissed warning is emitted",
+            all_dismissed_count == 1,
+            f"Expected 1, got {all_dismissed_count}: {warnings}",
+        )
+
+        # Partial dismissal (1 of 2) → no all-dismissed warning.
+        delta_partial = RevisionDelta(
+            dismissed_gaps=["gap 1 is a false positive"]
+        )
+        client = _StubLLMClient({RevisionDelta: delta_partial})
+        with tempfile.TemporaryDirectory(prefix="qa_crf_partial_") as tmpdir:
+            _, warnings = run_revision(
+                llm_client=client,
+                control_structure=cs,
+                critic_findings=findings_two,
+                use_case_text="QA use case",
+                run_dir=Path(tmpdir),
+            )
+        runner.check(
+            "crf-dynamic-33: partial dismissal does not emit all-dismissed "
+            "warning",
+            not any("dismissed all findings" in w for w in warnings),
+            f"Warnings: {warnings}",
+        )
+        runner.check(
+            "crf-dynamic-34: partial dismissal still emits per-dismissal "
+            "warning",
+            any("Revision dismissed finding" in w for w in warnings),
+            f"Warnings: {warnings}",
+        )
+
+        # All dismissed + a new responsibility → warning suppressed.
+        from scenario_forge.stpa.models.control_structure import (
+            ControlAction,
+            ElementRef,
+            FeedbackChannel,
+            ProcessModelPart,
+            ReferenceType,
+            Responsibility,
+            ResponsibilityConstraint,
+        )
+
+        delta_with_change = RevisionDelta(
+            new_responsibilities=[
+                Responsibility(
+                    resp_id="RESP-3",
+                    description="Input validation controller",
+                    responsibility_constraints=[
+                        ResponsibilityConstraint(
+                            rc_id="RC-3-1", description="Validate"
+                        )
+                    ],
+                    process_model_parts=[
+                        ProcessModelPart(
+                            pm_id="PM-3-1", description="Input state"
+                        )
+                    ],
+                    control_actions=[
+                        ControlAction(
+                            ca_id="CA-3-1", description="Validate",
+                            target=ElementRef(
+                                type=ReferenceType.controlled_process, id="CP-1"
+                            ),
+                        )
+                    ],
+                    feedback_channels=[
+                        FeedbackChannel(
+                            fb_id="FB-3-1", description="Result",
+                            updates="PM-3-1",
+                            source=ElementRef(
+                                type=ReferenceType.controlled_process, id="CP-1"
+                            ),
+                        )
+                    ],
+                )
+            ],
+            dismissed_gaps=[
+                "gap 1 is a false positive",
+                "checklist item is a false positive",
+            ],
+        )
+        client = _StubLLMClient({RevisionDelta: delta_with_change})
+        with tempfile.TemporaryDirectory(prefix="qa_crf_chgsuppress_") as tmpdir:
+            revised, warnings = run_revision(
+                llm_client=client,
+                control_structure=cs,
+                critic_findings=findings_two,
+                use_case_text="QA use case",
+                run_dir=Path(tmpdir),
+            )
+        runner.check(
+            "crf-dynamic-35: all dismissed + new responsibility suppresses "
+            "all-dismissed warning",
+            not any("dismissed all findings" in w for w in warnings),
+            f"Warnings: {warnings}",
+        )
+        runner.check(
+            "crf-dynamic-36: the new responsibility is present in the revised "
+            "structure",
+            any(r.resp_id == "RESP-3" for r in revised.responsibilities),
+            f"Got {[r.resp_id for r in revised.responsibilities]}",
+        )
+
+        # All dismissed + a new controlled process → warning suppressed.
+        delta_with_cp = RevisionDelta(
+            new_controlled_processes=[
+                {"cp_id": "CP-2", "description": "New process"}
+            ],
+            dismissed_gaps=[
+                "gap 1 is a false positive",
+                "checklist item is a false positive",
+            ],
+        )
+        client = _StubLLMClient({RevisionDelta: delta_with_cp})
+        with tempfile.TemporaryDirectory(prefix="qa_crf_cpsuppress_") as tmpdir:
+            _, warnings = run_revision(
+                llm_client=client,
+                control_structure=cs,
+                critic_findings=findings_two,
+                use_case_text="QA use case",
+                run_dir=Path(tmpdir),
+            )
+        runner.check(
+            "crf-dynamic-37: all dismissed + new controlled process suppresses "
+            "all-dismissed warning",
+            not any("dismissed all findings" in w for w in warnings),
+            f"Warnings: {warnings}",
+        )
+
+        # Empty findings + dismissed gaps → no all-dismissed warning.
+        findings_empty = _qa_findings()
+        delta_dismiss_empty = RevisionDelta(
+            dismissed_gaps=["not applicable"]
+        )
+        client = _StubLLMClient({RevisionDelta: delta_dismiss_empty})
+        with tempfile.TemporaryDirectory(prefix="qa_crf_emptyfind_") as tmpdir:
+            _, warnings = run_revision(
+                llm_client=client,
+                control_structure=cs,
+                critic_findings=findings_empty,
+                use_case_text="QA use case",
+                run_dir=Path(tmpdir),
+            )
+        runner.check(
+            "crf-dynamic-38: empty findings does not emit all-dismissed "
+            "warning",
+            not any("dismissed all findings" in w for w in warnings),
+            f"Warnings: {warnings}",
+        )
+
+        # All dismissed + modified responsibility → warning suppressed.
+        delta_with_mod = RevisionDelta(
+            modified_responsibilities=[
+                Responsibility(
+                    resp_id="RESP-1",
+                    description="Updated authorization controller",
+                    responsibility_constraints=[
+                        ResponsibilityConstraint(
+                            rc_id="RC-1-1", description="Must confirm"
+                        )
+                    ],
+                    process_model_parts=[
+                        ProcessModelPart(
+                            pm_id="PM-1-1",
+                            description="Updated user intent state",
+                            feedback_source=ElementRef(
+                                type=ReferenceType.controlled_process, id="CP-1"
+                            ),
+                        )
+                    ],
+                    control_actions=[
+                        ControlAction(
+                            ca_id="CA-1-1", description="Execute action",
+                            target=ElementRef(
+                                type=ReferenceType.controlled_process, id="CP-1"
+                            ),
+                        )
+                    ],
+                    feedback_channels=[
+                        FeedbackChannel(
+                            fb_id="FB-1-1", description="Action result",
+                            updates="PM-1-1",
+                            source=ElementRef(
+                                type=ReferenceType.controlled_process, id="CP-1"
+                            ),
+                        )
+                    ],
+                )
+            ],
+            dismissed_gaps=[
+                "gap 1 is a false positive",
+                "checklist item is a false positive",
+            ],
+        )
+        client = _StubLLMClient({RevisionDelta: delta_with_mod})
+        with tempfile.TemporaryDirectory(prefix="qa_crf_modsuppress_") as tmpdir:
+            _, warnings = run_revision(
+                llm_client=client,
+                control_structure=cs,
+                critic_findings=findings_two,
+                use_case_text="QA use case",
+                run_dir=Path(tmpdir),
+            )
+        runner.check(
+            "crf-dynamic-39: all dismissed + modified responsibility "
+            "suppresses all-dismissed warning",
+            not any("dismissed all findings" in w for w in warnings),
+            f"Warnings: {warnings}",
+        )
+
+        # RevisionDelta fields remain unchanged.
+        delta_fresh = RevisionDelta()
+        runner.check(
+            "crf-dynamic-40: RevisionDelta fields remain unchanged after "
+            "all-dismissed warning feature",
+            set(delta_fresh.model_fields.keys())
+            == {
+                "new_responsibilities",
+                "new_controlled_processes",
+                "new_coordination_links",
+                "modified_responsibilities",
+                "dismissed_gaps",
+            },
+            f"Fields: {sorted(delta_fresh.model_fields.keys())}",
+        )
+    except Exception as exc:  # pragma: no cover
+        import traceback
+
+        runner.check(
+            "crf-dynamic-30: all-dismissed warning behavior",
+            False,
+            f"{exc}\n{traceback.format_exc()}",
+        )
+
     # --- D5: truncation still degrades gracefully ---------------------------
     try:
         from scenario_forge.stpa.system_model.critic import (
@@ -1470,6 +1773,15 @@ _PIPELINE_CHECKS: list[tuple[str, str]] = [
         "Review the dismissal justifications surfaced in the run warnings "
         "and judge whether each declined finding really was a false "
         "positive rather than work the model avoided.",
+    ),
+    (
+        "crf-pipeline-08: the all-dismissed/no-change warning surfaces in "
+        "real runs",
+        "Read the run warnings (run-manifest.yaml or calls.jsonl) and check "
+        "whether the 'dismissed all findings' warning appears when the "
+        "revision dismissed everything and produced no changes. A live LLM "
+        "endpoint is needed to observe this behavior — no static test can "
+        "determine whether the model actually dismisses all findings.",
     ),
 ]
 

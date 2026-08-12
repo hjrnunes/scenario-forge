@@ -940,6 +940,33 @@ def _h_crf_revision_outcome_exact(world: World, text: str, examples: dict) -> tu
     else:
         return False, f"Unknown revision outcome (case-sensitive match): '{outcome}'"
 
+def _h_crf_all_dismissed_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list includes an all-dismissed warning.
+
+    Checks for a warning containing the stable fragment "dismissed all
+    findings", which distinguishes the all-dismissed/no-change warning
+    from the per-dismissal warnings (which contain "dismissed finding").
+    """
+    warnings = world.sp1_post_revision_warnings or []
+    if not any("dismissed all findings" in w for w in warnings):
+        return False, f"Expected an all-dismissed warning but got: {warnings}"
+    return True, ""
+
+def _h_crf_no_all_dismissed_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list does not include an all-dismissed warning."""
+    warnings = world.sp1_post_revision_warnings or []
+    if any("dismissed all findings" in w for w in warnings):
+        return False, f"Expected no all-dismissed warning but found one: {warnings}"
+    return True, ""
+
+def _h_crf_exactly_one_all_dismissed_warning(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the warnings list includes exactly one all-dismissed warning."""
+    warnings = world.sp1_post_revision_warnings or []
+    count = sum(1 for w in warnings if "dismissed all findings" in w)
+    if count != 1:
+        return False, f"Expected exactly 1 all-dismissed warning but found {count}: {warnings}"
+    return True, ""
+
 FEATURE_ID = 'critic_revision_fix'
 
 def register(api: object) -> None:
@@ -1003,6 +1030,9 @@ def register(api: object) -> None:
     api.register_first('a control structure whose coordination link CL-\\d+ carries the coordination mechanism', _h_crf_cs_with_cl_cm, source_order=22550)
     api.register_first('the rendered text does not contain an unrendered Jinja expression', _h_crf_no_unrendered_jinja, source_order=22551)
     api.register_first('revision is (?:not )?triggered', _h_crf_revision_outcome_exact, source_order=22552)
+    api.register_first('the warnings list includes exactly one all-dismissed warning', _h_crf_exactly_one_all_dismissed_warning, source_order=22553)
+    api.register_first('the warnings list includes an all-dismissed warning', _h_crf_all_dismissed_warning, source_order=22554)
+    api.register_first('the warnings list does not include an all-dismissed warning', _h_crf_no_all_dismissed_warning, source_order=22555)
     api.set_feature(None)
 
 __all__ = ["FEATURE_ID", "register"]

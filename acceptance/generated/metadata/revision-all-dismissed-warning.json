@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "revision-all-dismissed-warning",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/critic-revision-fix/revision-all-dismissed-warning.json",
+  "implementation_hash": "sha256:2ca7e753b664592b1614a649ea840cdd6580c0cd9f087efed12cf7717d2b780c",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "revision-all-dismissed-warning_acceptance_test.py"
+  ]
+}
