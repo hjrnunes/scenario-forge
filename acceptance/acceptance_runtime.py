@@ -6,11 +6,11 @@ import json
 import re
 import sys
 import traceback
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
+from runtime_features.sp1_revision import _h_rev_revision_run as _retained_rev_revision_run
 from runtime_shared import (
     World,
     _GDStageError,
@@ -289,7 +289,6 @@ def execute_ir(ir_path: str) -> tuple[bool, str]:
     return all_passed, "\n".join(output_lines)
 
 _load_feature_registry()
-from runtime_features.sp1_revision import _h_rev_revision_run as _retained_rev_revision_run
 
 def _h_rev_revision_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Delegate the retained revision handler through the stable facade."""
