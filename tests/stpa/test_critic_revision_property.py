@@ -930,3 +930,105 @@ class TestAllDismissedWarning:
         )
         expected = 1 if required else 0
         assert _count_all_dismissed(warnings) == expected, warnings
+
+
+# ---------------------------------------------------------------------------
+# 7. Merge guard correctness: duplicate skip, existing-link preservation,
+#    non-colliding cm_id preservation
+# ---------------------------------------------------------------------------
+
+
+class TestMergeGuardCorrectness:
+    """The merge guards in _add_new_items and _renumber_colliding_cm_ids
+    behave correctly under mutations that invert their skip/collision
+    conditions."""
+
+    def test_duplicate_resp_id_is_skipped(self, tmp_path):
+        """A new_responsibility whose resp_id already exists is not added."""
+        cs = _make_base_cs()
+        dup_resp = _make_resp(1)  # RESP-1 already in cs
+        dup_resp = dup_resp.model_copy(
+            update={"description": "DUPLICATE description"}
+        )
+        client = MockLLMClient()
+        client.set_response_for(
+            RevisionDelta,
+            RevisionDelta(new_responsibilities=[dup_resp]).model_dump(),
+        )
+        revised, _ = run_revision(
+            llm_client=client,
+            control_structure=cs,
+            critic_findings=_make_critic_findings_for_revision(),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+        resp_ids = [r.resp_id for r in revised.responsibilities]
+        assert resp_ids.count("RESP-1") == 1, (
+            f"Expected exactly one RESP-1 but got: {resp_ids}"
+        )
+        resp1 = next(r for r in revised.responsibilities if r.resp_id == "RESP-1")
+        assert "DUPLICATE" not in resp1.description, (
+            "Duplicate responsibility should have been skipped — original "
+            "description must be preserved."
+        )
+
+    def test_existing_link_cm_id_preserved_on_collision(self, tmp_path):
+        """When a new link's cm_id collides, the existing link's cm_id
+        is preserved (not renumbered)."""
+        cs = _make_base_cs()  # CL-1 with CM-1
+        new_cl = _make_cl(2, 1, 1, 2)  # CL-2 with CM-1 (collision)
+        client = MockLLMClient()
+        client.set_response_for(
+            RevisionDelta,
+            RevisionDelta(new_coordination_links=[new_cl]).model_dump(),
+        )
+        revised, warnings = run_revision(
+            llm_client=client,
+            control_structure=cs,
+            critic_findings=_make_critic_findings_for_revision(),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+        cl1 = next(cl for cl in revised.coordination_links if cl.link_id == "CL-1")
+        assert cl1.coordination_mechanism.cm_id == "CM-1", (
+            f"Existing link CL-1 cm_id should be preserved as CM-1 but got "
+            f"{cl1.coordination_mechanism.cm_id}"
+        )
+        assert any("Renumber" in w for w in warnings), (
+            f"Expected a renumber warning but got: {warnings}"
+        )
+        cl2 = next(
+            cl for cl in revised.coordination_links if cl.link_id == "CL-2"
+        )
+        assert cl2.coordination_mechanism.cm_id == "CM-2", (
+            f"Colliding new link CL-2 should be renumbered to CM-2 but got "
+            f"{cl2.coordination_mechanism.cm_id}"
+        )
+
+    def test_non_colliding_new_cm_id_preserved(self, tmp_path):
+        """A new link with a non-colliding cm_id keeps that cm_id (no
+        spurious renumbering)."""
+        cs = _make_base_cs()  # CL-1 with CM-1
+        new_cl = _make_cl(2, 5, 1, 2)  # CL-2 with CM-5 (no collision)
+        client = MockLLMClient()
+        client.set_response_for(
+            RevisionDelta,
+            RevisionDelta(new_coordination_links=[new_cl]).model_dump(),
+        )
+        revised, warnings = run_revision(
+            llm_client=client,
+            control_structure=cs,
+            critic_findings=_make_critic_findings_for_revision(),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+        cl2 = next(
+            cl for cl in revised.coordination_links if cl.link_id == "CL-2"
+        )
+        assert cl2.coordination_mechanism.cm_id == "CM-5", (
+            f"Non-colliding new link CL-2 should keep CM-5 but got "
+            f"{cl2.coordination_mechanism.cm_id}"
+        )
+        assert not any("Renumber" in w for w in warnings), (
+            f"Expected no renumber warnings but got: {warnings}"
+        )
