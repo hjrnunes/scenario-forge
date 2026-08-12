@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=aa08e8830adc6a730c7320acfdbb952be3b9832e79cfde28d2e1512d1ff7c506
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-12T09:15:00.519951Z","feature_name":"SP1 Stage 2 — Revision completion-token ceiling","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/features/critic-revision-fix/revision-token-ceiling.feature","background_hash":"d056b6c03387aeb6b2873f3c0dcf87de2c88563b4e3df2c16c94cddd0306cfa0","implementation_hash":"sha256:1c5a7b71340f9743723dc7a02ecbdbbb1ceef02acff098382bde738f663095ad","scenarios":[{"index":2,"name":"CRTok-03 a revision response larger than the old ceiling is accepted","scenario_hash":"00e3d33ac61a06b5835b962030efc187ba5e83181268d259aca8e84afd625ce7","mutation_count":3,"result":{"Total":3,"Killed":3,"Survived":0,"Errors":0},"tested_at":"2026-08-12T09:15:00.519951Z"}]}
+# acceptance-mutation-manifest-end
+
 # critic-revision-fix / revision-token-ceiling
 Feature: SP1 Stage 2 — Revision completion-token ceiling
   The Stage 2 revision LLM call is capped by

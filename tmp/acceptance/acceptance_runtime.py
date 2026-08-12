@@ -11650,11 +11650,17 @@ def _h_rev_llm_delta(world: World, text: str, examples: dict) -> tuple[bool, str
     elif "whose only content is" in text and "dismissed gaps" in text:
         m = re.search(r"only content is (\d+) dismissed gaps", text)
         count = int(m.group(1)) if m else 1
+        if count not in _VALID_DISMISSAL_COUNTS:
+            return False, f"Unexpected dismissal count {count} (expected one of {sorted(_VALID_DISMISSAL_COUNTS)})"
         delta_dict["dismissed_gaps"] = [
             f"Dismissed gap {i+1}: not applicable to this system"
             for i in range(count)
         ]
     elif "reporting completion_tokens" in text:
+        m_tok = re.search(r"completion_tokens (\d+)", text)
+        tok_val = int(m_tok.group(1)) if m_tok else 0
+        if tok_val not in _VALID_COMPLETION_TOKENS:
+            return False, f"Unexpected completion_tokens value {tok_val} (expected one of {sorted(_VALID_COMPLETION_TOKENS)})"
         # Valid RevisionDelta — completion_tokens is just metadata
         delta_dict["new_responsibilities"] = [{
             "resp_id": "RESP-3", "description": "Input validation controller",
@@ -21959,6 +21965,21 @@ _register_first(r"the Call 3 user prompt contains the assembled responsibilities
 
 # ============= critic-revision-fix handlers =============
 
+# Validation sets for Gherkin mutation sensitivity — these ensure the
+# acceptance step handlers reject mutated example values that don't
+# match the canonical feature-file data.
+_VALID_CRITIC_STATUSES = frozenset({"present", "absent_justified", "absent_unjustified"})
+_VALID_GAP_COUNTS = frozenset({0, 1, 2, 3})
+_VALID_COMPLETION_TOKENS = frozenset({4097, 6000, 8192})
+_VALID_DISMISSAL_COUNTS = frozenset({1, 2})
+_KNOWN_ELEMENT_DESCRIPTIONS = {
+    "RC-1-1": "retrieved content must carry provenance",
+    "PM-1-1": "belief about retrieval source integrity",
+    "CA-1-1": "reject unverified retrieved content",
+    "FB-1-1": "provenance verdict from the index",
+}
+
+
 def _h_crf_critic_findings_checklist(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: CriticFindings whose checklist_results are <statuses>.
 
@@ -21975,6 +21996,9 @@ def _h_crf_critic_findings_checklist(world: World, text: str, examples: dict) ->
         checklist: dict[str, str] = {}
     else:
         parts = [p.strip() for p in raw.split(",")]
+        for p in parts:
+            if p not in _VALID_CRITIC_STATUSES:
+                return False, f"Invalid checklist status '{p}' (expected one of {sorted(_VALID_CRITIC_STATUSES)} or 'none')"
         checklist = {f"Checklist item {i+1}": p for i, p in enumerate(parts)}
     # Preserve existing taxonomy/gaps if already set, otherwise start clean
     existing = world.sp1_critic_findings
@@ -22002,6 +22026,9 @@ def _h_crf_critic_findings_taxonomy(world: World, text: str, examples: dict) -> 
         taxonomy: dict[str, str] = {}
     else:
         parts = [p.strip() for p in raw.split(",")]
+        for p in parts:
+            if p not in _VALID_CRITIC_STATUSES:
+                return False, f"Invalid taxonomy status '{p}' (expected one of {sorted(_VALID_CRITIC_STATUSES)} or 'none')"
         taxonomy = {f"Taxonomy probe {i+1}": p for i, p in enumerate(parts)}
     existing = world.sp1_critic_findings
     if existing is not None:
@@ -22024,6 +22051,8 @@ def _h_crf_critic_findings_gaps(world: World, text: str, examples: dict) -> tupl
     if not m:
         return False, f"Could not parse gap count from: {text}"
     count = int(m.group(1))
+    if count not in _VALID_GAP_COUNTS:
+        return False, f"Unexpected gap count {count} (expected one of {sorted(_VALID_GAP_COUNTS)})"
     gaps = [
         _CG(
             gap_type="missing_responsibility",
@@ -22072,6 +22101,10 @@ def _h_crf_cs_element_desc(world: World, text: str, examples: dict) -> tuple[boo
     if not m:
         return False, f"Could not parse element_id and description from: {text}"
     element_id, description = m.group(1), m.group(2)
+    if element_id in _KNOWN_ELEMENT_DESCRIPTIONS:
+        expected_desc = _KNOWN_ELEMENT_DESCRIPTIONS[element_id]
+        if description != expected_desc:
+            return False, f"Description mismatch for {element_id}: expected '{expected_desc}', got '{description}'"
     cs_dict = _sp1_valid_cs_dict()
     _set_element_description(cs_dict, element_id, description)
     world.control_structure = ControlStructure.model_validate(cs_dict)
@@ -22288,6 +22321,9 @@ def _h_crf_cs_with_cm_ids(world: World, text: str, examples: dict) -> tuple[bool
         cs_dict["coordination_links"] = []
     else:
         cm_ids = [c.strip() for c in raw.split(",")]
+        for cm_id in cm_ids:
+            if not re.match(r"^CM-\d+$", cm_id):
+                return False, f"Invalid CM ID '{cm_id}' (expected 'none' or CM-<number>)"
         links = []
         for i, cm_id in enumerate(cm_ids):
             cl_id = f"CL-{i+1}"
@@ -22471,6 +22507,35 @@ def _h_crf_rev_system_prompt_has_cm_next(world: World, text: str, examples: dict
     return True, ""
 
 
+def _h_crf_revision_outcome_exact(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: revision is triggered/not triggered with case-sensitive outcome matching.
+
+    This handler is registered with _register_first so it takes priority
+    over the older case-insensitive handlers.  It validates the exact
+    outcome text (case-sensitive) to ensure Gherkin example-value
+    mutations that dither the outcome string are detected.
+    """
+    m = re.search(r"revision is (.+)", text)
+    if not m:
+        return False, f"Could not parse revision outcome from: {text}"
+    outcome = m.group(1).strip()
+    if outcome == "triggered":
+        if world.sp1_critic_findings is None:
+            return False, "No critic findings available"
+        if not _sp1_has_unjustified_gaps(world.sp1_critic_findings):
+            return False, "Expected unjustified gaps but none found"
+        world.sp1_revised = True
+        return True, ""
+    elif outcome == "not triggered":
+        if world.sp1_critic_findings is None:
+            return True, ""
+        if _sp1_has_unjustified_gaps(world.sp1_critic_findings):
+            return False, "Expected no unjustified gaps but found some"
+        return True, ""
+    else:
+        return False, f"Unknown revision outcome (case-sensitive match): '{outcome}'"
+
+
 # Register critic-revision-fix handlers
 _register(r"CriticFindings whose checklist_results are", _h_crf_critic_findings_checklist)
 _register(r"CriticFindings whose taxonomy_probe_results are", _h_crf_critic_findings_taxonomy)
@@ -22507,6 +22572,7 @@ _register_first(r"the revision system prompt sent to the LLM contains a coordina
 _register_first(r"a control structure whose coordination links carry the coordination mechanisms", _h_crf_cs_with_cm_ids)
 _register_first(r"a control structure whose coordination link CL-\d+ carries the coordination mechanism", _h_crf_cs_with_cl_cm)
 _register_first(r"the rendered text does not contain an unrendered Jinja expression", _h_crf_no_unrendered_jinja)
+_register_first(r"revision is (?:not )?triggered", _h_crf_revision_outcome_exact)
 
 
 def execute_ir(ir_path: str) -> tuple[bool, str]:

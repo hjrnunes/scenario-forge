@@ -1,3 +1,7 @@
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-12T09:16:14.435321Z","feature_name":"SP1 Stage 2 — Revision trigger considers all three critic probes","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/features/critic-revision-fix/critic-gap-detection.feature","background_hash":"904fafbfcb46d08fb523ef34fb80bd71c432c1128f210bc4b0be5487c71220a5","implementation_hash":"sha256:f35f8a41c84d3f620cec57156b5fa9571dc22e7ee5ad6bdb0880f969fe8a7314","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 # critic-revision-fix / critic-gap-detection
 Feature: SP1 Stage 2 — Revision trigger considers all three critic probes
   The completeness critic runs three probes and reports each in its own

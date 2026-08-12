@@ -1,6 +1,6 @@
-# mutation-stamp: sha256=5efb8ff744ffc2be3f1c083d9bfaf815338728000393ba2b6f2ceaf0b4b8aa05
+# mutation-stamp: sha256=33e7237d23d9481d63635635eefb83a2c674b7dd7b747d4e78fb3913cbc9f015
 # acceptance-mutation-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T19:57:45.125171Z","feature_name":"SP1 — Prevent RevisionDelta runaway output","feature_path":"../../../tests/stpa/features/sp1_revision_runaway_output.feature","background_hash":"d2c1bb399d1f338a359aea1d66186f71082f313642a60b85f65f7cf0ce4affd3","implementation_hash":"unknown","scenarios":[]}
+# {"version":1,"tested_at":"2026-08-12T09:15:01.229101Z","feature_name":"SP1 — Prevent RevisionDelta runaway output","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_revision_runaway_output.feature","background_hash":"d2c1bb399d1f338a359aea1d66186f71082f313642a60b85f65f7cf0ce4affd3","implementation_hash":"sha256:7732738e87189a6cf0181c6570b6ab8b407f1098e6bcac546760c9fb40310ce3","scenarios":[]}
 # acceptance-mutation-manifest-end
 
 Feature: SP1 — Prevent RevisionDelta runaway output
