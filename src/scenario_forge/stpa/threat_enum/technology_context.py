@@ -43,29 +43,59 @@ _ZONE_FAILURE_MODES: dict[str, str] = {
 # The predicate receives the set of active KC sub-codes and returns True when
 # the rule applies.  This table replaces a chain of if-statements so the
 # function's cyclomatic complexity stays low even as new rules are added.
+#
+# Predicates are named functions (not lambdas) so that coverage tools and
+# mutation testers can track their execution at the line/function level.
+
+
+def _has_rag(kc: set[str]) -> bool:
+    """True when the profile uses RAG (KC6.3.3)."""
+    return "KC6.3.3" in kc
+
+
+def _has_cross_session_memory(kc: set[str]) -> bool:
+    """True when the profile has cross-session memory (KC4.3*)."""
+    return any(k.startswith("KC4.3") for k in kc)
+
+
+def _has_multi_agent(kc: set[str]) -> bool:
+    """True when the profile has multi-agent collaboration (KC2.3 or KCX-MAGENT)."""
+    return "KC2.3" in kc or "KCX-MAGENT" in kc
+
+
+def _has_hitl(kc: set[str]) -> bool:
+    """True when the profile has human-in-the-loop (KCX-HITL)."""
+    return "KCX-HITL" in kc
+
+
+def _has_code_execution(kc: set[str]) -> bool:
+    """True when the profile has code execution (KC6.2*)."""
+    return any(k.startswith("KC6.2") for k in kc)
+
+
 _KC_FAILURE_MODE_RULES: list[tuple[Callable[[set[str]], bool], str]] = [
     (
-        lambda kc: "KC6.3.3" in kc,
+        _has_rag,
         "- Uses RAG → susceptible to retrieval poisoning, "
         "knowledge base injection, retrieval manipulation",
     ),
     (
-        lambda kc: any(k.startswith("KC4.3") for k in kc),
+        _has_cross_session_memory,
         "- Has cross-session memory → susceptible to persistent "
         "context poisoning, cross-user data leakage",
     ),
     (
-        lambda kc: "KC2.3" in kc or "KCX-MAGENT" in kc,
+        _has_multi_agent,
         "- Has multi-agent collaboration → susceptible to agent "
         "rogue behavior, conflicting directives, shared state corruption",
     ),
     (
-        lambda kc: "KCX-HITL" in kc,
+        _has_hitl,
         "- Has human-in-the-loop → susceptible to alert fatigue, "
         "escalation bypass, human manipulation",
     ),
     (
-        lambda kc: any(k.startswith("KC6.2") for k in kc),
+        _has_code_execution,
         "- Has code execution → susceptible to arbitrary code "
         "execution, sandbox escape",
     ),
@@ -201,5 +231,5 @@ def _emit_tool_inventory_failure_modes(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-12T00:00:00Z","module_hash":"pending","functions":[]}
+# {"version":1,"tested_at":"2026-08-12T19:28:11Z","module_hash":"db388a9d88a897e84d209f9925c9b54d2c34d9db25603bf74c3ffac342f91888","functions":[{"id":"func/_has_rag","name":"_has_rag","line":51,"end_line":53,"hash":"0cac04b0fcf1e2abc0dd93ec3efc3d8414141d50fadd6515284cf0a73ca225e2"},{"id":"func/_has_cross_session_memory","name":"_has_cross_session_memory","line":56,"end_line":58,"hash":"dc7f3d4b41eeda83e7dcdd0f7da0a7aa8a98b52dee09d1e7ee2ecc99bc3e7660"},{"id":"func/_has_multi_agent","name":"_has_multi_agent","line":61,"end_line":63,"hash":"a324b39add1f27ba122364a02f89ff2b5b210d1863691958d352b54b16c69c13"},{"id":"func/_has_hitl","name":"_has_hitl","line":66,"end_line":68,"hash":"af2921c248d197d32dd3f065cb05609ef59fa7441017d97481072eb77773c59a"},{"id":"func/_has_code_execution","name":"_has_code_execution","line":71,"end_line":73,"hash":"8a7323f5e6b335eb64bef8e33abc770f09e8d6ec3b85b5c9caf108b35e1cc234"},{"id":"func/_classify_tool_failure_mode","name":"_classify_tool_failure_mode","line":135,"end_line":146,"hash":"32004062807f345992bc3430c9fa428ba8ada34929dca3b9c3923f41fff958e8"},{"id":"func/build_technology_context","name":"build_technology_context","line":149,"end_line":174,"hash":"8635b66655e37525365de7b4d7ffda7dfd888f6d2c6b7359e96fd06a5f911b99"},{"id":"func/_emit_zone_failure_modes","name":"_emit_zone_failure_modes","line":177,"end_line":182,"hash":"bd88a9c679ee0285671255a2653c85ec37fb3d71e51a631ddca9f51e8fc9944e"},{"id":"func/_emit_kc_failure_modes","name":"_emit_kc_failure_modes","line":185,"end_line":195,"hash":"49b0651a494ef5c76f46015379d4ae1ed50c6095fe224b74ffb5661bf90bb4a5"},{"id":"func/_emit_entry_point_failure_modes","name":"_emit_entry_point_failure_modes","line":198,"end_line":212,"hash":"b007dad48da85924be6041f9c517082d0dda3e5fc84301a24f90d8e56ec93d88"},{"id":"func/_emit_tool_inventory_failure_modes","name":"_emit_tool_inventory_failure_modes","line":215,"end_line":230,"hash":"bac03455735d253aa7dd04b8bf8d2c467529a540fe69f0d5384f17d2e9bfb037"}]}
 # mutate4py-manifest-end

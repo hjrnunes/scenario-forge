@@ -129,6 +129,13 @@ class TestZoneFailureModes:
         ctx = build_technology_context(profile)
         assert "agent impersonation" in ctx.lower()
 
+    def test_inactive_zone_not_emitted(self):
+        """A zone that is not active must not produce its failure mode line."""
+        profile = _make_profile_with_zone("input")
+        ctx = build_technology_context(profile)
+        assert "memory poisoning" not in ctx.lower()
+        assert "agent impersonation" not in ctx.lower()
+
 
 # ---------------------------------------------------------------------------
 # KC sub-code specific failure modes (SP2-TECH-02, SP2-TECH-03, SP2-TECH-04)
@@ -163,6 +170,58 @@ class TestKCFailureModes:
         ctx = build_technology_context(profile)
         assert "code execution" in ctx.lower()
 
+    def test_kcx_magent_multi_agent(self):
+        """KCX-MAGENT alone triggers multi-agent failure mode."""
+        profile = _make_profile_with_kc("KCX-MAGENT")
+        ctx = build_technology_context(profile)
+        assert "multi-agent" in ctx.lower()
+
+
+class TestKCFailureModesNegative:
+    """KC sub-code specific failure modes are NOT emitted when the KC sub-code is absent."""
+
+    def test_no_rag_when_kc633_absent(self):
+        """RAG failure mode is absent when KC6.3.3 is not in the profile."""
+        profile = _make_minimal_profile()
+        ctx = build_technology_context(profile)
+        assert "retrieval poisoning" not in ctx.lower()
+
+    def test_no_cross_session_when_kc43_absent(self):
+        """Cross-session failure mode is absent when KC4.3* is not in the profile."""
+        profile = _make_minimal_profile()
+        ctx = build_technology_context(profile)
+        assert "cross-session" not in ctx.lower()
+
+    def test_no_multi_agent_when_both_kc23_and_magent_absent(self):
+        """Multi-agent failure mode is absent when neither KC2.3 nor KCX-MAGENT is present."""
+        profile = _make_minimal_profile()
+        ctx = build_technology_context(profile)
+        assert "multi-agent" not in ctx.lower()
+
+    def test_no_hitl_when_kcx_hitl_absent(self):
+        """HITL failure mode is absent when KCX-HITL is not in the profile."""
+        profile = _make_minimal_profile()
+        ctx = build_technology_context(profile)
+        assert "alert fatigue" not in ctx.lower()
+
+    def test_no_code_execution_when_kc62_absent(self):
+        """Code execution failure mode is absent when KC6.2* is not in the profile."""
+        profile = _make_minimal_profile()
+        ctx = build_technology_context(profile)
+        assert "arbitrary code" not in ctx.lower()
+
+    def test_multi_agent_emitted_for_kcx_magent_only(self):
+        """Multi-agent failure mode is emitted when only KCX-MAGENT is present (not KC2.3)."""
+        profile = _make_profile_with_kc("KCX-MAGENT")
+        ctx = build_technology_context(profile)
+        assert "multi-agent" in ctx.lower()
+
+    def test_multi_agent_emitted_for_kc23_only(self):
+        """Multi-agent failure mode is emitted when only KC2.3 is present (not KCX-MAGENT)."""
+        profile = _make_profile_with_kc("KC2.3")
+        ctx = build_technology_context(profile)
+        assert "multi-agent" in ctx.lower()
+
 
 # ---------------------------------------------------------------------------
 # Entry point failure modes (SP2-TECH-05, SP2-TECH-06)
@@ -185,6 +244,22 @@ class TestEntryPointFailureModes:
         )
         ctx = build_technology_context(profile)
         assert "exfiltration" in ctx.lower()
+
+    def test_direct_controllability_no_supply_chain(self):
+        """Direct controllability entry point does not emit supply chain failure mode."""
+        profile = _make_profile_with_entry_point(
+            "chat-input", controllability="direct"
+        )
+        ctx = build_technology_context(profile)
+        assert "supply chain" not in ctx.lower()
+
+    def test_unidirectional_no_bidirectional_exfiltration(self):
+        """Unidirectional entry point does not emit bidirectional exfiltration failure mode."""
+        profile = _make_profile_with_entry_point(
+            "chat-input", direction="input"
+        )
+        ctx = build_technology_context(profile)
+        assert "bidirectional data exfiltration" not in ctx.lower()
 
 
 # ---------------------------------------------------------------------------
