@@ -1,7 +1,7 @@
 {
   "name" : "Stage 6 Gherkin Loss/Hazard ID validation (gddi)",
   "scenarios" : [ {
-    "name" : "GDDI-01 user prompt includes valid Loss and Hazard IDs",
+    "name" : "GDDI-01 user prompt includes valid Loss IDs only",
     "steps" : [ {
       "keyword" : "When",
       "text" : "the Gherkin user prompt is built with the loss analysis"
@@ -19,12 +19,6 @@
     }, {
       "id_type" : "loss",
       "valid_id" : "L-3"
-    }, {
-      "id_type" : "hazard",
-      "valid_id" : "H-1"
-    }, {
-      "id_type" : "hazard",
-      "valid_id" : "H-2"
     } ]
   }, {
     "name" : "GDDI-02 user prompt instructs LLM to reference only valid IDs",
@@ -36,7 +30,7 @@
       "text" : "the user prompt contains an instruction to reference only the provided IDs"
     }, {
       "keyword" : "And",
-      "text" : "the user prompt contains an instruction not to invent new IDs"
+      "text" : "the user prompt instructs to use only L-* loss IDs and not H-* hazard IDs"
     } ],
     "examples" : [ ]
   }, {
@@ -56,7 +50,7 @@
       "text" : "build_gherkin_prompts is called with the scenario spec and loss analysis"
     }, {
       "keyword" : "Then",
-      "text" : "the user prompt contains valid Loss and Hazard IDs from the loss analysis"
+      "text" : "the user prompt contains valid Loss IDs and excludes Hazard IDs from the loss analysis"
     } ],
     "examples" : [ ]
   }, {

@@ -302,8 +302,8 @@ print('Stage 7 validation catches empty then_expected')
 # GDDI — Fix Loss ID Hallucination
 # ===========================================================================
 
-# QA-GDDI-01: user prompt includes valid Loss and Hazard IDs
-check "QA-GDDI-01: user prompt includes valid Loss and Hazard IDs" \
+# QA-GDDI-01: user prompt includes valid Loss IDs only
+check "QA-GDDI-01: user prompt includes valid Loss IDs only" \
     uv run python -c "
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
@@ -318,12 +318,12 @@ _, user_prompt = build_gherkin_prompts(spec, sc, la, loader)
 for lid in ['L-1', 'L-2', 'L-3']:
     assert lid in user_prompt, f'Missing loss ID: {lid}'
 for hid in ['H-1', 'H-2']:
-    assert hid in user_prompt, f'Missing hazard ID: {hid}'
-print('User prompt contains all valid L-* and H-* IDs')
+    assert hid not in user_prompt, f'Hazard ID should not be in user prompt: {hid}'
+print('User prompt contains L-* IDs and excludes H-* IDs')
 "
 
-# QA-GDDI-02: user prompt instructs LLM to reference only valid IDs
-check "QA-GDDI-02: user prompt instructs LLM to reference only valid IDs" \
+# QA-GDDI-02: user prompt instructs LLM to use only L-* loss IDs
+check "QA-GDDI-02: user prompt instructs LLM to use only L-* loss IDs" \
     uv run python -c "
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
@@ -336,9 +336,10 @@ loader = TemplateLoader(PROMPTS_DIR)
 sc = find_security_constraint(spec, la)
 _, user_prompt = build_gherkin_prompts(spec, sc, la, loader)
 prompt_lower = user_prompt.lower()
-assert 'only' in prompt_lower and ('l-*' in prompt_lower or 'loss' in prompt_lower), 'No instruction to use only valid L-* IDs'
-assert 'do not invent' in prompt_lower or 'not invent' in prompt_lower, 'No instruction not to invent new IDs'
-print('User prompt instructs LLM to reference only valid IDs')
+assert 'l-*' in prompt_lower, 'No instruction to use L-* loss IDs'
+assert 'h-*' in prompt_lower, 'No instruction to avoid H-* hazard IDs'
+assert 'only' in prompt_lower, 'No instruction to use only valid IDs'
+print('User prompt instructs LLM to use only L-* loss IDs and not H-* hazard IDs')
 "
 
 # QA-GDDI-03: system prompt instructs LLM to use only provided L-* and H-* IDs

@@ -2727,13 +2727,13 @@ def _h_stage6_user_prompt_instructs_reference_only(world: World, text: str, exam
         return False, "User prompt does not instruct to reference only provided IDs"
     return True, ""
 
-def _h_stage6_user_prompt_instructs_not_invent(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the user prompt contains an instruction not to invent new IDs."""
+def _h_stage6_user_prompt_instructs_l_only_no_h(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the user prompt instructs to use only L-* loss IDs and not H-* hazard IDs."""
     prompt = getattr(world, "sp3_user_prompt", None)
     if prompt is None:
         return False, "No user prompt available"
-    if "invent" not in prompt.lower():
-        return False, "User prompt does not instruct not to invent new IDs"
+    if "L-*" not in prompt or "H-*" not in prompt:
+        return False, "User prompt does not instruct to use only L-* and not H-* IDs"
     return True, ""
 
 def _h_stage6_build_gherkin_prompts_called(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -2751,12 +2751,14 @@ def _h_stage6_build_gherkin_prompts_called(world: World, text: str, examples: di
     return True, ""
 
 def _h_stage6_user_prompt_contains_valid_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the user prompt contains valid Loss and Hazard IDs from the loss analysis."""
+    """Handle: the user prompt contains valid Loss IDs and excludes Hazard IDs from the loss analysis."""
     prompt = getattr(world, "sp3_user_prompt", None)
     if prompt is None:
         return False, "No user prompt available"
-    if "L-1" not in prompt or "H-1" not in prompt:
-        return False, "User prompt missing L-1 or H-1"
+    if "L-1" not in prompt:
+        return False, "User prompt missing L-1"
+    if "H-1" in prompt:
+        return False, "User prompt should not contain H-1"
     return True, ""
 
 def _h_stage6_gherkin_text_hallucinated_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -3323,9 +3325,9 @@ def register(api: object) -> None:
     api.register_first('the Gherkin user prompt is built with the loss analysis', _h_stage6_gherkin_user_prompt_built, source_order=20163)
     api.register_first('the user prompt contains the valid .* ID .*', _h_stage6_user_prompt_contains_valid_id, source_order=20164)
     api.register_first('the user prompt contains an instruction to reference only the provided IDs', _h_stage6_user_prompt_instructs_reference_only, source_order=20165)
-    api.register_first('the user prompt contains an instruction not to invent new IDs', _h_stage6_user_prompt_instructs_not_invent, source_order=20166)
+    api.register_first('the user prompt instructs to use only L-\\* loss IDs and not H-\\* hazard IDs', _h_stage6_user_prompt_instructs_l_only_no_h, source_order=20166)
     api.register_first('build_gherkin_prompts is called with the scenario spec and loss analysis', _h_stage6_build_gherkin_prompts_called, source_order=20167)
-    api.register_first('the user prompt contains valid Loss and Hazard IDs from the loss analysis', _h_stage6_user_prompt_contains_valid_ids, source_order=20168)
+    api.register_first('the user prompt contains valid Loss IDs and excludes Hazard IDs from the loss analysis', _h_stage6_user_prompt_contains_valid_ids, source_order=20168)
     api.register_first('a Gherkin text referencing .* which is not in the loss analysis', _h_stage6_gherkin_text_hallucinated_id, source_order=20169)
     api.register_first('a Gherkin text referencing L-99 and H-88 which are not in the loss analysis', _h_stage6_gherkin_text_multiple_hallucinated, source_order=20170)
     api.register_first('a Gherkin text referencing L-1 and H-1 which are in the loss analysis', _h_stage6_gherkin_text_valid_ids, source_order=20171)

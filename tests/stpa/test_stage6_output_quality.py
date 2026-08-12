@@ -469,14 +469,15 @@ class TestGherkinUserPromptValidIds:
         assert "L-2" in user_prompt
         assert "L-3" in user_prompt
 
-    def test_gddi_01_user_prompt_contains_hazard_ids(self):
+    def test_gddi_01_user_prompt_excludes_hazard_ids(self):
+        """SP3-072o: Stage 6c user prompt restricts loss references to L-* IDs only."""
         spec = _make_scenario_spec()
         la = _make_loss_analysis(loss_ids=["L-1", "L-2", "L-3"], hazard_ids=["H-1", "H-2"])
         loader = TemplateLoader(PROMPTS_DIR)
         sc = find_security_constraint(spec, la)
         _, user_prompt = build_gherkin_prompts(spec, sc, la, loader)
-        assert "H-1" in user_prompt
-        assert "H-2" in user_prompt
+        assert "H-1" not in user_prompt
+        assert "H-2" not in user_prompt
 
 
 class TestGherkinUserPromptInstructions:
@@ -491,13 +492,15 @@ class TestGherkinUserPromptInstructions:
         assert "only" in user_prompt.lower()
         assert "provided" in user_prompt.lower()
 
-    def test_gddi_02_instructs_not_to_invent(self):
+    def test_gddi_02_instructs_l_only_no_h_ids(self):
+        """SP3-072o: user prompt instructs L-* only and forbids H-* hazard IDs."""
         spec = _make_scenario_spec()
         la = _make_loss_analysis()
         loader = TemplateLoader(PROMPTS_DIR)
         sc = find_security_constraint(spec, la)
         _, user_prompt = build_gherkin_prompts(spec, sc, la, loader)
-        assert "invent" in user_prompt.lower()
+        assert "L-*" in user_prompt
+        assert "H-*" in user_prompt
 
 
 class TestGherkinSystemPromptIdConstraint:
@@ -516,13 +519,14 @@ class TestBuildGherkinPromptsAcceptsLossAnalysis:
     """GDDI-04: build_gherkin_prompts accepts loss analysis."""
 
     def test_gddi_04_user_prompt_contains_valid_ids(self):
+        """SP3-072o: user prompt contains L-* loss IDs but not H-* hazard IDs."""
         spec = _make_scenario_spec()
         la = _make_loss_analysis(loss_ids=["L-1", "L-2"], hazard_ids=["H-1", "H-2"])
         loader = TemplateLoader(PROMPTS_DIR)
         sc = find_security_constraint(spec, la)
         _, user_prompt = build_gherkin_prompts(spec, sc, la, loader)
         assert "L-1" in user_prompt
-        assert "H-1" in user_prompt
+        assert "H-1" not in user_prompt
 
 
 class TestLossHazardIdValidator:
