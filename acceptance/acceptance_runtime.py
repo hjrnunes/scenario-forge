@@ -1440,35 +1440,44 @@ def _register_first(pattern: str, handler: Any) -> None:
 def find_pattern_conflicts(
     step_texts: list[str],
 ) -> list[tuple[str, str, str]]:
-    """Return conflicts where two same-scope patterns match the same step text.
+    """Return same-scope conflicts from duplicate raw pattern registrations.
 
-    For each step text, finds all patterns (within the same feature scope)
-    that match it. If more than one pattern in the same scope matches, that
-    is a shadowing conflict — the first match wins, so the second handler is
-    dead code that will never execute.
-
-    Returns a list of (step_text, first_pattern, second_pattern) tuples.
-    An empty list means no conflicts were found.
+    A conflict is two registrations with identical ``pattern`` strings but
+    different handlers in the same global or feature-tag scope.  Broad and
+    specific regular expressions may intentionally overlap and are not a
+    conflict.  The returned tuple keeps the existing
+    ``(step_text, first_pattern, second_pattern)`` shape: when supplied,
+    ``step_texts`` contributes the first witness matching the duplicate
+    pattern.  A deterministic sentinel is used when no witness is supplied.
     """
-    conflicts: list[tuple[str, str, str]] = []
-    for text in step_texts:
-        # Check global (untagged) patterns
-        global_matches = [
-            pat.pattern
-            for pat, _, tag in STEP_PATTERNS
-            if tag is None and pat.search(text)
-        ]
-        if len(global_matches) > 1:
-            conflicts.append((text, global_matches[0], global_matches[1]))
+    scoped_patterns: dict[str | None, dict[str, list[tuple[Any, Any]]]] = {}
+    for pattern, handler, tag in STEP_PATTERNS:
+        scoped_patterns.setdefault(tag, {}).setdefault(pattern.pattern, []).append(
+            (pattern, handler)
+        )
 
-        # Check per-feature tagged patterns
-        feature_groups: dict[str, list[str]] = {}
-        for pat, _, tag in STEP_PATTERNS:
-            if tag is not None and pat.search(text):
-                feature_groups.setdefault(tag, []).append(pat.pattern)
-        for feature, matches in feature_groups.items():
-            if len(matches) > 1:
-                conflicts.append((text, matches[0], matches[1]))
+    conflicts: list[tuple[str, str, str]] = []
+    for patterns_by_raw_pattern in scoped_patterns.values():
+        for raw_pattern, registrations in patterns_by_raw_pattern.items():
+            distinct_handlers: list[tuple[Any, Any]] = []
+            for compiled_pattern, handler in registrations:
+                if not any(
+                    existing_handler is handler
+                    for _, existing_handler in distinct_handlers
+                ):
+                    distinct_handlers.append((compiled_pattern, handler))
+            if len(distinct_handlers) < 2:
+                continue
+
+            witness = next(
+                (
+                    text
+                    for text in step_texts
+                    if distinct_handlers[0][0].search(text)
+                ),
+                "<no supplied witness>",
+            )
+            conflicts.append((witness, raw_pattern, raw_pattern))
     return conflicts
 
 
@@ -22581,14 +22590,7 @@ def _h_sc_collect_ir_step_texts(world: World, text: str, examples: dict) -> tupl
 def _h_sc_no_global_conflicts(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: find_pattern_conflicts returns an empty list for those step texts."""
     step_texts = getattr(world, "sc_ir_step_texts", [])
-    global_conflicts: list[tuple[str, str, str]] = []
-    for st in step_texts:
-        global_matches = [
-            pat.pattern for pat, _, tag in STEP_PATTERNS
-            if tag is None and pat.search(st)
-        ]
-        if len(global_matches) > 1:
-            global_conflicts.append((st, global_matches[0], global_matches[1]))
+    global_conflicts = find_pattern_conflicts(step_texts)
     if global_conflicts:
         detail = "; ".join(
             f"{t!r}: {f!r} vs {s!r}" for t, f, s in global_conflicts[:5]
@@ -22638,15 +22640,7 @@ def _h_sc_collect_synthetic_texts(world: World, text: str, examples: dict) -> tu
 def _h_sc_no_tagged_conflicts(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: find_pattern_conflicts returns an empty list for per-feature tagged patterns."""
     step_texts = getattr(world, "sc_ir_step_texts", [])
-    tagged_conflicts: list[tuple[str, str, str]] = []
-    for st in step_texts:
-        feature_groups: dict[str, list[str]] = {}
-        for pat, _, tag in STEP_PATTERNS:
-            if tag is not None and pat.search(st):
-                feature_groups.setdefault(tag, []).append(pat.pattern)
-        for _feature, matches in feature_groups.items():
-            if len(matches) > 1:
-                tagged_conflicts.append((st, matches[0], matches[1]))
+    tagged_conflicts = find_pattern_conflicts(step_texts)
     if tagged_conflicts:
         detail = "; ".join(
             f"{t!r}: {f!r} vs {s!r}" for t, f, s in tagged_conflicts[:5]

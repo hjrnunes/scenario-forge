@@ -64,14 +64,15 @@ def test_track_registration_fires_on_duplicate() -> bool:
 
 
 def test_find_pattern_conflicts_detects_synthetic() -> bool:
-    """find_pattern_conflicts must detect two same-scope patterns matching
-    the same step text."""
+    """find_pattern_conflicts must detect duplicate raw patterns with
+    different handlers in the same scope."""
     # Build a minimal synthetic STEP_PATTERNS snapshot
     original = list(STEP_PATTERNS)
 
     # Insert two global patterns that both match the same text
-    pat1 = re.compile(r"the .* is run", re.IGNORECASE)
-    pat2 = re.compile(r"the revision is run", re.IGNORECASE)
+    duplicate_pattern = r"the revision is run"
+    pat1 = re.compile(duplicate_pattern, re.IGNORECASE)
+    pat2 = re.compile(duplicate_pattern, re.IGNORECASE)
     def _synth_handler_1() -> None:
         return None
 

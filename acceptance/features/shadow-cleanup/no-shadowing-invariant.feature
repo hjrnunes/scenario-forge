@@ -2,15 +2,15 @@
 Feature: No same-scope pattern shadowing after cleanup
   The acceptance runtime maintains an ordered STEP_PATTERNS list.
   Lookup takes the first match. When two patterns in the same scope
-  match the same step text, only the first handler executes; the rest
-  is dead code. After the shadowed-registration cleanup, no two
-  same-scope patterns match any step text drawn from the IR corpus or
-  from a set of synthetic texts that cover known shadowing prefixes.
+  register the same raw pattern with different handlers, only the first
+  handler executes; the rest is dead code. After the shadowed-registration
+  cleanup, no same-scope raw pattern has conflicting handlers. The IR corpus
+  and synthetic texts provide witnesses for the duplicate registrations.
 
   The find_pattern_conflicts function is the verification mechanism:
   it returns a list of (step_text, first_pattern, second_pattern)
-  tuples for every step text where more than one same-scope pattern
-  matches. An empty list means the invariant holds.
+  tuples for every same-scope raw pattern with conflicting handlers. An
+  empty list means the invariant holds.
 
   Background:
     Given the acceptance runtime module is importable

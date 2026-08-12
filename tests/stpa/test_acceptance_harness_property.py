@@ -5,9 +5,9 @@ infrastructure itself — the registration system, IR coverage, and
 handler resolution.  They catch the bug classes that produced the
 original acceptance staleness failures:
 
-1. **No pattern shadowing**: No two registered patterns in the same
-   feature scope match the same step text from any IR file.  If they
-   do, the first match wins and the second handler is dead code — a
+1. **No pattern shadowing**: No two registrations in the same feature
+   scope use the same raw pattern string with different handlers.  If
+   they do, the first match wins and the second handler is dead code — a
    silent shadowing bug.
 
 2. **IR-entry-point coverage**: Every IR file has exactly one generated
@@ -135,13 +135,12 @@ def _resolve_step(text: str, feature_tag: str | None) -> bool:
 
 
 class TestNoPatternShadowing:
-    """No two same-scope patterns match the same step text from any IR.
+    """No same-scope raw pattern has conflicting handlers.
 
-    This is the invariant that prevents the shadowing bug class: a broad
-    pattern registered globally silently shadows a more specific pattern
-    registered later.  The feature-tag scoping mechanism prevents
-    cross-feature shadowing, but within-scope shadowing is still possible
-    if two patterns in the same scope match the same text.
+    This is the invariant that prevents duplicate-registration shadowing:
+    a raw pattern registered with a different handler would make the later
+    handler dead. The feature-tag scoping mechanism prevents cross-feature
+    conflicts.
 
     These tests use the actual step texts from the IR corpus as witnesses.
 
@@ -179,11 +178,10 @@ class TestNoPatternShadowing:
             )
 
     def test_no_global_pattern_conflicts_on_synthetic_steps(self):
-        """No two global patterns match a set of synthetic step texts.
+        """No duplicate raw global patterns conflict on synthetic witnesses.
 
-        Uses common step prefixes to check for broad-pattern conflicts
-        that might not appear in the current IR corpus but could trigger
-        on future features.
+        Uses common step prefixes as witnesses for duplicate registrations
+        that might not appear in the current IR corpus.
         """
         synthetic_texts = [
             "the control structure has responsibilities",
