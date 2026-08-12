@@ -77,7 +77,9 @@ PROPERTY_TEST = (
 # ---------------------------------------------------------------------------
 # Inventory: 39 dead registrations to remove
 # ---------------------------------------------------------------------------
-# Each entry: (pattern_string, handler_name, registration_function)
+# Each entry: (pattern_string, handler_name, registration_function).  The
+# pattern string is compared to the registration's first literal argument
+# exactly; inventory prefixes must not match other registrations.
 # The coder must remove the _register/_register_first call line that
 # references this pattern+handler combination.
 
@@ -128,13 +130,16 @@ DEAD_REGISTRATIONS: list[tuple[str, str, str]] = [
 # ---------------------------------------------------------------------------
 # Inventory: 12 Class B live-handler verdicts
 # ---------------------------------------------------------------------------
-# Each entry: (pattern_prefix, expected_live_handler_name, reason)
+# Each entry: (pattern_prefix, witness_step, expected_live_handler_name,
+# reason).  The prefix is for reporting; the complete witness is used for
+# matching so that a broad pattern cannot select the wrong live handler.
 # The live handler is the one that must be first-match in STEP_PATTERNS
 # for the given pattern.
 
-CLASS_B_VERDICTS: list[tuple[str, str, str]] = [
+CLASS_B_VERDICTS: list[tuple[str, str, str, str]] = [
     (
         "Stage 2 calls 1 through 3 are run in sequenc",
+        "Stage 2 calls 1 through 3 are run in sequence",
         "_h_ar_call_sequence",
         "Delegates to _h_ar_stage2_run which calls the real "
         "_sp1_derive_control_structure integration; dead handler "
@@ -142,12 +147,14 @@ CLASS_B_VERDICTS: list[tuple[str, str, str]] = [
     ),
     (
         "Stage 2 control structure derivation is run",
+        "Stage 2 control structure derivation is run",
         "_h_ar_stage2_run",
         "Calls _sp1_derive_control_structure with TemplateLoader"
         "(_PQF_PROMPTS_DIR) and proper LossAnalysis; dead handler "
         "omits template_loader.",
     ),
     (
+        "the revision is run",
         "the revision is run",
         "_h_bf2_revision_run_with_log_capture",
         "Wraps _h_rev_revision_run with log capture for duplicate "
@@ -157,6 +164,7 @@ CLASS_B_VERDICTS: list[tuple[str, str, str]] = [
     ),
     (
         "the revision is run",
+        "the revision is run",
         "_h_bf2_revision_run_with_log_capture",
         "Same live handler as case 3; the dead _h_sp1_rev_run "
         "function is still called via fallthrough from "
@@ -164,18 +172,21 @@ CLASS_B_VERDICTS: list[tuple[str, str, str]] = [
     ),
     (
         "the TemplateLoader can load templates from t",
+        "the TemplateLoader can load templates from the prompts directory",
         "_h_epcl_template_loader_can_load",
         "Uses _FC_PROMPTS_DIR directly; dead handler falls back to "
         "world.template_dir which may point elsewhere.",
     ),
     (
         "a file \\S+ exists in the run directory",
+        "a file output.yaml exists in the run directory",
         "_h_pll_file_exists",
         "Functionally identical to dead handler; live handler was "
         "registered with _register_first (higher priority).",
     ),
     (
         "the heuristic check fails with error contain",
+        "the heuristic check fails with error containing hazard",
         "_h_heuristic_fails_with",
         "Checks heuristic_result.passed is False before checking "
         "error contents; dead handler only checks errors list is "
@@ -183,6 +194,7 @@ CLASS_B_VERDICTS: list[tuple[str, str, str]] = [
     ),
     (
         "a control structure with responsibility RESP",
+        "a control structure with responsibility RESP-1, PM-1-1, CA-1-1, and FB-1-1",
         "_h_sp1_cs_resp1_full",
         "Uses SP1 helper _sp1_make_control_structure_with_resp(); "
         "dead handler uses SP3 _make_sp3_cs() with unnecessary "
@@ -190,11 +202,13 @@ CLASS_B_VERDICTS: list[tuple[str, str, str]] = [
     ),
     (
         "the user prompt contains the control structu",
+        "the user prompt contains the control structure",
         "_h_sp1_critic_prompt_cs",
         "Checks SP1 mock client's last call prompt; dead handler "
         "checks SP2 LLM client which may not be set in SP1 context.",
     ),
     (
+        "the pipeline does not crash",
         "the pipeline does not crash",
         "_h_gd_pipeline_no_crash",
         "No-op pass is correct for graceful-degradation semantics "
@@ -203,6 +217,7 @@ CLASS_B_VERDICTS: list[tuple[str, str, str]] = [
     ),
     (
         "uncovered_reason is not empty",
+        "uncovered_reason is not empty",
         "_h_sp2_uncovered_reason",
         "Checks enriched_threat_set.coverage_analysis model "
         "attribute; dead handler checks sp3_coverage dict which "
@@ -210,6 +225,7 @@ CLASS_B_VERDICTS: list[tuple[str, str, str]] = [
     ),
     (
         "the scorecard validation section has.*",
+        "the scorecard validation section has 2 errors",
         "_h_sp3_scorecard_validation_section",
         "Checks in-memory sp3_scorecard dict; dead handler reads "
         "eval-scorecard.yaml from disk requiring file I/O that may "
@@ -336,6 +352,27 @@ def _grep_pattern(source: str, pattern: str) -> list[str]:
     ]
 
 
+def _registration_tuples(tree: ast.Module) -> list[tuple[str, str, str]]:
+    """Return ``(registration, raw pattern, handler)`` for each call."""
+    registrations: list[tuple[str, str, str]] = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"_register", "_register_first"}
+            and len(node.args) >= 2
+        ):
+            continue
+        try:
+            pattern = ast.literal_eval(node.args[0])
+        except (ValueError, TypeError):
+            continue
+        handler = node.args[1]
+        if isinstance(pattern, str) and isinstance(handler, ast.Name):
+            registrations.append((node.func.id, pattern, handler.id))
+    return registrations
+
+
 # ---------------------------------------------------------------------------
 # Static checks
 # ---------------------------------------------------------------------------
@@ -395,25 +432,23 @@ def run_static_checks(runner: QARunner) -> None:
         )
 
     # --- Dead registration lines removed ------------------------------------
-    source = _read(ACCEPTANCE_RUNTIME)
-    for i, (pattern_prefix, handler_name, reg_func_name) in enumerate(
+    registrations = _registration_tuples(tree)
+    for i, (pattern_string, handler_name, reg_func_name) in enumerate(
         DEAD_REGISTRATIONS, start=6
     ):
-        # Search for a _register or _register_first call that references
-        # this handler name.  The pattern string in the source may be
-        # truncated or use a prefix, so we search by handler name within
-        # a _register/_register_first call line.
-        reg_call = reg_func_name + "("
-        matching_lines = [
-            line for line in source.splitlines()
-            if reg_call in line and handler_name in line
+        # Match the complete registration tuple.  In particular, a handler
+        # can legitimately remain registered for several distinct patterns.
+        matching_calls = [
+            registration
+            for registration in registrations
+            if registration == (reg_func_name, pattern_string, handler_name)
         ]
         runner.check(
             f"sc-static-{i:02d}: dead registration {reg_func_name}("
             f"...{handler_name}) is removed",
-            len(matching_lines) == 0,
-            f"Found {len(matching_lines)} remaining call(s): "
-            f"{matching_lines[:2]}",
+            len(matching_calls) == 0,
+            f"Found {len(matching_calls)} remaining call(s): "
+            f"{matching_calls[:2]}",
         )
 
     # --- xfail markers removed from property tests --------------------------
@@ -537,20 +572,20 @@ def run_dynamic_checks(runner: QARunner) -> None:
     )
 
     # --- No dead (pattern, handler) pair in STEP_PATTERNS -------------------
-    for i, (pattern_prefix, handler_name, _reg_func) in enumerate(
+    for i, (pattern_string, handler_name, _reg_func) in enumerate(
         DEAD_REGISTRATIONS, start=3
     ):
         found_dead = False
         for pat, handler, tag in STEP_PATTERNS:
             if (
                 getattr(handler, "__name__", "") == handler_name
-                and pattern_prefix[:20] in pat.pattern
+                and pattern_string == pat.pattern
             ):
                 found_dead = True
                 break
         runner.check(
             f"sc-dynamic-{i:02d}: dead handler {handler_name} is not in "
-            f"STEP_PATTERNS for pattern {pattern_prefix[:30]}...",
+            f"STEP_PATTERNS for pattern {pattern_string[:30]}...",
             not found_dead,
             f"Dead handler {handler_name} still registered",
         )
@@ -581,12 +616,12 @@ def run_dynamic_checks(runner: QARunner) -> None:
     offset += 1
 
     # --- Class B live-handler verification ----------------------------------
-    for i, (pattern_prefix, expected_handler, _reason) in enumerate(
+    for i, (pattern_prefix, witness, expected_handler, _reason) in enumerate(
         CLASS_B_VERDICTS, start=offset
     ):
         live_handler_name = None
         for pat, handler, tag in STEP_PATTERNS:
-            if tag is None and pat.search(pattern_prefix):
+            if tag is None and pat.search(witness):
                 live_handler_name = getattr(handler, "__name__", "")
                 break
         runner.check(
@@ -619,10 +654,10 @@ def run_dynamic_checks(runner: QARunner) -> None:
             result = subprocess.run(
                 [
                     sys.executable, "-m", "pytest",
-                    str(PROPERTY_TEST),
-                    "::TestNoPatternShadowing::test_no_global_pattern_conflicts_on_ir_steps",
-                    str(PROPERTY_TEST),
-                    "::TestNoPatternShadowing::test_no_global_pattern_conflicts_on_synthetic_steps",
+                    f"{PROPERTY_TEST}::TestNoPatternShadowing::"
+                    "test_no_global_pattern_conflicts_on_ir_steps",
+                    f"{PROPERTY_TEST}::TestNoPatternShadowing::"
+                    "test_no_global_pattern_conflicts_on_synthetic_steps",
                     "-v", "--tb=short", "--no-header",
                     "-p", "no:cacheprovider",
                 ],
