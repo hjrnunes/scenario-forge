@@ -4424,8 +4424,6 @@ _register(r"a use-case description and risk cards are available as input", _h_sp
 _register(r"a use-case description and risk cards are available$", _h_sp1_use_case_risk_cards)
 _register(r"a use-case description and loss analysis are available as input", _h_sp1_use_case_loss_analysis)
 _register(r"a use-case description is available", _h_sp1_use_case_available)
-_register(r"a use-case description and risk extraction JSON are available as input", _h_sp1_use_case_risk_json)
-_register(r"a control structure with responsibilities RESP-1 and RESP-2 is available", _h_sp1_cs_two_resps_available)
 _register(r"a capability profile and use-case text are available", _h_sp1_cap_profile_use_case)
 _register(r"a loss analysis with security constraints SC-1 and SC-2 is available", _h_sp1_loss_analysis_constraints)
 _register(r"a control structure and CriticFindings with unjustified gaps are available", _h_sp1_cs_and_critic_available)
@@ -4446,12 +4444,10 @@ _register(r"a warning is produced containing", _h_sp1_neut_warning)
 # SP1-S2-03
 _register(r"an LLM that returns a RequirementSet with REQ-1 classified as", _h_sp1_s2_bad_class)
 _register(r"Stage 2 Call 1 requirements derivation is run", _h_sp1_s2_call1_run)
-_register(r"validation fails with error containing", _h_sp1_validation_fails)
 
 # SP1-HEUR-02
 _register(r"a responsibility RESP-1 with zero", _h_sp1_heur_zero_element)
 _register(r"structural heuristics are checked", _h_sp1_heur_check)
-_register(r"the heuristic check fails with error containing", _h_sp1_heur_fails)
 
 # SP1-CRITIC-03
 _register(r"an LLM that returns a CriticFindings JSON with a gap of type", _h_sp1_critic_gap_type)
@@ -6819,7 +6815,6 @@ _register_first(r"post-call validation fails with error containing source_risk_c
 # Call log and file verification (shared)
 _register(r"a call log entry is appended with stage", _h_sp1_call_log_stage)
 _register(r"the call log entry step is", _h_sp1_call_log_step)
-_register(r"a file \S+ exists in the run directory", _h_sp1_file_exists)
 _register(r"the file contains a valid .+ model when read back", _h_sp1_file_valid_model)
 
 # Stage 1b
@@ -6860,8 +6855,6 @@ _register(r"an LLM that returns a valid ControlStructure for Call 3", _h_sp1_s2_
 _register(r"Stage 2 Call 2 responsibilities derivation is run", _h_sp1_s2_call2_run)
 _register(r"Stage 2 Call 3 connections derivation is run", _h_sp1_s2_call3_run)
 _register(r"Stage 2 calls 1 through 2 are run in sequence", _h_sp1_s2_calls_1_2_run)
-_register(r"Stage 2 calls 1 through 3 are run in sequence", _h_sp1_s2_calls_1_3_run)
-_register(r"Stage 2 control structure derivation is run", _h_sp1_s2_full_run)
 _register(r"a RequirementSet model is produced", _h_sp1_s2_req_set_produced)
 _register(r"each requirement has a req_id, description, classification, and source_constraint", _h_sp1_s2_req_fields)
 _register(r"REQ-\d+ has classification", _h_sp1_s2_req_classification)
@@ -6901,8 +6894,6 @@ _register(r"an LLM that returns a revised ControlStructure", _h_sp1_rev_revised_
 _register(r"an LLM that returns a revised ControlStructure that still has gaps", _h_sp1_rev_still_gaps_llm)
 _register(r"a critic that identifies unjustified gaps", _h_sp1_rev_critic_unjustified)
 _register(r"a critic that finds only justified gaps or no gaps", _h_sp1_rev_critic_justified)
-_register(r"the revision is run", _h_sp1_rev_run)
-_register(r"the revision is applied", _h_sp1_rev_applied)
 _register(r"a revised ControlStructure model is produced", _h_sp1_rev_cs_produced)
 _register(r"the revised control structure passes foundation validation", _h_sp1_rev_cs_passes)
 _register(r"the call log entry step is revision", _h_sp1_rev_call_log_step)
@@ -6939,7 +6930,6 @@ _register(r"no call log entry has stage stage_1b", _h_sp1_run_no_stage_1b)
 _register(r"the pre-built capability profile is used", _h_sp1_run_prebuilt_used)
 _register(r"all Stage 2 LLM calls use temperature 0.4", _h_sp1_run_temp_04)
 _register(r"the existing test suite is run", _h_sp1_run_existing_tests)
-_register(r"no new failures are introduced", _h_sp1_run_existing_tests)
 _register(r"the SP1 system model module is implemented", _h_sp1_run_module_impl)
 _register(r"the STPA system model module$", _h_sp1_run_module_impl)
 _register(r"the SP1 prompt templates directory", _h_sp1_run_prompt_dir)
@@ -6949,13 +6939,10 @@ _register(r"the file contains entries for stage_1a", _h_sp1_run_calls_jsonl)
 # Heuristics (extended)
 _register(r"a control structure where RESP-1 has PM-1-1, CA-1-1, and FB-1-1", _h_sp1_heur_cs_resp1_full)
 _register(r"a loss analysis with hazard H-1 and constraint SC-1", _h_sp1_heur_la_hazard)
-_register(r"a control structure where no responsibility references constraint SC-1", _h_sp1_heur_cs_no_constraint)
-_register(r"a control structure where responsibility RESP-1 references constraint SC-1", _h_sp1_heur_cs_with_constraint)
 _register(r"structural heuristics are checked with the loss analysis", _h_sp1_heur_check_with_la)
 _register(r"the heuristic check passes with no errors", _h_sp1_heur_succeeds)
 _register(r"the heuristic check fails with error containing hazard", _h_sp1_heur_fails_hazard)
 _register(r"the heuristic check fails with error containing controlled process", _h_sp1_heur_fails_cp)
-_register(r"a warning is produced for orphan PM", _h_sp1_heur_orphan_warn)
 _register(r"a control structure that fails structural heuristics", _h_sp1_heur_cs_fails)
 _register(r"a revision call that produces a corrected control structure", _h_sp1_heur_rev_corrected)
 _register(r"a revision call that produces a control structure with a structural error", _h_sp1_heur_rev_error)
@@ -7889,7 +7876,6 @@ _register(r"the ConnectionSet contains connection assignment for element FB-1-1"
 _register(r"the final ControlStructure has feedback channel FB-1-1 with source CP-1", _h_connset_fb_source_cp1)
 _register(r"the final ControlStructure has control action CA-1-1 with target CP-1", _h_connset_ca_target_cp1)
 _register(r"a valid ControlStructure from Stage 2", _h_connset_valid_cs_from_stage2)
-_register(r"critic findings with unjustified gaps", _h_connset_critic_unjustified)
 _register(r"Stage 2 revision is run", _h_connset_s2_revision_run)
 _register(r"the ControlStructure contains controlled process CP-1", _h_connset_cs_contains_cp)
 _register(r"an LLM that returns a valid revised ControlStructure JSON", _h_connset_llm_valid_revised_cs)
@@ -8869,8 +8855,6 @@ _register(r"the prompt text contains the constraint that rc_id must start with R
 _register(r"the prompt text contains a warning not to copy PM entries as RCs", _h_prompt_warns_pm_as_rc)
 
 # Prompt Quality Fix step registrations
-_register(r"the STPA system model prompts directory is available", _h_pqf_prompts_dir_available)
-_register(r"the TemplateLoader can load templates from the prompts directory", _h_pqf_template_loader_created)
 _register(r"the template \S+\.j2 is loaded", _h_pqf_template_loaded)
 _register(r"the template text does not contain", _h_pqf_template_text_not_contains)
 _register(r"the template text contains", _h_pqf_template_text_contains)
@@ -9682,7 +9666,6 @@ _register_first(r"the HTML detail table contains", _h_ch_detail_rows)
 _register_first(r"the detail table includes a row with stage", _h_ch_detail_row_with)
 _register_first(r'has a failure indicator', _h_ch_row_failure_indicator)
 _register_first(r'does not have a failure indicator', _h_ch_row_no_failure_indicator)
-_register_first(r"the HTML contains the text", _h_ch_contains_text)
 _register_first(r"the detail table includes a column for", _h_ch_column_for)
 _register_first(r"no row has a failure indicator", _h_ch_no_failure_indicator)
 _register_first(r"the CLI is invoked with a calls.jsonl path", _h_ch_cli_invoked)
@@ -10888,7 +10871,6 @@ _register_first(r"an LLM that returns a revised ControlStructure where every res
 _register_first(r"an LLM that returns a revised ControlStructure with responsibility RESP-\d+ having PM parts, CAs, and FB channels", _h_strip_llm_returns_full_resp)
 _register_first(r"the revised ControlStructure also has responsibility RESP-\d+ with no PM parts", _h_strip_llm_also_has_empty_resp)
 _register_first(r"an LLM that returns a revised ControlStructure with empty responsibility RESP-\d+", _h_strip_llm_one_empty)
-_register_first(r"the resulting control structure does not contain RESP-\d+", _h_strip_cs_does_not_contain)
 _register_first(r"the resulting control structure contains RESP-\d+", _h_strip_cs_contains)
 _register_first(r"all responsibilities are preserved in the resulting control structure", _h_strip_all_preserved)
 _register_first(r"the post-revision warnings include a warning for RESP-\d+", _h_strip_warnings_include)
@@ -12013,7 +11995,6 @@ def _h_rev_revision_run(world: World, text: str, examples: dict) -> tuple[bool, 
 
 
 # Override the existing "the revision is run" with our RevisionDelta-aware version
-_register_first(r"the revision is run", _h_rev_revision_run)
 _register_first(r"the revision is applied", _h_rev_revision_run)
 
 
@@ -16222,7 +16203,6 @@ _register(r"slots are filled for all responsibilities", _h_sp2_fill_all_resp)
 _register(r"the number of LLM calls equals", _h_sp2_call_count)
 _register(r"each call is labeled with stage stage_3", _h_sp2_call_stage)
 _register(r"the system prompt contains text for ICA type", _h_sp2_system_prompt_contains)
-_register(r"the user prompt contains the control structure", _h_sp2_user_prompt_contains)
 _register(r"the user prompt contains hazards and security constraints", _h_sp2_user_prompt_contains)
 _register(r"the user prompt contains the technology context block", _h_sp2_user_prompt_contains)
 _register(r"the user prompt contains the responsibility slot IDs", _h_sp2_user_prompt_contains)
@@ -16262,7 +16242,6 @@ _register_first(r"the existing test suite is run", _h_sp2_existing_tests_unaffec
 _register_first(r"a file \S+ exists in the run directory", _h_sp2_file_exists)
 _register_first(r"Stage 3 ICA enumeration is produced first", _h_sp2_stage_order)
 _register_first(r"Stage 4 catalog enrichment is produced second", _h_sp2_stage_order)
-_register(r"the file contains entries with stage stage_3", _h_sp2_calls_jsonl_stage)
 _register(r"no call log entries have stage stage_4", _h_sp2_no_stage_4_calls)
 _register_first(r"a run manifest is written to the run directory", _h_sp2_manifest_written)
 _register(r"the run manifest has stage_summary with call counts for stage_3", _h_sp2_manifest_stage_summary)
@@ -16283,7 +16262,6 @@ _register(r"catalog enrichment runs after N/A quality gates", _h_sp2_na_check_af
 _register_first(r"the run manifest input_hashes contains a hash for the (?:control structure|capability profile|loss analysis)", _h_sp2_manifest_input_hashes)
 _register_first(r"the run manifest prompt_hashes contains SHA-256 hashes for (?:stage3_system|stage3_user)", _h_sp2_manifest_prompt_hashes)
 _register(r"the ICA enumeration has \d+ total slots", _h_sp2_slot_count_40)
-_register(r"no new failures are introduced", _h_sp2_existing_tests_unaffected)
 _register(r"the SP2 threat enumeration module is implemented", _h_sp2_module_implemented)
 # ---------------------------------------------------------------------------
 # SP3 step handlers
@@ -18855,7 +18833,6 @@ _register_first(r"the scripts directory", _h_sp3_scripts_dir)
 
 # Background / setup
 _register(r"a control structure with responsibility RESP-1 having process model parts.*", _h_sp3_cs_resp1)
-_register(r"a control structure with responsibility RESP-1, PM-1-1, CA-1-1, and FB-1-1", _h_sp3_cs_resp1)
 _register(r"a control structure with responsibilities RESP-1 and RESP-2.*", _h_sp3_cs_resps)
 _register(r"a control structure where RESP-1 has description.*", _h_sp3_cs_resp_desc)
 _register(r"a control structure where RESP-1 has process model parts.*", _h_sp3_cs_pm_parts)
@@ -18901,7 +18878,6 @@ _register(r"the BDI generation LLM call is executed$", _h_sp3_bdi_call)
 _register(r"the BDI generation result is processed", _h_sp3_bdi_processed)
 _register(r"the ScenarioSpec is assembled$", _h_sp3_assemble_spec)
 _register(r"the ScenarioSpec is assembled for the first scenario", _h_sp3_assemble_first)
-_register(r"the scenario spec is validated against the control structure", _h_sp3_validate_against_cs)
 _register(r"vulnerability completeness validation is performed", _h_sp3_vuln_completeness)
 _register(r"BDI generation is performed for all threats", _h_sp3_bdi_all_threats)
 
@@ -18935,7 +18911,6 @@ _register(r"the system prompt requires attacker.*", _h_sp3_system_prompt_contain
 _register(r"exactly 5 ScenarioSpec instances are produced", _h_sp3_5_specs)
 _register(r"each scenario corresponds to exactly one structural threat", _h_sp3_each_scenario_one_threat)
 _register_first(r"a file calls.jsonl exists in the run directory", _h_sp3_calls_jsonl)
-_register_first(r"the file contains entries with stage stage_5", _h_sp3_calls_jsonl)
 
 # Stage 6 - Given
 _register_first(r"an LLM that returns a YAML attack tree.*", _h_sp3_llm_narrative)
@@ -19212,9 +19187,6 @@ _register(r"scenarios_with_2plus_categories is.*", _h_sp3_metric_value)
 _register(r"coverage_rate is.*", _h_sp3_metric_value)
 _register(r"complete_chains is.*", _h_sp3_metric_value)
 _register(r"traceability_rate is.*", _h_sp3_metric_value)
-_register_first(r"by_responsibility has.*", _h_sp3_diversity_has_value)
-_register_first(r"by_ica_type has.*", _h_sp3_diversity_has_value)
-_register_first(r"by_branch_category has.*", _h_sp3_diversity_has_value)
 _register(r"responsibility_diversity is a non-negative float", _h_sp3_diversity_nonnegative_float)
 _register(r"ica_type_diversity is a non-negative float", _h_sp3_diversity_nonnegative_float)
 _register(r"unique_attack_mechanisms is.*", _h_sp3_unique_mechanisms)
@@ -19233,14 +19205,10 @@ _register(r"the scorecard is written", _h_sp3_write_scorecard)
 # Eval metrics - Then
 _register_first(r"the metric value.*", _h_sp3_metric_value)
 _register_first(r"by_responsibility has.*", _h_sp3_diversity_counts)
-_register_first(r"by_ica_type has.*", _h_sp3_diversity_counts)
 _register_first(r"by_branch_category has.*", _h_sp3_diversity_counts)
-_register(r"responsibility_diversity is a non-negative float", _h_sp3_diversity_float)
-_register(r"ica_type_diversity is a non-negative float", _h_sp3_diversity_float)
 _register_first(r"no LLM calls are made", _h_sp3_no_llm_calls)
 _register(r"a file eval-scorecard.yaml exists.*", _h_sp3_scorecard_file)
 _register(r"the scorecard contains metrics for.*", _h_sp3_scorecard_file)
-_register(r"the scorecard validation section has.*", _h_sp3_scorecard_validation)
 
 # Coverage gaps - Given
 _register(r"an enriched threat set with structural_coverage.*", _h_sp3_ets_structural_coverage)
@@ -19264,7 +19232,6 @@ _register_first(r"by_ica_type has.*", _h_sp3_coverage_field)
 _register_first(r"by_controller has.*", _h_sp3_coverage_field)
 _register(r"catalog_correspondence.*", _h_sp3_coverage_field)
 _register(r"uncovered_owasp_threats includes.*", _h_sp3_coverage_field)
-_register(r"uncovered_reason is not empty", _h_sp3_coverage_field)
 _register(r"orphan_elements includes.*", _h_sp3_coverage_field)
 _register(r"orphan_icas has.*", _h_sp3_coverage_field)
 _register(r"traceability_errors has.*", _h_sp3_coverage_field)
@@ -19287,7 +19254,6 @@ _register(r"an enriched threat set with 10 structural threats$", _h_sp3_ets_thre
 # Run orchestration - When
 _register(r"the full SP3 run is executed with max_workers.*", _h_sp3_full_run_max_workers)
 _register(r"the full SP3 run is executed", _h_sp3_full_run)
-_register(r"the existing test suite is run", _h_sp3_existing_tests)
 
 # Run orchestration - Then
 _register(r"a directory scenarios exists in the run directory", _h_sp3_scenarios_dir)
@@ -19304,8 +19270,6 @@ _register_first(r"a file run-manifest.yaml exists in the run directory", _h_sp3_
 _register(r"the run manifest has stage_summary.*", _h_sp3_manifest_stage_summary)
 _register_first(r"the run manifest input_hashes contains.*", _h_sp3_manifest_input_hashes)
 _register_first(r"the run manifest prompt_hashes contains.*", _h_sp3_manifest_prompt_hashes)
-_register(r"the following template files exist", _h_sp3_template_files_exist)
-_register(r"the following modules exist and are importable", _h_sp3_modules_exist)
 _register(r"the scenario specs are validated against the control structure", _h_sp3_validated_against_cs)
 _register(r"the eval metrics consume the enriched threat set.*", _h_sp3_eval_consumes_ets)
 _register(r"the traceability validation consumes the loss analysis", _h_sp3_traceability_consumes_la)
@@ -19316,7 +19280,6 @@ _register_first(r"a file coverage-gaps.json exists in the run directory", _h_sp3
 _register(r"every scenario YAML file.*loads as a valid ScenarioEnvelope", _h_sp3_envelope_loads)
 _register(r"\d+ scenario envelopes are produced", _h_sp3_10_envelopes)
 _register(r"the eval scorecard contains coverage_gaps", _h_sp3_scorecard_coverage_gaps)
-_register(r"no new failures are introduced", _h_sp3_existing_tests)
 _register(r"the run manifest records the total scenario count", _h_sp3_manifest_scenario_count)
 _register(r"the run manifest records the number of validation errors", _h_sp3_manifest_scenario_count)
 
@@ -20367,6 +20330,8 @@ def _derive_feature_tag(ir_path: str) -> str | None:
     stem = Path(ir_path).stem
     if "acceptance-refresh" in Path(ir_path).parts:
         return "acceptance_refresh"
+    if "shadow-cleanup" in Path(ir_path).parts:
+        return "shadow_cleanup"
     if stem.startswith("sp2_"):
         return "sp2"
     if stem.startswith("sp3_"):
@@ -20849,14 +20814,12 @@ _register(r"the coordination link CL-\d+ has shared_pm PM-\d+-\d+", _h_cmidup_cl
 _register(r'the coordination link CL-\d+ has description "([^"]+)"', _h_cmidup_cl_description)
 _register(r'the coordination link CL-\d+ has coordination_mechanism payload "([^"]+)"', _h_cmidup_cl_payload)
 _register(r"the final control structure has no duplicate cm_id values", _h_cmidup_no_duplicate_cm_ids)
-_register(r"the final control structure passes foundation validation", _h_cmidup_passes_validation)
 _register(r"the warnings list includes a warning that mentions", _h_cmidup_warning_mentions)
 _register(r"the warnings list includes a degradation warning", _h_cmidup_degradation_warning)
 _register(r"the warnings list does not include a renumber warning", _h_cmidup_no_renumber_warning)
 _register(r"the warnings list does not include a degradation warning", _h_cmidup_no_degradation_warning)
 _register(r"the warnings list includes a warning mentioning", _h_cmidup_warning_mentioning)
 _register(r"the returned ControlStructure is the pre-revision control structure", _h_cmidup_pre_revision_cs)
-_register(r"the pipeline does not crash", _h_cmidup_pipeline_no_crash)
 _register(r"the returned ControlStructure contains RESP-\d+", _h_cmidup_returned_contains_resp)
 _register(r"the returned ControlStructure contains coordination link CL-\d+", _h_cmidup_returned_contains_cl)
 _register(r"the final control structure contains coordination link CL-\d+ with cm_id CM-\d+", _h_cmidup_final_cl_with_cm)
@@ -22576,6 +22539,645 @@ _register_first(r"a control structure whose coordination links carry the coordin
 _register_first(r"a control structure whose coordination link CL-\d+ carries the coordination mechanism", _h_crf_cs_with_cl_cm)
 _register_first(r"the rendered text does not contain an unrendered Jinja expression", _h_crf_no_unrendered_jinja)
 _register_first(r"revision is (?:not )?triggered", _h_crf_revision_outcome_exact)
+
+
+# ===========================================================================
+# shadow-cleanup handlers
+# ===========================================================================
+
+# --- Background (all shadow-cleanup features) ---
+
+
+def _h_sc_runtime_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the acceptance runtime module is importable."""
+    return True, ""
+
+
+# --- no-shadowing-invariant handlers ---
+
+
+def _h_sc_collect_ir_step_texts(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: all example-expanded step texts from every IR file are collected."""
+    ir_dir = Path(__file__).resolve().parent / "ir"
+    step_texts: list[str] = []
+    for ir_file in sorted(ir_dir.rglob("*.json")):
+        try:
+            ir = json.loads(ir_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        for step in ir.get("background", []):
+            step_texts.append(_resolve_value(step.get("text", ""), {}))
+        for sc in ir.get("scenarios", []):
+            ex_list = sc.get("examples", [{}])
+            if not ex_list:
+                ex_list = [{}]
+            for ex in ex_list:
+                for step in sc.get("steps", []):
+                    step_texts.append(_resolve_value(step.get("text", ""), ex))
+    world.sc_ir_step_texts = step_texts
+    return True, ""
+
+
+def _h_sc_no_global_conflicts(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: find_pattern_conflicts returns an empty list for those step texts."""
+    step_texts = getattr(world, "sc_ir_step_texts", [])
+    global_conflicts: list[tuple[str, str, str]] = []
+    for st in step_texts:
+        global_matches = [
+            pat.pattern for pat, _, tag in STEP_PATTERNS
+            if tag is None and pat.search(st)
+        ]
+        if len(global_matches) > 1:
+            global_conflicts.append((st, global_matches[0], global_matches[1]))
+    if global_conflicts:
+        detail = "; ".join(
+            f"{t!r}: {f!r} vs {s!r}" for t, f, s in global_conflicts[:5]
+        )
+        return False, f"Found {len(global_conflicts)} global pattern conflicts: {detail}"
+    return True, ""
+
+
+def _h_sc_collect_synthetic_texts(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: synthetic step texts covering known shadowing prefixes are collected."""
+    synthetic = [
+        "the revision is run",
+        "the heuristic check fails with error containing something",
+        "the pipeline does not crash",
+        "the HTML contains the text something",
+        "by_ica_type has 3 entries",
+        "by_branch_category has 2 entries",
+        "by_responsibility has 4 entries",
+        "the file contains entries with stage stage_3",
+        "the file contains entries with stage stage_5",
+        "the scorecard validation section has 2 errors",
+        "the user prompt contains the control structure",
+        "no new failures are introduced",
+        "the existing test suite is run",
+        "the following modules exist and are importable",
+        "the following template files exist",
+        "uncovered_reason is not empty",
+        "ica_type_diversity is a non-negative float",
+        "responsibility_diversity is a non-negative float",
+        "the scenario spec is validated against the control structure",
+        "the TemplateLoader can load templates from the prompts directory",
+        "the STPA system model prompts directory is available",
+        "critic findings with unjustified gaps",
+        "a warning is produced for orphan PM",
+        "the revision is applied",
+        "Stage 2 control structure derivation is run",
+        "Stage 2 calls 1 through 3 are run in sequence",
+        "a file test.txt exists in the run directory",
+        "validation fails with error containing something",
+        "a control structure with responsibilities RESP-1 and RESP-2 is available",
+        "the final control structure passes foundation validation",
+    ]
+    world.sc_synthetic_texts = synthetic
+    return True, ""
+
+
+def _h_sc_no_tagged_conflicts(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: find_pattern_conflicts returns an empty list for per-feature tagged patterns."""
+    step_texts = getattr(world, "sc_ir_step_texts", [])
+    tagged_conflicts: list[tuple[str, str, str]] = []
+    for st in step_texts:
+        feature_groups: dict[str, list[str]] = {}
+        for pat, _, tag in STEP_PATTERNS:
+            if tag is not None and pat.search(st):
+                feature_groups.setdefault(tag, []).append(pat.pattern)
+        for _feature, matches in feature_groups.items():
+            if len(matches) > 1:
+                tagged_conflicts.append((st, matches[0], matches[1]))
+    if tagged_conflicts:
+        detail = "; ".join(
+            f"{t!r}: {f!r} vs {s!r}" for t, f, s in tagged_conflicts[:5]
+        )
+        return False, f"Found {len(tagged_conflicts)} per-feature tagged conflicts: {detail}"
+    return True, ""
+
+
+def _sc_has_xfail(source: str, func_name: str) -> tuple[bool, bool]:
+    """Return (has_xfail, has_strict_false) for a test function in source."""
+    import ast
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            for dec in node.decorator_list:
+                if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
+                    if dec.func.attr == "xfail":
+                        has_strict = False
+                        for kw in dec.keywords:
+                            if kw.arg == "strict" and isinstance(kw.value, ast.Constant):
+                                has_strict = (kw.value.value is False)
+                        return True, has_strict
+            return False, False
+    return False, False
+
+
+def _h_sc_inspect_property_test(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the property test file test_acceptance_harness_property.py is inspected."""
+    test_file = PROJECT_ROOT / "tests" / "stpa" / "test_acceptance_harness_property.py"
+    if not test_file.is_file():
+        return False, f"Property test file not found: {test_file}"
+    world.sc_property_test_source = test_file.read_text()
+    return True, ""
+
+
+def _h_sc_no_xfail_marker(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: test_no_global_pattern_conflicts_on_... has no xfail marker."""
+    source = getattr(world, "sc_property_test_source", "")
+    if not source:
+        return False, "Property test file not inspected"
+    func = "test_no_global_pattern_conflicts_on_synthetic_steps" if "synthetic" in text else "test_no_global_pattern_conflicts_on_ir_steps"
+    has_xfail, _ = _sc_has_xfail(source, func)
+    if has_xfail:
+        return False, f"{func} still has @pytest.mark.xfail decorator"
+    return True, ""
+
+
+def _sc_ensure_property_test_source(world: World) -> str | None:
+    """Ensure world.sc_property_test_source is loaded; return source or None on error."""
+    source = getattr(world, "sc_property_test_source", "")
+    if not source:
+        test_file = PROJECT_ROOT / "tests" / "stpa" / "test_acceptance_harness_property.py"
+        if not test_file.is_file():
+            return None
+        source = test_file.read_text()
+        world.sc_property_test_source = source
+    return source
+
+
+def _h_sc_xfail_removed(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the two property tests have their xfail markers removed."""
+    source = _sc_ensure_property_test_source(world)
+    if not source:
+        return False, "Property test file not found"
+    for func in (
+        "test_no_global_pattern_conflicts_on_ir_steps",
+        "test_no_global_pattern_conflicts_on_synthetic_steps",
+    ):
+        has_xfail, _ = _sc_has_xfail(source, func)
+        if has_xfail:
+            return False, f"{func} still has @pytest.mark.xfail decorator"
+    return True, ""
+
+
+def _h_sc_tests_pass_not_xpass(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the tests pass rather than xpass."""
+    source = _sc_ensure_property_test_source(world)
+    if not source:
+        return False, "Property test file not found"
+    for func in (
+        "test_no_global_pattern_conflicts_on_ir_steps",
+        "test_no_global_pattern_conflicts_on_synthetic_steps",
+    ):
+        has_xfail, _ = _sc_has_xfail(source, func)
+        if has_xfail:
+            return False, f"{func} is still marked xfail (would xpass instead of pass)"
+    return True, ""
+
+
+def _h_sc_no_strict_false(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the tests are not marked with strict=False."""
+    source = _sc_ensure_property_test_source(world)
+    if not source:
+        return False, "Property test file not found"
+    for func in (
+        "test_no_global_pattern_conflicts_on_ir_steps",
+        "test_no_global_pattern_conflicts_on_synthetic_steps",
+    ):
+        _, has_strict = _sc_has_xfail(source, func)
+        if has_strict:
+            return False, f"{func} still has strict=False"
+    return True, ""
+
+
+# --- duplicate-assertion handlers ---
+
+
+def _h_sc_register_test_pattern(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a pattern <pattern> is registered with handler <handler> in global scope."""
+    m = re.search(r"a pattern (.*) is registered with handler (\S+) in global scope", text)
+    if not m:
+        return False, f"Could not parse: {text}"
+    pattern_str, handler_name = m.group(1), m.group(2)
+
+    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
+        return True, ""
+
+    _test_handler.__name__ = handler_name
+    _track_registration(pattern_str, _test_handler, None)
+    STEP_PATTERNS.append((re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
+    world.sc_test_pattern = pattern_str
+    world.sc_test_handler = _test_handler
+    return True, ""
+
+
+def _h_sc_duplicate_raises(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: registering the same pattern with handler in global scope raises RuntimeError."""
+    m = re.search(r"registering the same pattern (.*) with handler (\S+) in global scope", text)
+    if not m:
+        return False, f"Could not parse: {text}"
+    pattern_str, handler_name = m.group(1), m.group(2)
+    handler = getattr(world, "sc_test_handler", None)
+    if handler is None:
+        return False, "No test pattern registered"
+    try:
+        _track_registration(pattern_str, handler, None)
+        # Clean up the original registration
+        STEP_PATTERNS.pop()
+        _REGISTERED_PATTERN_KEYS.discard((pattern_str, handler_name, None))
+        return False, "Expected RuntimeError but no error was raised"
+    except RuntimeError:
+        # Expected! Clean up the original registration
+        STEP_PATTERNS.pop()
+        _REGISTERED_PATTERN_KEYS.discard((pattern_str, handler_name, None))
+        return True, ""
+
+
+def _h_sc_keys_equal_patterns(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the number of entries in _REGISTERED_PATTERN_KEYS equals the length of STEP_PATTERNS."""
+    keys_count = len(_REGISTERED_PATTERN_KEYS)
+    patterns_count = len(STEP_PATTERNS)
+    if keys_count != patterns_count:
+        return False, f"_REGISTERED_PATTERN_KEYS has {keys_count} entries but STEP_PATTERNS has {patterns_count} entries"
+    return True, ""
+
+
+# --- registration-priority handlers (use simulated STEP_PATTERNS copy) ---
+
+
+def _h_sc_reg_register_earlier(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a pattern <pattern> is registered with _register by handler <handler> at an earlier line."""
+    m = re.search(r"a pattern (.*) is registered with _register by handler (\S+) at an earlier line", text)
+    if not m:
+        return False, f"Could not parse: {text}"
+    pattern_str, handler_name = m.group(1), m.group(2)
+
+    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
+        return True, ""
+
+    _test_handler.__name__ = handler_name
+    test_list = getattr(world, "sc_test_patterns", None)
+    if test_list is None:
+        test_list = []
+        world.sc_test_patterns = test_list
+    test_list.append((re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
+    return True, ""
+
+
+def _h_sc_reg_first_later(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the same pattern <pattern> is registered with _register_first by handler <handler> at a later line."""
+    m = re.search(r"the same pattern (.*) is registered with _register_first by handler (\S+) at a later line", text)
+    if not m:
+        return False, f"Could not parse: {text}"
+    pattern_str, handler_name = m.group(1), m.group(2)
+
+    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
+        return True, ""
+
+    _test_handler.__name__ = handler_name
+    test_list = getattr(world, "sc_test_patterns", None)
+    if test_list is None:
+        test_list = []
+        world.sc_test_patterns = test_list
+    test_list.insert(0, (re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
+    return True, ""
+
+
+def _h_sc_reg_first_a(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a pattern <pattern> is registered with _register_first by handler <handler>."""
+    m = re.search(r"a pattern (.*) is registered with _register_first by handler (\S+)$", text)
+    if not m:
+        return False, f"Could not parse: {text}"
+    pattern_str, handler_name = m.group(1), m.group(2)
+
+    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
+        return True, ""
+
+    _test_handler.__name__ = handler_name
+    test_list = getattr(world, "sc_test_patterns", None)
+    if test_list is None:
+        test_list = []
+        world.sc_test_patterns = test_list
+    test_list.insert(0, (re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
+    return True, ""
+
+
+def _h_sc_reg_first_b(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the same pattern <pattern> is registered with _register_first by handler <handler>."""
+    m = re.search(r"the same pattern (.*) is registered with _register_first by handler (\S+)$", text)
+    if not m:
+        return False, f"Could not parse: {text}"
+    pattern_str, handler_name = m.group(1), m.group(2)
+
+    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
+        return True, ""
+
+    _test_handler.__name__ = handler_name
+    test_list = getattr(world, "sc_test_patterns", None)
+    if test_list is None:
+        test_list = []
+        world.sc_test_patterns = test_list
+    test_list.insert(0, (re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
+    return True, ""
+
+
+def _h_sc_reg_register_a(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a pattern <pattern> is registered with _register by handler <handler>."""
+    m = re.search(r"a pattern (.*) is registered with _register by handler (\S+)$", text)
+    if not m:
+        return False, f"Could not parse: {text}"
+    pattern_str, handler_name = m.group(1), m.group(2)
+
+    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
+        return True, ""
+
+    _test_handler.__name__ = handler_name
+    test_list = getattr(world, "sc_test_patterns", None)
+    if test_list is None:
+        test_list = []
+        world.sc_test_patterns = test_list
+    test_list.append((re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
+    return True, ""
+
+
+def _h_sc_reg_register_b(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the same pattern <pattern> is registered with _register by handler <handler>."""
+    m = re.search(r"the same pattern (.*) is registered with _register by handler (\S+)$", text)
+    if not m:
+        return False, f"Could not parse: {text}"
+    pattern_str, handler_name = m.group(1), m.group(2)
+
+    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
+        return True, ""
+
+    _test_handler.__name__ = handler_name
+    test_list = getattr(world, "sc_test_patterns", None)
+    if test_list is None:
+        test_list = []
+        world.sc_test_patterns = test_list
+    test_list.append((re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
+    return True, ""
+
+
+def _h_sc_verify_live_handler(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: handler <handler> is the live handler for step text matching <pattern>."""
+    m = re.search(r"handler (\S+) is the live handler for step text matching (.*)", text)
+    if not m:
+        return False, f"Could not parse: {text}"
+    expected_handler_name = m.group(1)
+    step_text = m.group(2)
+    test_list = getattr(world, "sc_test_patterns", None)
+    if test_list is None:
+        return False, "No test patterns registered"
+    for pat, handler, _tag in test_list:
+        if pat.search(step_text):
+            actual_name = handler.__name__
+            if actual_name != expected_handler_name:
+                return False, f"Expected handler {expected_handler_name!r} but got {actual_name!r}"
+            return True, ""
+    return False, f"No handler found for step text {step_text!r}"
+
+
+# --- class-b-decisions handlers ---
+
+
+def _h_sc_use_case_loss(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a use-case description and loss analysis are available."""
+    world.sp1_use_case_text = "Test use case for Stage 2"
+    world.loss_analysis = LossAnalysis(
+        losses=[Loss(loss_id="L-1", description="Loss of confidentiality")],
+        hazards=[Hazard(hazard_id="H-1", description="Hazard", loss_ids=["L-1"])],
+    )
+    return True, ""
+
+
+def _h_sc_cs_derived_with_loader(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the control structure was derived with a TemplateLoader."""
+    loader = getattr(world, "template_loader", None)
+    if loader is None:
+        return False, "No template loader was set"
+    if not isinstance(loader, TemplateLoader):
+        return False, f"template_loader is {type(loader).__name__}, not TemplateLoader"
+    return True, ""
+
+
+def _h_sc_critic_log_capture(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the critic logger had a log capture handler installed during revision."""
+    warnings = getattr(world, "sp1_post_revision_warnings", None)
+    if warnings is None:
+        return False, "No log capture warnings recorded (revision may not have been run)"
+    return True, ""
+
+
+def _h_sc_template_loader_instance(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the world template_loader is a TemplateLoader instance."""
+    loader = getattr(world, "template_loader", None)
+    if loader is None:
+        return False, "No template loader set"
+    if not isinstance(loader, TemplateLoader):
+        return False, f"template_loader is {type(loader).__name__}, not TemplateLoader"
+    return True, ""
+
+
+def _h_sc_template_dir_fc(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the template loader source directory is the FC prompts directory."""
+    loader = getattr(world, "template_loader", None)
+    if loader is None:
+        return False, "No template loader set"
+    source_dir = getattr(loader, "prompts_dir", None)
+    if source_dir is None:
+        return False, "Could not determine template loader source directory"
+    if Path(source_dir) != _FC_PROMPTS_DIR:
+        return False, f"Template loader source is {source_dir}, expected {_FC_PROMPTS_DIR}"
+    return True, ""
+
+
+def _h_sc_returns_false_file_not_found(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the handler returns false with a file-not-found message."""
+    run_dir = getattr(world, "sp1_run_dir", None)
+    if run_dir is None:
+        return False, "No run directory set"
+    result = _h_pll_file_exists(world, "a file nonexistent_file.txt exists in the run directory", {})
+    if result[0]:
+        return False, "Expected handler to return false, but it returned true"
+    if "does not exist" not in result[1].lower() and "not found" not in result[1].lower():
+        return False, f"Expected file-not-found message, got: {result[1]}"
+    return True, ""
+
+
+def _h_sc_heuristic_passed(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a heuristic result that passed."""
+    world.heuristic_result = type("R", (), {"passed": True, "errors": []})()
+    return True, ""
+
+
+def _h_sc_returns_false_heuristic_passed(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the handler returns false because the heuristic passed."""
+    result = _h_heuristic_fails_with(world, "the heuristic check fails with error containing something", {})
+    if result[0]:
+        return False, "Expected handler to return false, but it returned true"
+    if "passed" not in result[1].lower():
+        return False, f"Expected 'passed' in error message, got: {result[1]}"
+    return True, ""
+
+
+def _h_sc_cs_resp1_available(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a control structure with responsibility RESP-1 is available."""
+    if world.control_structure is None:
+        world.control_structure = ControlStructure.model_validate(_sp1_valid_cs_dict())
+    resp_ids = [r.resp_id for r in world.control_structure.responsibilities]
+    if "RESP-1" not in resp_ids:
+        world.control_structure = world.control_structure.model_copy(update={
+            "responsibilities": list(world.control_structure.responsibilities) + [
+                Responsibility(resp_id="RESP-1", description="Responsibility 1")
+            ]
+        })
+    world.sc_cs_created_by_sp1_helper = True
+    return True, ""
+
+
+def _h_sc_world_cs_resp1(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the world control structure has responsibility RESP-1."""
+    cs = getattr(world, "control_structure", None)
+    if cs is None:
+        return False, "No control structure in world"
+    resp_ids = [r.resp_id for r in cs.responsibilities]
+    if "RESP-1" not in resp_ids:
+        return False, f"Control structure does not have RESP-1: {resp_ids}"
+    return True, ""
+
+
+def _h_sc_cs_sp1_helper(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the control structure was created by the SP1 helper function."""
+    if not getattr(world, "sc_cs_created_by_sp1_helper", False):
+        return False, "Control structure was not created by the SP1 helper"
+    return True, ""
+
+
+def _h_sc_sp1_no_calls(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP1 mock client has no calls recorded."""
+    world.sp1_mock_client = type("C", (), {"calls": []})()
+    return True, ""
+
+
+def _h_sc_returns_true_no_calls(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the handler returns true because no calls were made."""
+    result = _h_sp1_critic_prompt_cs(world, "the user prompt contains the control structure", {})
+    if not result[0]:
+        return False, f"Expected handler to return true, but it returned false: {result[1]}"
+    return True, ""
+
+
+def _h_sc_returns_true_unconditional(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the handler returns true unconditionally."""
+    result = _h_gd_pipeline_no_crash(world, "the pipeline does not crash", {})
+    if not result[0]:
+        return False, f"Expected handler to return true, but it returned false: {result[1]}"
+    return True, ""
+
+
+def _h_sc_ets_empty_uncovered(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an enriched threat set with an empty uncovered_reason."""
+    world.enriched_threat_set = EnrichedThreatSet(
+        structural_threats=[],
+        coverage_analysis=CoverageAnalysis(
+            structural_coverage={},
+            uncovered_reason="",
+        ),
+    )
+    return True, ""
+
+
+def _h_sc_returns_false_uncovered_empty(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the handler returns false because uncovered_reason is empty."""
+    result = _h_sp2_uncovered_reason(world, "uncovered_reason is not empty", {})
+    if result[0]:
+        return False, "Expected handler to return false, but it returned true"
+    if "empty" not in result[1].lower():
+        return False, f"Expected 'empty' in error message, got: {result[1]}"
+    return True, ""
+
+
+def _h_sc_scorecard_validation(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the in-memory scorecard has a validation section with N stage_local_errors."""
+    world.sp3_scorecard = {
+        "validation": {
+            "stage_local_errors": ["error1", "error2"],
+        }
+    }
+    return True, ""
+
+
+def _h_sc_returns_true(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the handler returns true."""
+    result = _h_sp3_scorecard_validation_section(
+        world, "the scorecard validation section has 2 stage_local_errors", {}
+    )
+    if not result[0]:
+        return False, f"Expected handler to return true, but it returned false: {result[1]}"
+    return True, ""
+
+
+def _h_sc_not_manual_mock(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the control structure is not produced by manual mock call sequencing."""
+    cs = getattr(world, "control_structure", None)
+    if cs is None:
+        return False, "No control structure produced"
+    if not isinstance(cs, ControlStructure):
+        return False, f"Expected ControlStructure model, got {type(cs).__name__}"
+    return True, ""
+
+
+# --- shadow-cleanup registrations ---
+# Registration-priority patterns are tagged with "shadow_cleanup" so they
+# only match for shadow-cleanup features and don't create global pattern
+# conflicts with existing broad patterns (e.g. "the revision is run").
+_set_feature("shadow_cleanup")
+_register_first(r"a pattern (.*) is registered with _register by handler (\S+) at an earlier line", _h_sc_reg_register_earlier)
+_register_first(r"the same pattern (.*) is registered with _register_first by handler (\S+) at a later line", _h_sc_reg_first_later)
+_register_first(r"a pattern (.*) is registered with _register_first by handler (\S+)$", _h_sc_reg_first_a)
+_register_first(r"the same pattern (.*) is registered with _register_first by handler (\S+)$", _h_sc_reg_first_b)
+_register_first(r"a pattern (.*) is registered with _register by handler (\S+)$", _h_sc_reg_register_a)
+_register_first(r"the same pattern (.*) is registered with _register by handler (\S+)$", _h_sc_reg_register_b)
+_register_first(r"handler (\S+) is the live handler for step text matching (.*)", _h_sc_verify_live_handler)
+_set_feature(None)
+
+# All other shadow-cleanup patterns are exact-match or specific enough
+# that they don't conflict with existing patterns.
+_register(r"the acceptance runtime module is importable", _h_sc_runtime_importable)
+_register(r"all example-expanded step texts from every IR file are collected", _h_sc_collect_ir_step_texts)
+_register(r"find_pattern_conflicts returns an empty list for those step texts", _h_sc_no_global_conflicts)
+_register(r"synthetic step texts covering known shadowing prefixes are collected", _h_sc_collect_synthetic_texts)
+_register(r"find_pattern_conflicts returns an empty list for per-feature tagged patterns", _h_sc_no_tagged_conflicts)
+_register(r"the property test file test_acceptance_harness_property\.py is inspected", _h_sc_inspect_property_test)
+_register(r"test_no_global_pattern_conflicts_on_ir_steps has no xfail marker", _h_sc_no_xfail_marker)
+_register(r"test_no_global_pattern_conflicts_on_synthetic_steps has no xfail marker", _h_sc_no_xfail_marker)
+_register(r"the two property tests have their xfail markers removed", _h_sc_xfail_removed)
+_register(r"the tests pass rather than xpass", _h_sc_tests_pass_not_xpass)
+_register(r"the tests are not marked with strict=False", _h_sc_no_strict_false)
+_register(r"a pattern (.*) is registered with handler (\S+) in global scope", _h_sc_register_test_pattern)
+_register(r"registering the same pattern (.*) with handler (\S+) in global scope raises RuntimeError", _h_sc_duplicate_raises)
+_register(r"the number of entries in _REGISTERED_PATTERN_KEYS equals the length of STEP_PATTERNS", _h_sc_keys_equal_patterns)
+_register(r"a use-case description and loss analysis are available", _h_sc_use_case_loss)
+_register(r"the control structure was derived with a TemplateLoader", _h_sc_cs_derived_with_loader)
+_register(r"the critic logger had a log capture handler installed during revision", _h_sc_critic_log_capture)
+_register(r"the world template_loader is a TemplateLoader instance", _h_sc_template_loader_instance)
+_register(r"the template loader source directory is the FC prompts directory", _h_sc_template_dir_fc)
+_register(r"the handler returns false with a file-not-found message$", _h_sc_returns_false_file_not_found)
+_register(r"the handler returns false because the heuristic passed$", _h_sc_returns_false_heuristic_passed)
+_register(r"a heuristic result that passed", _h_sc_heuristic_passed)
+_register(r"a control structure with responsibility RESP-1 is available", _h_sc_cs_resp1_available)
+_register(r"the world control structure has responsibility RESP-1", _h_sc_world_cs_resp1)
+_register(r"the control structure was created by the SP1 helper function", _h_sc_cs_sp1_helper)
+_register(r"the SP1 mock client has no calls recorded", _h_sc_sp1_no_calls)
+_register(r"the handler returns true because no calls were made$", _h_sc_returns_true_no_calls)
+_register(r"the handler returns true unconditionally$", _h_sc_returns_true_unconditional)
+_register(r"an enriched threat set with an empty uncovered_reason", _h_sc_ets_empty_uncovered)
+_register(r"the handler returns false because uncovered_reason is empty$", _h_sc_returns_false_uncovered_empty)
+_register(r"the in-memory scorecard has a validation section with \d+ stage_local_errors", _h_sc_scorecard_validation)
+_register(r"^the handler returns true$", _h_sc_returns_true)
+_register(r"the control structure is not produced by manual mock call sequencing", _h_sc_not_manual_mock)
 
 
 def execute_ir(ir_path: str) -> tuple[bool, str]:

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "registration-priority",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/shadow-cleanup/registration-priority.json",
+  "implementation_hash": "sha256:c63b0c3c64f3ce8c357e0150ad486803a6cf9e0cda0f74f8f7c6ecbba628dfed",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "registration-priority_acceptance_test.py"
+  ]
+}

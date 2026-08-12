@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "class-b-decisions",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/shadow-cleanup/class-b-decisions.json",
+  "implementation_hash": "sha256:3229eb90ae5607c667ef88495657d237ffac1c32a2b46f683e4435eddd99d3ab",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "class-b-decisions_acceptance_test.py"
+  ]
+}

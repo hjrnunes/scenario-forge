@@ -162,12 +162,6 @@ class TestNoPatternShadowing:
         "stage2_assembly", "stage2_call2a", "stage2_call2b", "stage2_call3",
     })
 
-    @pytest.mark.xfail(
-        reason="30 pre-existing same-scope shadowing duplicates in "
-               "acceptance_runtime.py; follow-up bead needed to clean up "
-               "dead second registrations",
-        strict=False,
-    )
     def test_no_global_pattern_conflicts_on_ir_steps(self):
         """No two global (untagged) patterns match the same IR step text."""
         step_texts = _all_ir_step_texts()
@@ -184,11 +178,6 @@ class TestNoPatternShadowing:
                 f"First {min(10, len(conflicts))}:\n{detail}"
             )
 
-    @pytest.mark.xfail(
-        reason="Pre-existing same-scope shadowing duplicates; "
-               "follow-up bead needed",
-        strict=False,
-    )
     def test_no_global_pattern_conflicts_on_synthetic_steps(self):
         """No two global patterns match a set of synthetic step texts.
 

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "duplicate-assertion",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/shadow-cleanup/duplicate-assertion.json",
+  "implementation_hash": "sha256:47f692c41fccfab84504a435d7d5cc2b90705075d480a3d459571f6520d9f959",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "duplicate-assertion_acceptance_test.py"
+  ]
+}

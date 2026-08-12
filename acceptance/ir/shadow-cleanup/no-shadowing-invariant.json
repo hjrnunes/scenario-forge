@@ -1,0 +1,64 @@
+{
+  "name" : "No same-scope pattern shadowing after cleanup",
+  "scenarios" : [ {
+    "name" : "ShadowCleanup-01 no global pattern conflicts on IR step texts",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "all example-expanded step texts from every IR file are collected"
+    }, {
+      "keyword" : "Then",
+      "text" : "find_pattern_conflicts returns an empty list for those step texts"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ShadowCleanup-02 no global pattern conflicts on synthetic step texts",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "synthetic step texts covering known shadowing prefixes are collected"
+    }, {
+      "keyword" : "Then",
+      "text" : "find_pattern_conflicts returns an empty list for those step texts"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ShadowCleanup-03 no per-feature tagged pattern conflicts on IR step texts",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "all example-expanded step texts from every IR file are collected"
+    }, {
+      "keyword" : "Then",
+      "text" : "find_pattern_conflicts returns an empty list for per-feature tagged patterns"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ShadowCleanup-04 the xfail markers on the two property tests are removed",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the property test file test_acceptance_harness_property.py is inspected"
+    }, {
+      "keyword" : "Then",
+      "text" : "test_no_global_pattern_conflicts_on_ir_steps has no xfail marker"
+    }, {
+      "keyword" : "And",
+      "text" : "test_no_global_pattern_conflicts_on_synthetic_steps has no xfail marker"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ShadowCleanup-05 the unmarked property tests are not strict xfail",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the two property tests have their xfail markers removed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the tests pass rather than xpass"
+    }, {
+      "keyword" : "And",
+      "text" : "the tests are not marked with strict=False"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the acceptance runtime module is importable"
+  } ]
+}

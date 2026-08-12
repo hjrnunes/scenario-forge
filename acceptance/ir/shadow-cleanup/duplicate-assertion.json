@@ -1,0 +1,30 @@
+{
+  "name" : "Exact-duplicate registration is rejected at import time",
+  "scenarios" : [ {
+    "name" : "ShadowCleanup-09 exact duplicate registration raises RuntimeError",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "a pattern <pattern> is registered with handler <handler> in global scope",
+      "parameters" : [ "pattern", "handler" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "registering the same pattern <pattern> with handler <handler> in global scope raises RuntimeError",
+      "parameters" : [ "pattern", "handler" ]
+    } ],
+    "examples" : [ {
+      "pattern" : "a test step",
+      "handler" : "_h_test_handler"
+    } ]
+  }, {
+    "name" : "ShadowCleanup-10 the registered keys count equals the step patterns count",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the number of entries in _REGISTERED_PATTERN_KEYS equals the length of STEP_PATTERNS"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the acceptance runtime module is importable"
+  } ]
+}

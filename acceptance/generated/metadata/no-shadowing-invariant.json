@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "no-shadowing-invariant",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/shadow-cleanup/no-shadowing-invariant.json",
+  "implementation_hash": "sha256:e0ff3da1b7b227a4b8210e5f620d66d18e3e27e15967262e14434ffdbf3dee75",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "no-shadowing-invariant_acceptance_test.py"
+  ]
+}
