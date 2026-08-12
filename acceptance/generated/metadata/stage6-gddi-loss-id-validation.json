@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "stage6 gddi loss id validation",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/stage6_gddi_loss_id_validation.json",
+  "implementation_hash": "sha256:9c072c8ad06fc081af2a952c6a922c480b17750f4ce948794a31436570357dd4",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "stage6_gddi_loss_id_validation_acceptance_test.py"
+  ]
+}

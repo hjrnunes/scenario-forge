@@ -1,0 +1,173 @@
+{
+  "name" : "Stage 1b Capability Profile Revision",
+  "scenarios" : [ {
+    "name" : "Capability profile is produced without loss-analysis dependency",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "the output directory contains `capability-profile.yaml`"
+    }, {
+      "keyword" : "And",
+      "text" : "the output directory contains `loss-analysis.yaml`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Capability profile contains KC sub-codes",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "`capability-profile.yaml` has a non-empty `kc_subcodes` list"
+    }, {
+      "keyword" : "And",
+      "text" : "every value in `kc_subcodes` is a valid KC sub-code"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Zones are computed from KC sub-codes, not LLM-inferred",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "`capability-profile.yaml` has a `zones_active` list containing `input` and `reasoning`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Boolean flags are computed from KC sub-codes, not LLM fields",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "`capability-profile.yaml` has `has_persistent_memory` consistent with `kc_subcodes`"
+    }, {
+      "keyword" : "And",
+      "text" : "`capability-profile.yaml` has `multi_agent` consistent with `kc_subcodes`"
+    }, {
+      "keyword" : "And",
+      "text" : "`capability-profile.yaml` has `hitl` consistent with `kc_subcodes`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Stage1Profile model does not declare boolean capability fields",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the `Stage1Profile` model does not declare `has_persistent_memory`"
+    }, {
+      "keyword" : "And",
+      "text" : "the `Stage1Profile` model does not declare `multi_agent`"
+    }, {
+      "keyword" : "And",
+      "text" : "the `Stage1Profile` model does not declare `hitl`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Capability profile contains entry points",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "`capability-profile.yaml` has a non-empty `entry_points` list"
+    }, {
+      "keyword" : "And",
+      "text" : "every entry point has a `name` and a `direction`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Capability profile contains tool inventory when tool_execution zone is active",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "if `capability-profile.yaml` has `tool_execution` in `zones_active` then `tool_inventory` is non-empty"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "The stage1b system prompt includes the KC taxonomy",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompt template `stage1b_system.j2` contains the text `KC1 — Language Models`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompt template `stage1b_system.j2` contains the text `KC6 — Operational Environment`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompt template `stage1b_system.j2` contains the text `KCX — Extended Capabilities`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "The stage1b user prompt does not include loss-analysis context",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompt template `stage1b_user.j2` does not contain `loss_analysis`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompt template `stage1b_user.j2` does not contain `all_losses`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompt template `stage1b_user.j2` does not contain `security_constraints`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "The stage1b system prompt does not mention STPA-Sec",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompt template `stage1b_system.j2` does not contain `STPA`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "The stage1b system prompt does not request zones_active as output",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompt template `stage1b_system.j2` does not contain `zones_active`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "The stage1b system prompt does not contain the five-category checklist",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompt template `stage1b_system.j2` does not contain `User input surfaces`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompt template `stage1b_system.j2` does not contain `Entry point category checklist`"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "a use-case file and a risk-extraction file are available"
+  }, {
+    "keyword" : "And",
+    "text" : "an LLM endpoint is configured"
+  } ]
+}

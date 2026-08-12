@@ -18,6 +18,19 @@ build/
 # Secrets / local env
 .envrc
 
+# Scratch. Nothing here is load-bearing: the acceptance suite that used to
+# live under tmp/acceptance/ now lives at acceptance/.
+tmp/
+
+# Experiment worktrees are separate checkouts, not content of this one
+.worktrees/
+
+# Quality-tool output, regenerated on every run
+acceptance/dry/
+lcov*.info
+coverage.lcov
+.coverage
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db

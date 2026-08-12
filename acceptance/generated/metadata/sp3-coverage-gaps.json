@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp3 coverage gaps",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_coverage_gaps.json",
+  "implementation_hash": "sha256:4be62c99fb447336ab9a7ff93990e9fde40d0777f2726cbcd11a0ffad4a60581",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3_coverage_gaps_acceptance_test.py"
+  ]
+}

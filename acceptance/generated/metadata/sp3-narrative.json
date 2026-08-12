@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp3 narrative",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_narrative.json",
+  "implementation_hash": "sha256:dd64ef712e301dd81b2796ab816232cbcaeb9b50bc7a4074a4780bdc5c37f73d",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3_narrative_acceptance_test.py"
+  ]
+}

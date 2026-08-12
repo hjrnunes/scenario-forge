@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp3 attack tree",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_attack_tree.json",
+  "implementation_hash": "sha256:4f5dc9e05fc2ec2d291bcada88ad912e6fcf961f7a0c56bc87dc691b5390f3b0",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3_attack_tree_acceptance_test.py"
+  ]
+}

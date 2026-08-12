@@ -63,8 +63,34 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 ```bash
 uv sync                    # Install/update dependencies
 ruff check src/            # Linting
-uv run pytest tests/ -x    # Tests (842 as of v17)
+uv run pytest              # Unit suite (testpaths=tests; ~5900 tests)
 ```
+
+### Test suites
+
+Two separate suites. `pytest` with no arguments runs the unit suite only.
+
+```bash
+uv run pytest                       # unit suite
+uv run pytest acceptance/generated/ # acceptance suite (generated from Gherkin IR)
+```
+
+The acceptance suite lives at `acceptance/` — entrypoints are generated from
+the Gherkin IR, so a failure there can mean stale generation rather than a
+source regression. Regenerate with `acceptance/generate_entrypoints.py` before
+concluding the source is broken.
+
+Known-red baseline, so a passing run is distinguishable from an unchanged one:
+
+| Suite | Expected |
+|---|---|
+| unit | 11 failed / ~5897 passed (10 need an LLM endpoint, 1 pre-existing) |
+| acceptance | 9 failed / 68 passed (7 need an LLM endpoint, 2 out of scope) |
+| `ruff check src/` | clean |
+| `ruff check tests/` | 14 pre-existing |
+
+`tmp/` is gitignored scratch and is excluded from collection. Nothing
+load-bearing belongs there.
 
 ### Running the pipeline
 

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 revision delta",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_revision_delta.json",
+  "implementation_hash": "sha256:a60d2a141228299a1329e06bdc436249d1e662ec1c7ac72aee43e1af5d2a228d",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_revision_delta_acceptance_test.py"
+  ]
+}

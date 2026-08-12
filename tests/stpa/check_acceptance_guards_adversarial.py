@@ -6,7 +6,7 @@ This script proves three guards work by triggering them with synthetic inputs:
 2. find_pattern_conflicts — detects a synthetic same-scope pattern conflict
 3. check_entry_points_canonical_ir_location — catches non-canonical IR paths
 
-Run: uv run python tmp/test_guards_adversarial.py
+Run: uv run python tests/stpa/check_acceptance_guards_adversarial.py
 Exit 0 = all guards fire correctly; exit 1 = a guard failed to fire.
 """
 
@@ -16,8 +16,10 @@ import re
 import sys
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
-_ACCEPTANCE_DIR = _PROJECT_ROOT / "tmp" / "acceptance"
+_PROJECT_ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
+)
+_ACCEPTANCE_DIR = _PROJECT_ROOT / "acceptance"
 sys.path.insert(0, str(_ACCEPTANCE_DIR))
 
 from acceptance_runtime import (  # noqa: E402
@@ -70,10 +72,14 @@ def test_find_pattern_conflicts_detects_synthetic() -> bool:
     # Insert two global patterns that both match the same text
     pat1 = re.compile(r"the .* is run", re.IGNORECASE)
     pat2 = re.compile(r"the revision is run", re.IGNORECASE)
-    handler1 = lambda: None
-    handler1.__name__ = "_synth_handler_1"
-    handler2 = lambda: None
-    handler2.__name__ = "_synth_handler_2"
+    def _synth_handler_1() -> None:
+        return None
+
+    def _synth_handler_2() -> None:
+        return None
+
+    handler1 = _synth_handler_1
+    handler2 = _synth_handler_2
 
     # Temporarily replace STEP_PATTERNS with just our two patterns
     STEP_PATTERNS.clear()

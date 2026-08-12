@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp3 eval metrics",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_eval_metrics.json",
+  "implementation_hash": "sha256:b17b171dc89738d8169cae9ae51e0480954457b8c571f3d613d1f81c7b3f7bab",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3_eval_metrics_acceptance_test.py"
+  ]
+}

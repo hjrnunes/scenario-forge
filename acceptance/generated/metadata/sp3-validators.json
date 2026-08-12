@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp3 validators",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_validators.json",
+  "implementation_hash": "sha256:f5a3f434d38cee6c013ffac06e04b2161d433368892f1354a9bc43ded390c9f7",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3_validators_acceptance_test.py"
+  ]
+}

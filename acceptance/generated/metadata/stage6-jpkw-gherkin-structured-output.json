@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "stage6 jpkw gherkin structured output",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/stage6_jpkw_gherkin_structured_output.json",
+  "implementation_hash": "sha256:ce5aebf2bc1911ba6e5f81c3bcc330215b8f9d6c3e2652f01def5ebc2a6f9452",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "stage6_jpkw_gherkin_structured_output_acceptance_test.py"
+  ]
+}

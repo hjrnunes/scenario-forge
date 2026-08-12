@@ -1,0 +1,359 @@
+{
+  "schema_version" : 1,
+  "feature_name" : "Stage 1 Pipeline Ordering",
+  "summary" : {
+    "step_occurrences" : 26,
+    "unique_steps" : 17,
+    "findings" : 13
+  },
+  "findings" : [ {
+    "kind" : "near-duplicate",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir> --capability-profile <profile>`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 3,
+        "scenario_name" : "Providing a pre-built capability profile still runs both loss analysis calls",
+        "step_index" : 1,
+        "keyword" : "When"
+      } ]
+    }, {
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 0,
+        "scenario_name" : "Capability profile call appears before loss analysis calls in call log",
+        "step_index" : 0,
+        "keyword" : "When"
+      }, {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "Risk-grounded call appears before gap analysis call in call log",
+        "step_index" : 0,
+        "keyword" : "When"
+      }, {
+        "section" : "scenario",
+        "scenario_index" : 2,
+        "scenario_name" : "All Stage 1 artifacts are produced in a single run",
+        "step_index" : 0,
+        "keyword" : "When"
+      }, {
+        "section" : "scenario",
+        "scenario_index" : 4,
+        "scenario_name" : "Gap analysis user prompt includes capability profile context",
+        "step_index" : 0,
+        "keyword" : "When"
+      }, {
+        "section" : "scenario",
+        "scenario_index" : 5,
+        "scenario_name" : "Capability profile call does not receive loss analysis as input",
+        "step_index" : 0,
+        "keyword" : "When"
+      } ]
+    } ],
+    "reason" : "step texts are highly similar after placeholder normalization",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.833
+  }, {
+    "kind" : "near-duplicate",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the `stage_1b` call entry in `calls.jsonl` has a `user_prompt_text` that does not contain `loss_analysis`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 5,
+        "scenario_name" : "Capability profile call does not receive loss analysis as input",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the `stage_1b` call entry in `calls.jsonl` has a `user_prompt_text` that does not contain `risk_card_losses`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 5,
+        "scenario_name" : "Capability profile call does not receive loss analysis as input",
+        "step_index" : 3,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts are highly similar after placeholder normalization",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.722
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "`calls.jsonl` contains a call entry with `stage` `stage_1a` and `step` `gap_analysis`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 3,
+        "scenario_name" : "Providing a pre-built capability profile still runs both loss analysis calls",
+        "step_index" : 4,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "`calls.jsonl` contains a call entry with `stage` `stage_1a` and `step` `risk_derivation`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 3,
+        "scenario_name" : "Providing a pre-built capability profile still runs both loss analysis calls",
+        "step_index" : 3,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.667
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "`calls.jsonl` does not contain a call entry with `stage` `stage_1b`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 3,
+        "scenario_name" : "Providing a pre-built capability profile still runs both loss analysis calls",
+        "step_index" : 5,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the `stage_1b` call entry in `calls.jsonl` has a `user_prompt_text` that does not contain `loss_analysis`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 5,
+        "scenario_name" : "Capability profile call does not receive loss analysis as input",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.6
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "`calls.jsonl` does not contain a call entry with `stage` `stage_1b`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 3,
+        "scenario_name" : "Providing a pre-built capability profile still runs both loss analysis calls",
+        "step_index" : 5,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the `stage_1b` call entry in `calls.jsonl` has a `user_prompt_text` that does not contain `risk_card_losses`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 5,
+        "scenario_name" : "Capability profile call does not receive loss analysis as input",
+        "step_index" : 3,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.563
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "in `calls.jsonl` the `stage_1a` `risk_derivation` call appears before the `stage_1a` `gap_analysis` call",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "Risk-grounded call appears before gap analysis call in call log",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "in `calls.jsonl` the `stage_1b` call appears before the first `stage_1a` call",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 0,
+        "scenario_name" : "Capability profile call appears before loss analysis calls in call log",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.538
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "`calls.jsonl` contains a call entry with `stage` `stage_1a` and `step` `gap_analysis`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 3,
+        "scenario_name" : "Providing a pre-built capability profile still runs both loss analysis calls",
+        "step_index" : 4,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "in `calls.jsonl` the `stage_1a` `risk_derivation` call appears before the `stage_1a` `gap_analysis` call",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "Risk-grounded call appears before gap analysis call in call log",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.5
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "`calls.jsonl` contains a call entry with `stage` `stage_1a` and `step` `gap_analysis`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 3,
+        "scenario_name" : "Providing a pre-built capability profile still runs both loss analysis calls",
+        "step_index" : 4,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the `stage_1a` `gap_analysis` call entry in `calls.jsonl` has a `user_prompt_text` containing `kc_subcodes`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 4,
+        "scenario_name" : "Gap analysis user prompt includes capability profile context",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.5
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "`calls.jsonl` contains a call entry with `stage` `stage_1a` and `step` `risk_derivation`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 3,
+        "scenario_name" : "Providing a pre-built capability profile still runs both loss analysis calls",
+        "step_index" : 3,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "in `calls.jsonl` the `stage_1a` `risk_derivation` call appears before the `stage_1a` `gap_analysis` call",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "Risk-grounded call appears before gap analysis call in call log",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.5
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the output directory contains `capability-profile.yaml`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 2,
+        "scenario_name" : "All Stage 1 artifacts are produced in a single run",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the output directory contains `control-structure.yaml`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 2,
+        "scenario_name" : "All Stage 1 artifacts are produced in a single run",
+        "step_index" : 4,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.5
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the output directory contains `capability-profile.yaml`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 2,
+        "scenario_name" : "All Stage 1 artifacts are produced in a single run",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the output directory contains `loss-analysis.yaml`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 2,
+        "scenario_name" : "All Stage 1 artifacts are produced in a single run",
+        "step_index" : 3,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.5
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the output directory contains `control-structure.yaml`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 2,
+        "scenario_name" : "All Stage 1 artifacts are produced in a single run",
+        "step_index" : 4,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the output directory contains `loss-analysis.yaml`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 2,
+        "scenario_name" : "All Stage 1 artifacts are produced in a single run",
+        "step_index" : 3,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.5
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the `stage_1a` `gap_analysis` call entry in `calls.jsonl` has a `user_prompt_text` containing `kc_subcodes`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 4,
+        "scenario_name" : "Gap analysis user prompt includes capability profile context",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the `stage_1b` call entry in `calls.jsonl` has a `user_prompt_text` that does not contain `loss_analysis`",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 5,
+        "scenario_name" : "Capability profile call does not receive loss analysis as input",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.45
+  } ]
+}

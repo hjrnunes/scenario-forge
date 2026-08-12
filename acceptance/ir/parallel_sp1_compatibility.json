@@ -1,0 +1,122 @@
+{
+  "name" : "Parallel infrastructure SP1 backwards compatibility",
+  "scenarios" : [ {
+    "name" : "ParallelSP1-01 max_workers=1 produces identical output artifacts",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed with max_workers 1"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file loss-analysis.yaml exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "a file capability-profile.yaml exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "a file control-structure.yaml exists in the run directory"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP1-02 stage execution order preserved with max_workers=1",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed with max_workers 1"
+    }, {
+      "keyword" : "Then",
+      "text" : "Stage 1a loss analysis is produced first"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 1b capability profile is produced second"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 2 control structure is produced third"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP1-03 call log identical with max_workers=1",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed with max_workers 1"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file calls.jsonl exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "the file contains entries for stage_1a, stage_1b, and stage_2 in order"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP1-04 SP1 does not call parallel_safe_llm_calls when max_workers=1",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed with max_workers 1"
+    }, {
+      "keyword" : "Then",
+      "text" : "all LLM calls go through safe_llm_call directly"
+    }, {
+      "keyword" : "And",
+      "text" : "no parallel_safe_llm_calls invocation occurs"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP1-05 SP1 data dependencies prevent parallelization",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP1 pipeline stage dependencies"
+    }, {
+      "keyword" : "Then",
+      "text" : "Stage 1b depends on the output of Stage 1a"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 2 Call 1 depends on the output of Stage 1b"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 2 Call 2 depends on the output of Stage 2 Call 1"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 2 Call 3 depends on the output of Stage 2 Call 2"
+    }, {
+      "keyword" : "And",
+      "text" : "the critic depends on the output of Stage 2 Call 3"
+    }, {
+      "keyword" : "And",
+      "text" : "the revision depends on the output of the critic"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP1-06 existing SP1 tests pass with parallel module present",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the parallel_llm module is installed in stpa/infra"
+    }, {
+      "keyword" : "When",
+      "text" : "the existing SP1 test suite is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "no new failures are introduced"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model run module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a use-case description and risk extraction JSON are available as input"
+  } ]
+}

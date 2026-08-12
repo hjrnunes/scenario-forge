@@ -1,0 +1,92 @@
+{
+  "name" : "Parallel max_workers configuration and manifest recording",
+  "scenarios" : [ {
+    "name" : "ParallelConfig-01 run_sp1 accepts max_workers parameter",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed with max_workers 4"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run completes without error"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelConfig-02 max_workers default is 1 for backwards compatibility",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed without specifying max_workers"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run completes without error"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest records max_workers as 1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelConfig-03 run manifest records max_workers value",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP1 run is executed with max_workers 4"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run manifest records max_workers as 4"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelConfig-04 --max-workers CLI flag passes value to run_sp1",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP1 runner script is available"
+    }, {
+      "keyword" : "When",
+      "text" : "the runner is invoked with --max-workers 8"
+    }, {
+      "keyword" : "Then",
+      "text" : "run_sp1 is called with max_workers 8"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelConfig-05 --max-workers CLI flag defaults to 1",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP1 runner script is available"
+    }, {
+      "keyword" : "When",
+      "text" : "the runner is invoked without --max-workers"
+    }, {
+      "keyword" : "Then",
+      "text" : "run_sp1 is called with max_workers 1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelConfig-06 --max-workers accepts a valid positive integer",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP1 runner script is available"
+    }, {
+      "keyword" : "When",
+      "text" : "the runner is invoked with --max-workers 4"
+    }, {
+      "keyword" : "Then",
+      "text" : "run_sp1 is called with max_workers 4"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model run module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a use-case description and risk extraction JSON are available as input"
+  } ]
+}

@@ -1,0 +1,159 @@
+{
+  "name" : "Stage 1a Loss Analysis Split",
+  "scenarios" : [ {
+    "name" : "Risk-grounded call produces losses with provenance risk_card",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "the output directory contains `loss-analysis.yaml`"
+    }, {
+      "keyword" : "And",
+      "text" : "`loss-analysis.yaml` contains at least one loss with `provenance` set to `risk_card`"
+    }, {
+      "keyword" : "And",
+      "text" : "every `risk_card`-provenance loss has a non-empty `source_risk_cards` list"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Risk-grounded call with no risk cards produces empty risk_card_losses",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the risk-extraction file contains zero risk cards"
+    }, {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "`loss-analysis.yaml` has an empty `risk_card_losses` list"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Gap analysis call produces losses with provenance use_case",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "`loss-analysis.yaml` contains at least one loss with `provenance` set to `use_case`"
+    }, {
+      "keyword" : "And",
+      "text" : "every `use_case`-provenance loss has an empty `source_risk_cards` list"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Gap analysis IDs continue from risk-grounded call",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "loss IDs in `loss-analysis.yaml` are sequential with no duplicates"
+    }, {
+      "keyword" : "And",
+      "text" : "hazard IDs in `loss-analysis.yaml` are sequential with no duplicates"
+    }, {
+      "keyword" : "And",
+      "text" : "security constraint IDs in `loss-analysis.yaml` are sequential with no duplicates"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Merged cross-references are valid across both calls",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "every hazard in `loss-analysis.yaml` references at least one valid loss_id"
+    }, {
+      "keyword" : "And",
+      "text" : "every security constraint in `loss-analysis.yaml` references at least one valid hazard_id"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Two LLM call-log entries are recorded for Stage 1a",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "`calls.jsonl` contains a call entry with `stage` `stage_1a` and `step` `risk_derivation`"
+    }, {
+      "keyword" : "And",
+      "text" : "`calls.jsonl` contains a call entry with `stage` `stage_1a` and `step` `gap_analysis`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Run manifest records two Stage 1a calls",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`",
+      "parameters" : [ "use_case", "risk_file", "dir" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the command exits with code 0"
+    }, {
+      "keyword" : "And",
+      "text" : "`run-manifest.yaml` has `stage_summary.stage_1a.call_count` equal to `2`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "Old stage1a templates are absent",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompts directory does not contain `stage1a_system.j2`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompts directory does not contain `stage1a_user.j2`"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "New stage1a templates are present",
+    "steps" : [ {
+      "keyword" : "Then",
+      "text" : "the prompts directory contains `stage1a_risk_system.j2`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompts directory contains `stage1a_risk_user.j2`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompts directory contains `stage1a_gap_system.j2`"
+    }, {
+      "keyword" : "And",
+      "text" : "the prompts directory contains `stage1a_gap_user.j2`"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "a use-case file and a risk-extraction file are available"
+  }, {
+    "keyword" : "And",
+    "text" : "an LLM endpoint is configured"
+  } ]
+}

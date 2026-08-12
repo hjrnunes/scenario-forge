@@ -1,0 +1,173 @@
+{
+  "name" : "SP1 critic ID sanitization before revision",
+  "scenarios" : [ {
+    "name" : "SP1-CRITIC-SAN-01 critic system prompt instructs not to suggest specific IDs",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template critic_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"Do NOT suggest specific IDs in remedies\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Describe WHAT should be added\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"not what ID it should have\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Let the revision model assign IDs\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-SAN-02 critic system prompt provides examples of what to avoid",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template critic_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"a responsibility for input validation\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"not 'add RESP-5'\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"not 'add PM-0-1'\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-SAN-03 non-conforming IDs are stripped from suggested_remedy",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a CriticFindings with a gap whose suggested_remedy contains \"<bad_id>\"",
+      "parameters" : [ "bad_id" ]
+    }, {
+      "keyword" : "When",
+      "text" : "sanitize_critic_ids is called on the findings"
+    }, {
+      "keyword" : "Then",
+      "text" : "the suggested_remedy does not contain \"<bad_id>\"",
+      "parameters" : [ "bad_id" ]
+    }, {
+      "keyword" : "And",
+      "text" : "the suggested_remedy contains a generic description"
+    } ],
+    "examples" : [ {
+      "bad_id" : "PM-0"
+    }, {
+      "bad_id" : "CA-0"
+    }, {
+      "bad_id" : "FB-0"
+    } ]
+  }, {
+    "name" : "SP1-CRITIC-SAN-04 conforming IDs are preserved in suggested_remedy",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a CriticFindings with a gap whose suggested_remedy references existing element \"<good_id>\"",
+      "parameters" : [ "good_id" ]
+    }, {
+      "keyword" : "When",
+      "text" : "sanitize_critic_ids is called on the findings"
+    }, {
+      "keyword" : "Then",
+      "text" : "the suggested_remedy still contains \"<good_id>\"",
+      "parameters" : [ "good_id" ]
+    } ],
+    "examples" : [ {
+      "good_id" : "RESP-1"
+    }, {
+      "good_id" : "PM-1-2"
+    }, {
+      "good_id" : "CA-2-1"
+    }, {
+      "good_id" : "FB-3-1"
+    } ]
+  }, {
+    "name" : "SP1-CRITIC-SAN-05 suggested_remedy without any IDs is unchanged",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a CriticFindings with a gap whose suggested_remedy is \"Add a responsibility for input validation\""
+    }, {
+      "keyword" : "When",
+      "text" : "sanitize_critic_ids is called on the findings"
+    }, {
+      "keyword" : "Then",
+      "text" : "the suggested_remedy is unchanged"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-SAN-06 multiple gaps with non-conforming IDs are all sanitized",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a CriticFindings with three gaps each containing a different non-conforming ID"
+    }, {
+      "keyword" : "When",
+      "text" : "sanitize_critic_ids is called on the findings"
+    }, {
+      "keyword" : "Then",
+      "text" : "none of the suggested_remedy strings contain non-conforming IDs"
+    }, {
+      "keyword" : "And",
+      "text" : "the findings still have three gaps"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-SAN-07 sanitize_critic_ids preserves checklist and taxonomy results",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a CriticFindings with gaps, checklist_results, and taxonomy_probe_results"
+    }, {
+      "keyword" : "When",
+      "text" : "sanitize_critic_ids is called on the findings"
+    }, {
+      "keyword" : "Then",
+      "text" : "the result is a CriticFindings model"
+    }, {
+      "keyword" : "And",
+      "text" : "the checklist_results are preserved"
+    }, {
+      "keyword" : "And",
+      "text" : "the taxonomy_probe_results are preserved"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-SAN-08 sanitized findings flow to revision without non-conforming IDs",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a CriticFindings with a non-conforming ID in a suggested_remedy"
+    }, {
+      "keyword" : "When",
+      "text" : "the findings are sanitized and passed to the revision prompt"
+    }, {
+      "keyword" : "Then",
+      "text" : "the revision user prompt does not contain the non-conforming ID"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-SAN-09 sanitization is called after critic and before revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure and CriticFindings with unjustified gaps containing a non-conforming ID"
+    }, {
+      "keyword" : "When",
+      "text" : "the Stage 2 revision block runs"
+    }, {
+      "keyword" : "Then",
+      "text" : "sanitize_critic_ids is called after run_completeness_critic returns"
+    }, {
+      "keyword" : "And",
+      "text" : "sanitize_critic_ids is called before run_revision is called"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model critic module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "the STPA system model prompts directory is available"
+  }, {
+    "keyword" : "And",
+    "text" : "the TemplateLoader can load templates from the prompts directory"
+  } ]
+}

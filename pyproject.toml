@@ -30,3 +30,34 @@ dev = [
     "hypothesis>=6.164.0",
     "pytest-cov>=7.1.0",
 ]
+
+[tool.pytest.ini_options]
+# Bare `pytest` runs the unit suite only. The acceptance suite is generated
+# from Gherkin IR and is run explicitly (`pytest acceptance/generated/`) so
+# that a generation step is never mistaken for a unit-test regression.
+testpaths = ["tests"]
+# Without this, collection walks scratch and worktree directories and picks
+# up stray `test_*.py` files that are not part of any suite.
+# This setting REPLACES pytest's defaults rather than extending them, so the
+# default patterns are repeated here; dropping them un-ignores .venv, .git
+# and .hypothesis.
+norecursedirs = [
+    # pytest defaults
+    "*.egg",
+    ".*",
+    "_darcs",
+    "build",
+    "CVS",
+    "dist",
+    "node_modules",
+    "venv",
+    "{arch}",
+    # project-specific scratch
+    "tmp",
+    "output",
+    "data",
+    "*.egg-info",
+]
+markers = [
+    "acceptance: generated Gherkin acceptance test (run via acceptance/generated/)",
+]

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "stage6 v689 attack tree root label",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/stage6_v689_attack_tree_root_label.json",
+  "implementation_hash": "sha256:1b878128285d1cbb316f8bbc8584b68291bc02dc47635608f33e276f394feef7",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "stage6_v689_attack_tree_root_label_acceptance_test.py"
+  ]
+}

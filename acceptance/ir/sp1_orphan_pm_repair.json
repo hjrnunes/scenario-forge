@@ -1,0 +1,156 @@
+{
+  "name" : "SP1 orphan PM repair and PM-FB correspondence",
+  "scenarios" : [ {
+    "name" : "SP1-PMFB-04 repair finds orphan PM with no FB referencing it",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure with responsibility RESP-1 having PM-1-1 and PM-1-2 but only FB-1-1 updating PM-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "repair_orphan_pms is called"
+    }, {
+      "keyword" : "Then",
+      "text" : "the repaired ControlStructure has a feedback channel updating PM-1-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-PMFB-05 repair generates stub FB with correct id pattern",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure with responsibility RESP-2 having orphan PM-2-1 and existing FB-2-1"
+    }, {
+      "keyword" : "When",
+      "text" : "repair_orphan_pms is called"
+    }, {
+      "keyword" : "Then",
+      "text" : "the repaired ControlStructure has a feedback channel with id FB-2-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-PMFB-06 repair FB description indicates auto-generation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure with responsibility RESP-1 having orphan PM-1-3"
+    }, {
+      "keyword" : "When",
+      "text" : "repair_orphan_pms is called"
+    }, {
+      "keyword" : "Then",
+      "text" : "the new feedback channel description contains \"Auto-generated feedback for orphan PM-1-3\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-PMFB-07 repair FB updates references the orphan PM",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure with responsibility RESP-1 having orphan PM-1-2"
+    }, {
+      "keyword" : "When",
+      "text" : "repair_orphan_pms is called"
+    }, {
+      "keyword" : "Then",
+      "text" : "the new feedback channel updates field equals \"PM-1-2\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-PMFB-08 no orphan PMs means no changes and no warnings",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure where every PM has a corresponding FB"
+    }, {
+      "keyword" : "When",
+      "text" : "repair_orphan_pms is called"
+    }, {
+      "keyword" : "Then",
+      "text" : "the ControlStructure is unchanged"
+    }, {
+      "keyword" : "And",
+      "text" : "no warnings are returned"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-PMFB-09 repair returns a warning for each repaired orphan",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure with responsibility RESP-1 having two orphan PMs PM-1-2 and PM-1-3"
+    }, {
+      "keyword" : "When",
+      "text" : "repair_orphan_pms is called"
+    }, {
+      "keyword" : "Then",
+      "text" : "the warnings list contains two entries"
+    }, {
+      "keyword" : "And",
+      "text" : "each warning mentions the orphan PM id"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-PMFB-10 multiple orphans in same responsibility get sequential FB numbers",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure with responsibility RESP-3 having orphans PM-3-1 and PM-3-2 with no existing FBs"
+    }, {
+      "keyword" : "When",
+      "text" : "repair_orphan_pms is called"
+    }, {
+      "keyword" : "Then",
+      "text" : "the repaired ControlStructure has feedback channels FB-3-1 and FB-3-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-PMFB-11 orphans across multiple responsibilities are all repaired",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure with responsibility RESP-1 having orphan PM-1-2 and responsibility RESP-2 having orphan PM-2-1"
+    }, {
+      "keyword" : "When",
+      "text" : "repair_orphan_pms is called"
+    }, {
+      "keyword" : "Then",
+      "text" : "the repaired ControlStructure has a FB updating PM-1-2 in RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the repaired ControlStructure has a FB updating PM-2-1 in RESP-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-PMFB-12 repaired ControlStructure has no orphan PMs",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ControlStructure with multiple orphan PMs across responsibilities"
+    }, {
+      "keyword" : "When",
+      "text" : "repair_orphan_pms is called"
+    }, {
+      "keyword" : "Then",
+      "text" : "every PM part in the repaired ControlStructure is referenced by at least one FB"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-PMFB-13 repair runs after assembly and before Call 3",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a use case text and loss analysis available for Stage 2"
+    }, {
+      "keyword" : "When",
+      "text" : "derive_control_structure runs"
+    }, {
+      "keyword" : "Then",
+      "text" : "repair_orphan_pms is called after the control structure is assembled"
+    }, {
+      "keyword" : "And",
+      "text" : "repair_orphan_pms is called before Call 3 coordination is derived"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model control structure module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "the STPA system model prompts directory is available"
+  }, {
+    "keyword" : "And",
+    "text" : "the TemplateLoader can load templates from the prompts directory"
+  } ]
+}

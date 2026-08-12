@@ -1,0 +1,140 @@
+{
+  "name" : "Parallel infrastructure design for SP2 and SP3",
+  "scenarios" : [ {
+    "name" : "ParallelSP2-01 SP2 Stage 3 slot-filling calls are independent per responsibility",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with 3 responsibilities"
+    }, {
+      "keyword" : "And",
+      "text" : "one LLM call specification per responsibility for Stage 3 slot-filling"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 3"
+    }, {
+      "keyword" : "Then",
+      "text" : "three LLMCallResult objects are returned"
+    }, {
+      "keyword" : "And",
+      "text" : "each result corresponds to a different responsibility"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP2-02 SP2 Stage 3 parallel calls produce same results as sequential",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with 3 responsibilities"
+    }, {
+      "keyword" : "And",
+      "text" : "one LLM call specification per responsibility for Stage 3 slot-filling"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 1"
+    }, {
+      "keyword" : "Then",
+      "text" : "the results are identical to calling parallel_safe_llm_calls with max_workers 3"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP3-01 SP3 Stage 5 BDI calls are independent per scenario",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "5 scenario seeds"
+    }, {
+      "keyword" : "And",
+      "text" : "one LLM call specification per scenario for Stage 5 BDI generation"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 4"
+    }, {
+      "keyword" : "Then",
+      "text" : "five LLMCallResult objects are returned in input order"
+    }, {
+      "keyword" : "And",
+      "text" : "each result corresponds to a different scenario"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP3-02 SP3 Stage 6 calls are independent within a scenario",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "one scenario with a fixed ScenarioSpec"
+    }, {
+      "keyword" : "And",
+      "text" : "three LLM call specifications for narrative, attack_tree, and gherkin"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 3"
+    }, {
+      "keyword" : "Then",
+      "text" : "three LLMCallResult objects are returned in input order"
+    }, {
+      "keyword" : "And",
+      "text" : "the first result is for the narrative call"
+    }, {
+      "keyword" : "And",
+      "text" : "the second result is for the attack_tree call"
+    }, {
+      "keyword" : "And",
+      "text" : "the third result is for the gherkin call"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP3-03 SP3 different scenarios can run concurrently",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "3 scenario seeds"
+    }, {
+      "keyword" : "And",
+      "text" : "4 LLM call specifications per scenario (1 BDI + 3 concretization)"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 4"
+    }, {
+      "keyword" : "Then",
+      "text" : "twelve LLMCallResult objects are returned in input order"
+    }, {
+      "keyword" : "And",
+      "text" : "all results for scenario 1 precede results for scenario 2 in the result list"
+    }, {
+      "keyword" : "And",
+      "text" : "all results for scenario 2 precede results for scenario 3 in the result list"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelSP3-04 SP3 Stage 5 failure for one scenario does not block others",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "3 scenario seeds"
+    }, {
+      "keyword" : "And",
+      "text" : "one LLM call specification per scenario for Stage 5 BDI generation"
+    }, {
+      "keyword" : "And",
+      "text" : "the mock LLM raises an exception for scenario 2"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 3"
+    }, {
+      "keyword" : "Then",
+      "text" : "three LLMCallResult objects are returned"
+    }, {
+      "keyword" : "And",
+      "text" : "the result for scenario 1 has no error"
+    }, {
+      "keyword" : "And",
+      "text" : "the result for scenario 2 has an error message"
+    }, {
+      "keyword" : "And",
+      "text" : "the result for scenario 3 has no error"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA parallel LLM module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a mock LLM client that records call order"
+  } ]
+}

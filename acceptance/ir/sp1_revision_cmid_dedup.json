@@ -1,0 +1,295 @@
+{
+  "name" : "SP1 Stage 2 — Duplicate cm_id handling in revision delta merge",
+  "scenarios" : [ {
+    "name" : "CmDedup-01 new link with duplicate cm_id is renumbered to next free CM-N",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the final control structure contains coordination link CL-3"
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-3 has a cm_id that is not CM-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-3 has a cm_id matching the format CM-N"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure passes foundation validation"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-02 renumbered cm_id does not collide with any existing cm_id",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the final control structure has no duplicate cm_id values"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure passes foundation validation"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-03 renumbering preserves the link content",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-1 and source RESP-1 and target RESP-2 and shared_pm PM-1-1 and description \"shared validation\" and payload \"sync\""
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the coordination link CL-3 has source RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-3 has target RESP-2"
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-3 has shared_pm PM-1-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-3 has description \"shared validation\""
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-3 has coordination_mechanism payload \"sync\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-04 renumbering emits a warning naming the colliding cm_id",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the warnings list includes a warning that mentions CM-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the warnings list includes a warning that mentions CL-3"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-05 renumbered cm_id is the next free number",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the coordination link CL-3 has cm_id CM-3"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-06 multiple new links with duplicate cm_ids are each renumbered",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-1 and CL-4 whose cm_id is CM-2"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the final control structure contains coordination link CL-3"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure contains coordination link CL-4"
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-3 has a cm_id that is not CM-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-4 has a cm_id that is not CM-2"
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-3 has a cm_id different from CL-4 cm_id"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure has no duplicate cm_id values"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-07 new link with unique cm_id is not renumbered",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-3"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the coordination link CL-3 has cm_id CM-3"
+    }, {
+      "keyword" : "And",
+      "text" : "the warnings list does not include a renumber warning for CM-3"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-08 renumbered cm_id conforms to the CM-N format regex",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the coordination link CL-3 has a cm_id matching the pattern ^CM-\\d+$"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-09 degradation guard falls back to pre-revision ControlStructure on merge failure",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta that causes a ValidationError during merge"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the returned ControlStructure is the pre-revision control structure"
+    }, {
+      "keyword" : "And",
+      "text" : "the pipeline does not crash"
+    }, {
+      "keyword" : "And",
+      "text" : "the warnings list includes a degradation warning"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-10 degradation warning names the failing step and includes the error",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta that causes a ValidationError during merge"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the warnings list includes a warning mentioning revision delta merge"
+    }, {
+      "keyword" : "And",
+      "text" : "the warnings list includes a warning mentioning the error type"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-11 degradation guard preserves existing responsibilities after fallback",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta that causes a ValidationError during merge"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the returned ControlStructure contains RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the returned ControlStructure contains RESP-2"
+    }, {
+      "keyword" : "And",
+      "text" : "the returned ControlStructure contains coordination link CL-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the returned ControlStructure contains coordination link CL-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-12 Airbnb regression shape — existing CL-1/CM-1 and CL-2/CM-2, revision adds CL-3 with CM-1",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the pipeline does not crash"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure contains coordination link CL-1 with cm_id CM-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure contains coordination link CL-2 with cm_id CM-2"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure contains coordination link CL-3"
+    }, {
+      "keyword" : "And",
+      "text" : "the coordination link CL-3 has a cm_id that is not CM-1"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure has no duplicate cm_id values"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure passes foundation validation"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-13 degradation guard catches nested pm_id collision from new responsibility",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_responsibilities containing RESP-3 whose PM part has pm_id PM-1-1 which duplicates an existing PM"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the pipeline does not crash"
+    }, {
+      "keyword" : "And",
+      "text" : "the returned ControlStructure is the pre-revision control structure"
+    }, {
+      "keyword" : "And",
+      "text" : "the warnings list includes a degradation warning"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CmDedup-14 successful merge with no collisions produces no renumber or degradation warnings",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_coordination_links containing CL-3 whose cm_id is CM-3"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the warnings list does not include a renumber warning"
+    }, {
+      "keyword" : "And",
+      "text" : "the warnings list does not include a degradation warning"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure contains coordination link CL-3 with cm_id CM-3"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model critic module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with responsibilities RESP-1 and RESP-2 is available"
+  }, {
+    "keyword" : "And",
+    "text" : "the control structure has coordination links CL-1 with CM-1 and CL-2 with CM-2"
+  }, {
+    "keyword" : "And",
+    "text" : "CriticFindings with unjustified gaps are available"
+  }, {
+    "keyword" : "And",
+    "text" : "a run directory for call logging"
+  } ]
+}

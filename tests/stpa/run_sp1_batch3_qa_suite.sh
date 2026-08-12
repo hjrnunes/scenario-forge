@@ -12,7 +12,7 @@
 #   3. Pipeline integration via scenario-forge CLI (user-facing CLI tool)
 #
 # Usage:
-#   bash tmp/qa_sp1_batch3.sh
+#   bash tests/stpa/run_sp1_batch3_qa_suite.sh
 #
 # Prerequisites:
 #   - uv installed and project dependencies synced (uv sync)

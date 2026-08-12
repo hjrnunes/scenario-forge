@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 merge fallback sanitize",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_merge_fallback_sanitize.json",
+  "implementation_hash": "sha256:07148df493080a891629e7dfa77c7620f63857ffb50c96483449bf6a7858e9f0",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_merge_fallback_sanitize_acceptance_test.py"
+  ]
+}

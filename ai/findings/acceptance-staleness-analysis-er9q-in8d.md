@@ -80,7 +80,8 @@ In-scope: **16 tests** (Categories B + C + D). After this work item:
 the degraded path (it carries `controlled_processes` over from the Call 2b
 `ControlElementSet` but not `control_actions`/`feedback_channels`), so a single
 invalid LLM reference costs the whole control loop rather than just the bad
-reference. Repro: `tmp/probe_fallback.py`.
+reference. Repro: `tmp/probe_fallback.py` (throwaway probe, removed once
+bead `32aa` was fixed; see commit `87e08de` for the revert it justified).
 
 This red test is correct and load-bearing. A workaround that masked it by
 reimplementing the merge inside `_h_ar_assemble` was deliberately reverted in

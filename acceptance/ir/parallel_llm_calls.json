@@ -1,0 +1,239 @@
+{
+  "name" : "Parallel LLM call infrastructure",
+  "scenarios" : [ {
+    "name" : "ParallelLLM-01 multiple calls execute and return results",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "three LLM call specifications with stages stage_3, stage_3, stage_3"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 2"
+    }, {
+      "keyword" : "Then",
+      "text" : "three LLMCallResult objects are returned"
+    }, {
+      "keyword" : "And",
+      "text" : "each result contains the validated model from the mock LLM"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-02 results returned in input order regardless of execution order",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "three LLM call specifications with steps slot_a, slot_b, slot_c"
+    }, {
+      "keyword" : "And",
+      "text" : "the mock LLM delays step slot_c by 100ms and step slot_a by 0ms"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 3"
+    }, {
+      "keyword" : "Then",
+      "text" : "the first result has step slot_a"
+    }, {
+      "keyword" : "And",
+      "text" : "the second result has step slot_b"
+    }, {
+      "keyword" : "And",
+      "text" : "the third result has step slot_c"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-03 failed call does not affect other calls",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "three LLM call specifications with steps good_1, bad_1, good_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the mock LLM raises an exception for step bad_1"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 3"
+    }, {
+      "keyword" : "Then",
+      "text" : "three LLMCallResult objects are returned"
+    }, {
+      "keyword" : "And",
+      "text" : "the result for step good_1 has no error"
+    }, {
+      "keyword" : "And",
+      "text" : "the result for step bad_1 has an error message"
+    }, {
+      "keyword" : "And",
+      "text" : "the result for step good_2 has no error"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-04 all call log entries written thread-safe",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "five LLM call specifications with steps s1, s2, s3, s4, s5"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 4"
+    }, {
+      "keyword" : "Then",
+      "text" : "the calls.jsonl file contains five valid JSON lines"
+    }, {
+      "keyword" : "And",
+      "text" : "each line has a valid stage, step, model, and timestamp"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-05 max_workers controls concurrency level",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "four LLM call specifications"
+    }, {
+      "keyword" : "And",
+      "text" : "the mock LLM records the number of concurrent in-flight calls"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 2"
+    }, {
+      "keyword" : "Then",
+      "text" : "the maximum observed concurrent in-flight calls is at most 2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-06 single call works as degenerate case",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "one LLM call specification with stage stage_3 and step slot_a"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 1"
+    }, {
+      "keyword" : "Then",
+      "text" : "one LLMCallResult object is returned"
+    }, {
+      "keyword" : "And",
+      "text" : "the result contains the validated model from the mock LLM"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-07 empty call list returns empty result list",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "zero LLM call specifications"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 4"
+    }, {
+      "keyword" : "Then",
+      "text" : "an empty list of LLMCallResult objects is returned"
+    }, {
+      "keyword" : "And",
+      "text" : "no calls.jsonl file is created"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-08 LLMCallSpec bundles call arguments",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLMCallSpec with system_prompt sys, user_prompt usr, response_format LossAnalysis, stage stage_3, step slot_a, and temperature 0.7"
+    }, {
+      "keyword" : "Then",
+      "text" : "the spec has system_prompt sys"
+    }, {
+      "keyword" : "And",
+      "text" : "the spec has user_prompt usr"
+    }, {
+      "keyword" : "And",
+      "text" : "the spec has response_format LossAnalysis"
+    }, {
+      "keyword" : "And",
+      "text" : "the spec has stage stage_3"
+    }, {
+      "keyword" : "And",
+      "text" : "the spec has step slot_a"
+    }, {
+      "keyword" : "And",
+      "text" : "the spec has temperature 0.7"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-09 LLMCallResult bundles result with call_spec",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a successful parallel call execution for one specification"
+    }, {
+      "keyword" : "Then",
+      "text" : "the LLMCallResult has model set to the LLM client model"
+    }, {
+      "keyword" : "And",
+      "text" : "the LLMCallResult has result set to the validated model"
+    }, {
+      "keyword" : "And",
+      "text" : "the LLMCallResult has error set to None"
+    }, {
+      "keyword" : "And",
+      "text" : "the LLMCallResult has call_spec set to the original specification"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-10 failed call result has model None and error set",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a failed parallel call execution for one specification"
+    }, {
+      "keyword" : "Then",
+      "text" : "the LLMCallResult has model set to None"
+    }, {
+      "keyword" : "And",
+      "text" : "the LLMCallResult has error set to the exception message"
+    }, {
+      "keyword" : "And",
+      "text" : "the LLMCallResult has call_spec set to the original specification"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-11 call log entries include success and failure entries",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "two LLM call specifications with steps good_1 and bad_1"
+    }, {
+      "keyword" : "And",
+      "text" : "the mock LLM raises an exception for step bad_1"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 2"
+    }, {
+      "keyword" : "Then",
+      "text" : "the calls.jsonl file contains two lines"
+    }, {
+      "keyword" : "And",
+      "text" : "the first line has success true"
+    }, {
+      "keyword" : "And",
+      "text" : "the second line has success false and a non-empty error field"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ParallelLLM-12 temperature propagated to each call",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "two LLM call specifications with temperatures 0.2 and 0.7"
+    }, {
+      "keyword" : "When",
+      "text" : "parallel_safe_llm_calls is called with max_workers 2"
+    }, {
+      "keyword" : "Then",
+      "text" : "the mock LLM received temperature 0.2 for the first call"
+    }, {
+      "keyword" : "And",
+      "text" : "the mock LLM received temperature 0.7 for the second call"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA parallel LLM module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a mock LLM client that records call order"
+  }, {
+    "keyword" : "And",
+    "text" : "a run directory for output"
+  } ]
+}

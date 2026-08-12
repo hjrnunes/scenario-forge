@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 calls html full content",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_calls_html_full_content.json",
+  "implementation_hash": "sha256:721c3fc52bf4c1f7863cd44896ed51cd6b6f3d1d5f906ae9dc473b83c0b98068",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_calls_html_full_content_acceptance_test.py"
+  ]
+}

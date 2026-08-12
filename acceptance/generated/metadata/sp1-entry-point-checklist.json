@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 entry point checklist",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_entry_point_checklist.json",
+  "implementation_hash": "sha256:28e0ee937f6fa8b3fb2d49d76cfd5a88db2f8f47a1c4e74df778d7ea13f394fc",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_entry_point_checklist_acceptance_test.py"
+  ]
+}
