@@ -427,6 +427,78 @@ class TestRevision:
         # Heuristics were re-run — warnings is a list (may be empty)
         assert isinstance(warnings, list)
 
+    def test_revision_dismissal_is_reported_as_warning(self, tmp_path):
+        """Dismissed critic gaps remain visible to downstream callers."""
+        client = MockLLMClient()
+        client.set_response_for(
+            RevisionDelta,
+            {
+                "new_responsibilities": [],
+                "new_controlled_processes": [],
+                "new_coordination_links": [],
+                "modified_responsibilities": [],
+                "dismissed_gaps": ["already covered by RESP-1"],
+            },
+        )
+
+        revised, warnings = run_revision(
+            llm_client=client,
+            control_structure=_make_control_structure(),
+            critic_findings=CriticFindings.model_validate(
+                _valid_critic_findings_dict()
+            ),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+
+        assert isinstance(revised, ControlStructure)
+        assert warnings[0] == "Revision dismissed finding: already covered by RESP-1"
+
+    def test_revision_failure_preserves_control_structure(self, tmp_path):
+        """A failed revision returns the original structure and warning."""
+        client = MockLLMClient()
+        client.set_exception_for(RevisionDelta, RuntimeError("offline"))
+        original = _make_control_structure()
+
+        revised, warnings = run_revision(
+            llm_client=client,
+            control_structure=original,
+            critic_findings=CriticFindings.model_validate(
+                _valid_critic_findings_dict()
+            ),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+
+        assert revised == original
+        assert warnings == ["Revision failed: RuntimeError: offline"]
+
+    def test_revision_none_response_preserves_control_structure(
+        self, tmp_path, monkeypatch
+    ):
+        """An empty revision response returns the original structure."""
+        from scenario_forge.stpa.system_model import critic as critic_module
+
+        monkeypatch.setattr(
+            critic_module,
+            "safe_llm_call",
+            lambda **kwargs: (None, None, None),
+        )
+        original = _make_control_structure()
+
+        revised, warnings = run_revision(
+            llm_client=MockLLMClient(),
+            control_structure=original,
+            critic_findings=CriticFindings.model_validate(
+                _valid_critic_findings_dict()
+            ),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+
+        assert revised == original
+        assert warnings == ["Revision failed: unexpected None response"]
+
     def test_rev_08_revised_cs_replaces_original(self, tmp_path):
         """SP1-REV-08: revised control structure contains new responsibilities and keeps old ones."""
         client = MockLLMClient()

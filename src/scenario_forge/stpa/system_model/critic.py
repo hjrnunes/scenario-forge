@@ -109,6 +109,8 @@ def run_completeness_critic(
         run_dir: Directory for call logging.
         template_loader: Optional template loader (defaults to SP1 prompts dir).
         temperature: LLM temperature (default 0.4).
+        loss_analysis: Optional loss analysis used for hazard-trace context.
+        call3_warnings: Optional warnings from the preceding Gherkin call.
 
     Returns:
         CriticFindings model with gaps, checklist results, and taxonomy probe results.
@@ -358,8 +360,8 @@ def run_revision(
         )
         return control_structure, [warning]
 
-    # Warnings are accumulated in chronological order: merge → strip →
-    # heuristics, so consumers see the earliest root-cause first.
+    # Warnings are accumulated in chronological order: dismissal → merge →
+    # strip → heuristics, so consumers see the earliest root-cause first.
     post_warnings = dismissal_warnings + list(merge_warnings)
 
     # Strip empty responsibilities as a safety net
