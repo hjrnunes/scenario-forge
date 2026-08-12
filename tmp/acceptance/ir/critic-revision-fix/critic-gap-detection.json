@@ -1,0 +1,125 @@
+{
+  "name" : "SP1 Stage 2 — Revision trigger considers all three critic probes",
+  "scenarios" : [ {
+    "name" : "CRGap-01 any probe reporting an unaddressed gap triggers revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "CriticFindings whose checklist_results are <checklist_statuses>",
+      "parameters" : [ "checklist_statuses" ]
+    }, {
+      "keyword" : "And",
+      "text" : "CriticFindings whose taxonomy_probe_results are <taxonomy_statuses>",
+      "parameters" : [ "taxonomy_statuses" ]
+    }, {
+      "keyword" : "And",
+      "text" : "CriticFindings with <gap_count> adversarial gaps",
+      "parameters" : [ "gap_count" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "revision is <revision_outcome>",
+      "parameters" : [ "revision_outcome" ]
+    } ],
+    "examples" : [ {
+      "checklist_statuses" : "absent_unjustified",
+      "taxonomy_statuses" : "none",
+      "gap_count" : "0",
+      "revision_outcome" : "triggered"
+    }, {
+      "checklist_statuses" : "present, absent_unjustified",
+      "taxonomy_statuses" : "none",
+      "gap_count" : "0",
+      "revision_outcome" : "triggered"
+    }, {
+      "checklist_statuses" : "absent_justified, absent_unjustified",
+      "taxonomy_statuses" : "none",
+      "gap_count" : "0",
+      "revision_outcome" : "triggered"
+    }, {
+      "checklist_statuses" : "present",
+      "taxonomy_statuses" : "absent_unjustified",
+      "gap_count" : "0",
+      "revision_outcome" : "triggered"
+    }, {
+      "checklist_statuses" : "present",
+      "taxonomy_statuses" : "present, absent_unjustified",
+      "gap_count" : "0",
+      "revision_outcome" : "triggered"
+    }, {
+      "checklist_statuses" : "present",
+      "taxonomy_statuses" : "absent_justified, absent_unjustified",
+      "gap_count" : "0",
+      "revision_outcome" : "triggered"
+    }, {
+      "checklist_statuses" : "present",
+      "taxonomy_statuses" : "present",
+      "gap_count" : "1",
+      "revision_outcome" : "triggered"
+    }, {
+      "checklist_statuses" : "present",
+      "taxonomy_statuses" : "present",
+      "gap_count" : "3",
+      "revision_outcome" : "triggered"
+    }, {
+      "checklist_statuses" : "none",
+      "taxonomy_statuses" : "none",
+      "gap_count" : "2",
+      "revision_outcome" : "triggered"
+    }, {
+      "checklist_statuses" : "present",
+      "taxonomy_statuses" : "present",
+      "gap_count" : "0",
+      "revision_outcome" : "not triggered"
+    }, {
+      "checklist_statuses" : "absent_justified",
+      "taxonomy_statuses" : "absent_justified",
+      "gap_count" : "0",
+      "revision_outcome" : "not triggered"
+    }, {
+      "checklist_statuses" : "present, absent_justified",
+      "taxonomy_statuses" : "present, absent_justified",
+      "gap_count" : "0",
+      "revision_outcome" : "not triggered"
+    }, {
+      "checklist_statuses" : "none",
+      "taxonomy_statuses" : "none",
+      "gap_count" : "0",
+      "revision_outcome" : "not triggered"
+    } ]
+  }, {
+    "name" : "CRGap-02 default-constructed CriticFindings do not trigger revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "empty CriticFindings"
+    }, {
+      "keyword" : "Then",
+      "text" : "revision is not triggered"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CRGap-03 a failed critic call does not trigger revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with responsibilities RESP-1 and RESP-2 is available"
+    }, {
+      "keyword" : "And",
+      "text" : "a capability profile and use-case text are available"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for call logging"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM whose critic call fails"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "revision is not triggered"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model critic module is importable"
+  } ]
+}

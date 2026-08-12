@@ -1,0 +1,211 @@
+{
+  "name" : "SP1 Stage 2 — Revision prompt shows the structure it is asked to extend",
+  "scenarios" : [ {
+    "name" : "CRRevCtx-01 revision_system.j2 renders each nested element with its description",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"<fragment>\"",
+      "parameters" : [ "fragment" ]
+    } ],
+    "examples" : [ {
+      "fragment" : "{% for rc in resp.responsibility_constraints %}"
+    }, {
+      "fragment" : "{{ rc.rc_id }}: {{ rc.description }}"
+    }, {
+      "fragment" : "{% for pm in resp.process_model_parts %}"
+    }, {
+      "fragment" : "{{ pm.pm_id }}: {{ pm.description }}"
+    }, {
+      "fragment" : "{% for ca in resp.control_actions %}"
+    }, {
+      "fragment" : "{{ ca.ca_id }}: {{ ca.description }}"
+    }, {
+      "fragment" : "{% for fb in resp.feedback_channels %}"
+    }, {
+      "fragment" : "{{ fb.fb_id }}: {{ fb.description }}"
+    } ]
+  }, {
+    "name" : "CRRevCtx-02 revision_system.j2 renders the reference each new element must connect to",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"<fragment>\"",
+      "parameters" : [ "fragment" ]
+    } ],
+    "examples" : [ {
+      "fragment" : "{{ pm.feedback_source.type }}"
+    }, {
+      "fragment" : "{{ ca.target.type }}"
+    }, {
+      "fragment" : "{{ fb.source.type }}"
+    }, {
+      "fragment" : "{{ fb.updates }}"
+    }, {
+      "fragment" : "{{ cl.coordination_mechanism.description }}"
+    } ]
+  }, {
+    "name" : "CRRevCtx-03 revision_system.j2 no longer renders nested elements as bare identifier lists",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text does not contain \"<fragment>\"",
+      "parameters" : [ "fragment" ]
+    } ],
+    "examples" : [ {
+      "fragment" : "map(attribute='pm_id')"
+    }, {
+      "fragment" : "map(attribute='ca_id')"
+    }, {
+      "fragment" : "map(attribute='fb_id')"
+    } ]
+  }, {
+    "name" : "CRRevCtx-04 the rendered revision system prompt shows nested element descriptions",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure whose <element_id> has the description \"<element_description>\"",
+      "parameters" : [ "element_id", "element_description" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the revision system prompt is rendered"
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendered text contains \"<element_id>: <element_description>\"",
+      "parameters" : [ "element_id", "element_description" ]
+    } ],
+    "examples" : [ {
+      "element_id" : "PM-1-1",
+      "element_description" : "belief about retrieval source integrity"
+    }, {
+      "element_id" : "CA-1-1",
+      "element_description" : "reject unverified retrieved content"
+    }, {
+      "element_id" : "FB-1-1",
+      "element_description" : "provenance verdict from the index"
+    } ]
+  }, {
+    "name" : "CRRevCtx-05 the revision system prompt renders when a nested reference is absent",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure whose PM-1-1 has no feedback source"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision system prompt is rendered"
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendering succeeds"
+    }, {
+      "keyword" : "And",
+      "text" : "the rendered text does not contain an unrendered Jinja expression"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CRRevCtx-06 revision_user.j2 no longer duplicates the control-structure listing",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_user.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text does not contain \"<fragment>\"",
+      "parameters" : [ "fragment" ]
+    } ],
+    "examples" : [ {
+      "fragment" : "## Current Control Structure"
+    }, {
+      "fragment" : "{% for resp in control_structure.responsibilities %}"
+    }, {
+      "fragment" : "use_case_text"
+    } ]
+  }, {
+    "name" : "CRRevCtx-07 revision_user.j2 keeps the critic findings listing",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_user.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"<fragment>\"",
+      "parameters" : [ "fragment" ]
+    } ],
+    "examples" : [ {
+      "fragment" : "## Critic Findings"
+    }, {
+      "fragment" : "{% for gap in critic_findings.gaps %}"
+    }, {
+      "fragment" : "{{ gap.gap_type }}"
+    }, {
+      "fragment" : "{{ gap.related_attack_path }}"
+    }, {
+      "fragment" : "{{ gap.suggested_remedy }}"
+    }, {
+      "fragment" : "critic_findings.checklist_results"
+    }, {
+      "fragment" : "critic_findings.taxonomy_probe_results"
+    } ]
+  }, {
+    "name" : "CRRevCtx-08 the revision system prompt drops the unexplained STPA-Sec framing",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text does not contain \"STPA-Sec\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "CRRevCtx-09 revision_system.j2 keeps the existing delta and ID rules",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"<fragment>\"",
+      "parameters" : [ "fragment" ]
+    } ],
+    "examples" : [ {
+      "fragment" : "## ID format rules"
+    }, {
+      "fragment" : "RESP-{next_resp_num}"
+    }, {
+      "fragment" : "CL-{next_cl_num}"
+    }, {
+      "fragment" : "Do NOT restate the entire control structure"
+    }, {
+      "fragment" : "modified_responsibilities list must contain ONLY responsibilities you are CHANGING"
+    }, {
+      "fragment" : "solution-neutrality"
+    }, {
+      "fragment" : "ElementRef references must be valid"
+    }, {
+      "fragment" : "feedback channel updates must reference a PM in the same responsibility"
+    } ]
+  }, {
+    "name" : "CRRevCtx-10 the revision system prompt renders with no unrendered Jinja expression",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure with responsibilities RESP-1 and RESP-2 is available"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision system prompt is rendered"
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendering succeeds"
+    }, {
+      "keyword" : "And",
+      "text" : "the rendered text does not contain an unrendered Jinja expression"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model prompts directory is available"
+  }, {
+    "keyword" : "And",
+    "text" : "the TemplateLoader can load templates from the prompts directory"
+  } ]
+}
