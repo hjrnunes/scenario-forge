@@ -12,6 +12,7 @@ block.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from scenario_forge.models.capability_profile import CapabilityProfile
@@ -69,6 +70,50 @@ _KC_FAILURE_MODE_RULES: list[tuple[Callable[[set[str]], bool], str]] = [
         "execution, sandbox escape",
     ),
 ]
+
+# ---------------------------------------------------------------------------
+# Tool intent classification
+# ---------------------------------------------------------------------------
+
+# Write/execute intent has priority when both read and write verbs are present
+# in a tool description (e.g. "Reads logs and writes audit entries").
+_WRITE_VERB_PATTERN = re.compile(
+    r"\b(?:writ\w*|send\w*|execut\w*|run\w*|updat\w*|modif\w*|delet\w*|"
+    r"creat\w*|insert\w*|process\w*|post\w*|save\w*|upload\w*|"
+    r"submit\w*|grant\w*|revok\w*|remov\w*|disabl\w*|enabl\w*|deploy\w*|"
+    r"trigger\w*|assign\w*|approv\w*|reject\w*|block\w*|commit\w*|push\w*|"
+    r"put\w*|apply\w*)\b",
+    re.IGNORECASE,
+)
+
+_READ_VERB_PATTERN = re.compile(
+    r"\b(?:read\w*|retriev\w*|quer\w*|fetch\w*|get\w*|search\w*|lookup\w*|"
+    r"scan\w*|view\w*|inspect\w*|monitor\w*|collect\w*|gather\w*)\b",
+    re.IGNORECASE,
+)
+
+_WRITE_FAILURE_SUFFIX = (
+    "susceptible to parameter manipulation, unauthorized state change"
+)
+_READ_FAILURE_SUFFIX = "susceptible to output fabrication, data exfiltration"
+_UNKNOWN_FAILURE_SUFFIX = (
+    "susceptible to unexpected behavior from malformed input or output "
+    "manipulation"
+)
+
+
+def _classify_tool_failure_mode(description: str) -> str:
+    """Classify a tool description and return the appropriate failure-mode suffix.
+
+    Write/execute intent has priority when both read and write verbs are
+    present.  Read/retrieval intent emits read-specific failure modes.
+    Unknown tools get a conservative fallback.
+    """
+    if _WRITE_VERB_PATTERN.search(description):
+        return _WRITE_FAILURE_SUFFIX
+    if _READ_VERB_PATTERN.search(description):
+        return _READ_FAILURE_SUFFIX
+    return _UNKNOWN_FAILURE_SUFFIX
 
 
 def build_technology_context(profile: CapabilityProfile) -> str:
@@ -140,16 +185,21 @@ def _emit_entry_point_failure_modes(
 def _emit_tool_inventory_failure_modes(
     lines: list[str], profile: CapabilityProfile
 ) -> None:
-    """Emit per-tool failure modes from the tool inventory."""
+    """Emit per-tool failure modes from the tool inventory.
+
+    Each tool is classified by its description into write/execute,
+    read/retrieval, or unknown intent, and receives a category-specific
+    failure-mode suffix.
+    """
     if not profile.tool_inventory:
         return
     for tool in profile.tool_inventory:
+        suffix = _classify_tool_failure_mode(tool.description)
         lines.append(
-            f"- Tool '{tool.name}': {tool.description} → "
-            f"susceptible to parameter manipulation, output fabrication"
+            f"- Tool '{tool.name}': {tool.description} → {suffix}"
         )
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T00:25:25Z","module_hash":"5e5b4039c9d6ea0d57675832aafa606c76ab3e68b454c62fab744c8b12207fa9","functions":[{"id":"func/build_technology_context","name":"build_technology_context","line":74,"end_line":99,"hash":"8635b66655e37525365de7b4d7ffda7dfd888f6d2c6b7359e96fd06a5f911b99"},{"id":"func/_emit_zone_failure_modes","name":"_emit_zone_failure_modes","line":102,"end_line":107,"hash":"bd88a9c679ee0285671255a2653c85ec37fb3d71e51a631ddca9f51e8fc9944e"},{"id":"func/_emit_kc_failure_modes","name":"_emit_kc_failure_modes","line":110,"end_line":120,"hash":"49b0651a494ef5c76f46015379d4ae1ed50c6095fe224b74ffb5661bf90bb4a5"},{"id":"func/_emit_entry_point_failure_modes","name":"_emit_entry_point_failure_modes","line":123,"end_line":137,"hash":"b007dad48da85924be6041f9c517082d0dda3e5fc84301a24f90d8e56ec93d88"},{"id":"func/_emit_tool_inventory_failure_modes","name":"_emit_tool_inventory_failure_modes","line":140,"end_line":150,"hash":"eab800ce106a8b37ef541b98132069501df3402c6a0ab0919d44128e40fcf90f"}]}
+# {"version":1,"tested_at":"2026-08-12T00:00:00Z","module_hash":"pending","functions":[]}
 # mutate4py-manifest-end
