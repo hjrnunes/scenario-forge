@@ -160,7 +160,7 @@ PY
 
 ```bash
 cd .factory/swarmforge/aps
-bb gherkin-parser ../../../tests/stpa/features/sp1_prompt_bug_fixes.feature ../../../acceptance/ir/sp1_prompt_bug_fixes.json
+bb gherkin-parser ../../../features/sp1_prompt_bug_fixes.feature ../../../acceptance/ir/sp1_prompt_bug_fixes.json
 cd ../../..
 uv run pytest acceptance/generated/sp1_prompt_bug_fixes_acceptance_test.py -v --tb=short -q
 ```

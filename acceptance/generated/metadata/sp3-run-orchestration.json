@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp3 run orchestration",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_run_orchestration.json",
-  "implementation_hash": "sha256:c0d336632c7d7baf7a48aed430b73da42b7af6f5ee0032570d479baae4f38483",
+  "feature_path": "features/sp3_run_orchestration.feature",
+  "ir_path": "acceptance/ir/sp3_run_orchestration.json",
+  "feature_hash": "sha256:d3203c70904fa58a405bb7c10453354f6bb1a1523cd1b7cd6ec392261eef6758",
+  "implementation_hash": "sha256:47d91ba9acc1481831bf02d5441d6bb20389af8148140e878ff380238f4a5b42",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp3_run_orchestration_acceptance_test.py"

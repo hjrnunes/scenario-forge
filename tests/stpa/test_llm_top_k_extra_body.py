@@ -1,7 +1,7 @@
 """Unit tests for LLM top_k routing through extra_body.
 
 Covers LLM-TOPK-01 through LLM-TOPK-06 from the Gherkin feature file:
-  tests/stpa/features/sp1_llm_top_k_extra_body.feature
+  features/sp1_llm_top_k_extra_body.feature
 
 Tests verify that top_k is routed through extra_body instead of as a
 top-level kwarg, and that standard params remain top-level kwargs.

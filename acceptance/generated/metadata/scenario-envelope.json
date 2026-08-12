@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "scenario envelope",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/scenario_envelope.json",
-  "implementation_hash": "sha256:7f36be830bd12797991e8c71e1f25f8ef5351df30de5dda1305f66992c8eba90",
+  "feature_path": "features/scenario_envelope.feature",
+  "ir_path": "acceptance/ir/scenario_envelope.json",
+  "feature_hash": "sha256:256d138491b175d264d3a5659df4088a9069ee9839d47ea486dc6a25515c018c",
+  "implementation_hash": "sha256:cd3130601237ddd4f153f2ad34edc4f42f6d4c08514f006c792bda5fdabb8fd0",
   "hash_scope": "generated_files",
   "generated_files": [
     "scenario_envelope_acceptance_test.py"

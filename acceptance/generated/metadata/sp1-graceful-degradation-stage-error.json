@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "feature_path": "features/sp1_graceful_degradation_stage_error.feature",
+  "ir_path": "acceptance/ir/sp1_graceful_degradation_stage_error.json",
+  "feature_hash": "sha256:b6601e76e8837d28cab20b600a52615ceca087d2e313968e54107ec8c586c187",
+  "implementation_hash": "sha256:839e7246b905dd13210b66dc2a151c56083e31cb2d31ed4b97756556ba390929",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_graceful_degradation_stage_error_acceptance_test.py"
+  ]
+}

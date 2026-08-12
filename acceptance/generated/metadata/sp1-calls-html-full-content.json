@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 calls html full content",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_calls_html_full_content.json",
-  "implementation_hash": "sha256:721c3fc52bf4c1f7863cd44896ed51cd6b6f3d1d5f906ae9dc473b83c0b98068",
+  "feature_path": "features/sp1_calls_html_full_content.feature",
+  "ir_path": "acceptance/ir/sp1_calls_html_full_content.json",
+  "feature_hash": "sha256:972b337c0d42f064ba7169429269a90a26265975c10d4fae82435da3e620671e",
+  "implementation_hash": "sha256:4e9f877bd38d8faf74153f48e14b3b5d534b6e6bb57cf493296becf988556322",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_calls_html_full_content_acceptance_test.py"

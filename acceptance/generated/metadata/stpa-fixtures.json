@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "stpa fixtures",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/stpa_fixtures.json",
-  "implementation_hash": "sha256:c2fe60cb880be0221a67bb81c8dbdc0b48a80767fb1054d1245e448e06766276",
+  "feature_path": "features/stpa_fixtures.feature",
+  "ir_path": "acceptance/ir/stpa_fixtures.json",
+  "feature_hash": "sha256:be071ecf8911918e3ab85274bb8628000ce6a38b54f8ef9d62372b335e109148",
+  "implementation_hash": "sha256:8809926b4b2264f234b5ca2a3c7675f1f6dc05a5e81352d09fda7651abc69e69",
   "hash_scope": "generated_files",
   "generated_files": [
     "stpa_fixtures_acceptance_test.py"

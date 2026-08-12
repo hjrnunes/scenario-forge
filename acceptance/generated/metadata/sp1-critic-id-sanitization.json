@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 critic id sanitization",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_critic_id_sanitization.json",
-  "implementation_hash": "sha256:906d44497f638b2ec68140f6c5142152825fe24de0291bf2507adaf6374cb4bd",
+  "feature_path": "features/sp1_critic_id_sanitization.feature",
+  "ir_path": "acceptance/ir/sp1_critic_id_sanitization.json",
+  "feature_hash": "sha256:ec40243cc036bfb20d3c91d4f5833937d2557f0f874bf41c2aad291d71e8f308",
+  "implementation_hash": "sha256:d4f011f8a96a192cf05cb0914f0d0a08bb20d2def49066a50422f4ef91244f18",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_critic_id_sanitization_acceptance_test.py"

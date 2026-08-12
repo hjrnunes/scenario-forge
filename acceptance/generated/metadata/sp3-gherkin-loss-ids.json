@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "feature_path": "features/072o/sp3-gherkin-loss-ids.feature",
+  "ir_path": "acceptance/ir/072o/sp3-gherkin-loss-ids.json",
+  "feature_hash": "sha256:8a5cb69bf606c7c45a47bcbfb75ca9f2aaa8fcf1de62d6748c36de770cd7d6d6",
+  "implementation_hash": "sha256:3f8abfc89ccaf88f18498687a2450b537eda7a6576abf576ade4c83299f7c087",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3-gherkin-loss-ids_acceptance_test.py"
+  ]
+}

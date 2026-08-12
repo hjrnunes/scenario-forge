@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 completeness critic",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_completeness_critic.json",
-  "implementation_hash": "sha256:c7129d02b9b905d1a80d6aade2ea56755a3d80fde6636f07d76c1c39a0d934c7",
+  "feature_path": "features/sp1_completeness_critic.feature",
+  "ir_path": "acceptance/ir/sp1_completeness_critic.json",
+  "feature_hash": "sha256:d807787766cd44b4c85ca63618c9559b0ff13e53e95d1f95b64a4989dafd214c",
+  "implementation_hash": "sha256:ade99679cb8c32fa3d97378fd68f1318ab60fbda3eb798822d0935a34802fa21",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_completeness_critic_acceptance_test.py"

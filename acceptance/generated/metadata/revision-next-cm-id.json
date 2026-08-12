@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "revision-next-cm-id",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/critic-revision-fix/revision-next-cm-id.json",
-  "implementation_hash": "sha256:0fe00852849d4503d99d42eaf27de0306bce9077be9ea326f34c02a873eb3ca1",
+  "feature_path": "features/critic-revision-fix/revision-next-cm-id.feature",
+  "ir_path": "acceptance/ir/critic-revision-fix/revision-next-cm-id.json",
+  "feature_hash": "sha256:3591a3fdfd34356f34a01f47e2af808bfd40a161edc0f382e0cb63d018d3edf8",
+  "implementation_hash": "sha256:5e2946aaed0e9ab037ca8472dacb0bbc18ab942cebc62a8af40d3c7c4f067a19",
   "hash_scope": "generated_files",
   "generated_files": [
     "revision-next-cm-id_acceptance_test.py"

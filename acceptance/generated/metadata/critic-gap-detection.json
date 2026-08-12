@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "critic-gap-detection",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/critic-revision-fix/critic-gap-detection.json",
-  "implementation_hash": "sha256:d8f0ace7765e061bfae5f3664d0a308ee98d2ec87082b6924e876ae7b72d8e54",
+  "feature_path": "features/critic-revision-fix/critic-gap-detection.feature",
+  "ir_path": "acceptance/ir/critic-revision-fix/critic-gap-detection.json",
+  "feature_hash": "sha256:dc1b4210d854ad849cee61eae3db6303b4fdf94d006040671d7ae5560b066dde",
+  "implementation_hash": "sha256:ea75d4c7a87e6417e153d26960491f1c91940a6db9a8b5e730542bcb15fb2948",
   "hash_scope": "generated_files",
   "generated_files": [
     "critic-gap-detection_acceptance_test.py"

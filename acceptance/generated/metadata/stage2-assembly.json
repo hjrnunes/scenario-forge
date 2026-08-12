@@ -1,10 +1,11 @@
 {
   "schema_version": 1,
-  "feature_path": "stage2 assembly",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/stage2_assembly.json",
-  "implementation_hash": "sha256:9b134bfa2941c1e56cc87810b3c2c7ae6961c8cb5973afbf841d9189a5e8907c",
+  "feature_path": "features/stage2-restructure/stage2-assembly.feature",
+  "ir_path": "acceptance/ir/stage2-restructure/stage2-assembly.json",
+  "feature_hash": "sha256:08d6c1801732b814f6012d385ee64a69f380ca290850a0b51a3dd422cdba84dd",
+  "implementation_hash": "sha256:6df47a331d902afebdb59dfe297037fc20e379789dd062433a8c5b6a49f3cc3b",
   "hash_scope": "generated_files",
   "generated_files": [
-    "stage2_assembly_acceptance_test.py"
+    "stage2-assembly_acceptance_test.py"
   ]
 }

@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 orphan pm repair",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_orphan_pm_repair.json",
-  "implementation_hash": "sha256:9683095e8d5299fab4c401e0922e4547888959ae5809987776d6681fdfcc8ec6",
+  "feature_path": "features/sp1_orphan_pm_repair.feature",
+  "ir_path": "acceptance/ir/sp1_orphan_pm_repair.json",
+  "feature_hash": "sha256:16b5410c44e2cc078a8c7d0dafbc7037bc729ef4cfed4a533fc7fde116a6206b",
+  "implementation_hash": "sha256:3177341f82bcbcd316fb0584843289709c6c4b2c846827e2110df2e919825512",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_orphan_pm_repair_acceptance_test.py"

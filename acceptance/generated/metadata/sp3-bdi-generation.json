@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp3 bdi generation",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_bdi_generation.json",
-  "implementation_hash": "sha256:bc7c22b5434e5a44df5473256a47446ccd3a2224746e9d85fa6f0cabdf6d2dc5",
+  "feature_path": "features/sp3_bdi_generation.feature",
+  "ir_path": "acceptance/ir/sp3_bdi_generation.json",
+  "feature_hash": "sha256:ca737f0c663250d2e8beff9dde509f92ec2889d23e2e9983cd83dd98816966bd",
+  "implementation_hash": "sha256:6130365b711c5a4f5053eecf02ffbd9ce1898a89cdf048db1e6dcba84905ed05",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp3_bdi_generation_acceptance_test.py"

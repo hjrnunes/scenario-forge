@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "feature_path": "features/072o/sp3-prompt-terminology.feature",
+  "ir_path": "acceptance/ir/072o/sp3-prompt-terminology.json",
+  "feature_hash": "sha256:cb7bda349235e868bf4ca71603c7abca67509339d488b00571665942ab95a7da",
+  "implementation_hash": "sha256:54c3e400402279114a9d934572e6716bd0ecb2d4361b6d204eebe96a25502cf9",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3-prompt-terminology_acceptance_test.py"
+  ]
+}

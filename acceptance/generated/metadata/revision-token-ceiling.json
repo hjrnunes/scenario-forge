@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "revision-token-ceiling",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/critic-revision-fix/revision-token-ceiling.json",
-  "implementation_hash": "sha256:c9ec17cde9c4e4845333753fd807f2940d0f94706d6c7c506d32082bf1854e80",
+  "feature_path": "features/critic-revision-fix/revision-token-ceiling.feature",
+  "ir_path": "acceptance/ir/critic-revision-fix/revision-token-ceiling.json",
+  "feature_hash": "sha256:2a192ca575c0a957a5eb9681a0e34d13061280cafd6e8c8e687c851fc56ca7fd",
+  "implementation_hash": "sha256:bcf2c443efb7eb5f07199cf12379322e566e8f12416b6a76ec73d5bf65286305",
   "hash_scope": "generated_files",
   "generated_files": [
     "revision-token-ceiling_acceptance_test.py"

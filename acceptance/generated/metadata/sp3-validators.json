@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp3 validators",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_validators.json",
-  "implementation_hash": "sha256:f5a3f434d38cee6c013ffac06e04b2161d433368892f1354a9bc43ded390c9f7",
+  "feature_path": "features/sp3_validators.feature",
+  "ir_path": "acceptance/ir/sp3_validators.json",
+  "feature_hash": "sha256:1949b6bed5b112ffe1fb811c3c30ce59ea16f94460791bb44d7c057a3b3b14b5",
+  "implementation_hash": "sha256:457f0e4b05223db3921f0058813b2c100f1a9597512ac456896eed6b7c395a0b",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp3_validators_acceptance_test.py"

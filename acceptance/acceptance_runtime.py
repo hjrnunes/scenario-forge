@@ -220,12 +220,14 @@ def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
 _PATH_PART_TAGS: dict[str, str] = {
     "acceptance-refresh": "acceptance_refresh",
     "shadow-cleanup": "shadow_cleanup",
+    "072o": "sp3",
 }
 
 # Stem-prefix to tag mapping (checked after path parts).
 _STEM_PREFIX_TAGS: tuple[tuple[str, str], ...] = (
     ("sp2_", "sp2"),
     ("sp3_", "sp3"),
+    ("sp3-", "sp3"),
     ("stpa_report", "stpa_report"),
     ("stage6_", "sp3"),
 )

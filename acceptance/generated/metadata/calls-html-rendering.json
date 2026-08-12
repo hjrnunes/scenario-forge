@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "calls html rendering",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/calls_html_rendering.json",
-  "implementation_hash": "sha256:706f101f9308ffec7b8c92504002216b77226297a5ef1d192bf2b3da8cc7a89f",
+  "feature_path": "features/calls_html_rendering.feature",
+  "ir_path": "acceptance/ir/calls_html_rendering.json",
+  "feature_hash": "sha256:408681bbb8bbe658618e2ff3577980515e95ba4afc2ff81c18021e424c47a7d2",
+  "implementation_hash": "sha256:c5aa75432290f31849007e53e0d111a8e4a86f5f944c8fe15ccb2e7188b83321",
   "hash_scope": "generated_files",
   "generated_files": [
     "calls_html_rendering_acceptance_test.py"

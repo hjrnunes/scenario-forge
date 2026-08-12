@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "feature_path": "features/072o/sp3-prompt-preservation.feature",
+  "ir_path": "acceptance/ir/072o/sp3-prompt-preservation.json",
+  "feature_hash": "sha256:79b13a96dad00621a82a217f62153c8a15d945f44b15a8b9e2dcad93e9177bc5",
+  "implementation_hash": "sha256:dfba2a990549b76dec25d90fc626293a3dfa3d6355235d9032e3ce8896cceb36",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3-prompt-preservation_acceptance_test.py"
+  ]
+}

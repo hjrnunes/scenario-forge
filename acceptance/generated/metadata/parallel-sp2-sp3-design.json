@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "parallel sp2 sp3 design",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/parallel_sp2_sp3_design.json",
-  "implementation_hash": "sha256:98d30f28edeeaa6aba3fbd13a37cfaa81fa1bbedf400554ce194358d5d68f1e1",
+  "feature_path": "features/parallel_sp2_sp3_design.feature",
+  "ir_path": "acceptance/ir/parallel_sp2_sp3_design.json",
+  "feature_hash": "sha256:4df1167d1d6192455c7ee576aa09408ab60eb5e0a79e6f813bec1071f7a48fcb",
+  "implementation_hash": "sha256:e983399b1bb87845b9af8aa59c9ab4169990ada692e75d3befa9a12b19eb7f5d",
   "hash_scope": "generated_files",
   "generated_files": [
     "parallel_sp2_sp3_design_acceptance_test.py"

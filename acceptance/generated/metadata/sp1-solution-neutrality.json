@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 solution neutrality",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_solution_neutrality.json",
-  "implementation_hash": "sha256:d433236890eee40e93e2d20488f2e6e1a6b1efcdd220faa39e7cda8e0af8a4b2",
+  "feature_path": "features/sp1_solution_neutrality.feature",
+  "ir_path": "acceptance/ir/sp1_solution_neutrality.json",
+  "feature_hash": "sha256:4baab14924fc2f921c5580c8c2eea6fa2c0a6d66714a29943b98fdecb8a871ef",
+  "implementation_hash": "sha256:365b838d1e63d292df51e999b129ba891d333861f14e978085b96d952a321455",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_solution_neutrality_acceptance_test.py"

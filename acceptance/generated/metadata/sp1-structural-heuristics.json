@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 structural heuristics",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_structural_heuristics.json",
-  "implementation_hash": "sha256:187535837685ab6af4613ea78d41fcd0463f3a945317798eb26ab2e0a4bb29db",
+  "feature_path": "features/sp1_structural_heuristics.feature",
+  "ir_path": "acceptance/ir/sp1_structural_heuristics.json",
+  "feature_hash": "sha256:381fbe3fff3788458e69bc04f1f74f79d4f189ba140a3e4cc544e4b892f4674e",
+  "implementation_hash": "sha256:ddfbfdd6d2ffd757913f8fe2ee1ef93380b9536f4b1af55ae0b437ab86220701",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_structural_heuristics_acceptance_test.py"

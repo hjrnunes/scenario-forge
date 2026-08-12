@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 revision cmid dedup",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_revision_cmid_dedup.json",
-  "implementation_hash": "sha256:22609480e2a37305fab8ff921d486bce0abf052dd9020c6fa1e40ebff38fa03c",
+  "feature_path": "features/sp1_revision_cmid_dedup.feature",
+  "ir_path": "acceptance/ir/sp1_revision_cmid_dedup.json",
+  "feature_hash": "sha256:b0e15b7518bdfe4c3e727d43d5fdfc1537f0df59c36a00710a3d535b8411be8d",
+  "implementation_hash": "sha256:fca9551722ceab7f15cc605888ec9c0d38e3bd5572aba5c8def7fb14a520c874",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_revision_cmid_dedup_acceptance_test.py"

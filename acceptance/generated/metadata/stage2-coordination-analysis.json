@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "stage2-coordination-analysis",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/acceptance-refresh/stage2-coordination-analysis.json",
-  "implementation_hash": "sha256:c4b389b3a1c4d2a7486e9b91d0a9a0460763f56eba853326d9ccb2f56ff74de6",
+  "feature_path": "features/acceptance-refresh/stage2-coordination-analysis.feature",
+  "ir_path": "acceptance/ir/acceptance-refresh/stage2-coordination-analysis.json",
+  "feature_hash": "sha256:6e568b13d697cc57a1053c5bdb42bcbe7d299ad10b63a613689856634801649b",
+  "implementation_hash": "sha256:b7da192bffb2a020fded6aaa19797058ea1fc1d68997802fb344d4e2bddcf056",
   "hash_scope": "generated_files",
   "generated_files": [
     "stage2-coordination-analysis_acceptance_test.py"

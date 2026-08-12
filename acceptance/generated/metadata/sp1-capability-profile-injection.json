@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 capability profile injection",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_capability_profile_injection.json",
-  "implementation_hash": "sha256:0f0761ed262d9d4d0b3114291f5bde4a456592537ae54abd16ff5e2d02a51b17",
+  "feature_path": "features/sp1_capability_profile_injection.feature",
+  "ir_path": "acceptance/ir/sp1_capability_profile_injection.json",
+  "feature_hash": "sha256:3ed8eb8b541a17f2b5f75259befc0bc85578d23d9f02f673b1fd47bb6fae1144",
+  "implementation_hash": "sha256:2e1a6a2eddab0153f966b6ce165a77e70796132924b8f201a146eecb83fa962d",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_capability_profile_injection_acceptance_test.py"

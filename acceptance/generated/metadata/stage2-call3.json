@@ -1,10 +1,11 @@
 {
   "schema_version": 1,
-  "feature_path": "stage2 call3",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/stage2_call3.json",
-  "implementation_hash": "sha256:050b0c749db52c6834f29e20c72d9e49c932eaec4d8bc96058d47dbe544ef997",
+  "feature_path": "features/stage2-restructure/stage2-call3.feature",
+  "ir_path": "acceptance/ir/stage2-restructure/stage2-call3.json",
+  "feature_hash": "sha256:e345ba1dd2590a454688777e2b92ae54ad5a1b8a9e1b59ef5d6b1b1445afc403",
+  "implementation_hash": "sha256:512aed2dfc1b5997511bd50ba5215b22b8f74da727b53c57a12272d5d5024d26",
   "hash_scope": "generated_files",
   "generated_files": [
-    "stage2_call3_acceptance_test.py"
+    "stage2-call3_acceptance_test.py"
   ]
 }

@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp3 gherkin",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_gherkin.json",
-  "implementation_hash": "sha256:9f576520478c2b0580a5a153690f145e49d8c05f4c3b2bd4e4b200c785edbdc0",
+  "feature_path": "features/sp3_gherkin.feature",
+  "ir_path": "acceptance/ir/sp3_gherkin.json",
+  "feature_hash": "sha256:d43a8baffb4db4343e01ac86b305e828b3a702a786c5e90f0e6e3a53401cedea",
+  "implementation_hash": "sha256:0cfb2ee9f2fe979ab918008b43a9f15f0003c3e35f5277cd97cda4d3a9d4b7c3",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp3_gherkin_acceptance_test.py"

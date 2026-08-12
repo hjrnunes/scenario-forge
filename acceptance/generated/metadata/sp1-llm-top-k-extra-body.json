@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 llm top k extra body",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_llm_top_k_extra_body.json",
-  "implementation_hash": "sha256:e0b760aa79b43ce5f188e4d741cbb9d64ce5cbca40828927739332ad57494b61",
+  "feature_path": "features/sp1_llm_top_k_extra_body.feature",
+  "ir_path": "acceptance/ir/sp1_llm_top_k_extra_body.json",
+  "feature_hash": "sha256:4b36c8918691f6d1d0c292cb0bd81c9eeb5d3449c6069d1b775d9eeeb85af3fa",
+  "implementation_hash": "sha256:ecb297791ca0c0bd85d37c61e370fba60f08bfd4dfda6e977a8b751c471194bb",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_llm_top_k_extra_body_acceptance_test.py"

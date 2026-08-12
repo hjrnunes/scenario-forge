@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "parallel sp1 compatibility",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/parallel_sp1_compatibility.json",
-  "implementation_hash": "sha256:d638300c425c29a7dc6d1ac85c163ca940cf3fde49e290682522f1f9caae656a",
+  "feature_path": "features/parallel_sp1_compatibility.feature",
+  "ir_path": "acceptance/ir/parallel_sp1_compatibility.json",
+  "feature_hash": "sha256:227a0a2e134eacd73ee42ed1cbfdf02f14d28b6e990a942a4c52df3d3079c1bb",
+  "implementation_hash": "sha256:730f45b94539a2e6f388cabcc8a088ab181acdebf02b57c4d6c38ceeedde95f5",
   "hash_scope": "generated_files",
   "generated_files": [
     "parallel_sp1_compatibility_acceptance_test.py"

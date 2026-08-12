@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "parallel llm calls",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/parallel_llm_calls.json",
-  "implementation_hash": "sha256:905cf58fca56a74255108cde66f83a68d15a42b5d17dcd4ec76bfb4691782bd0",
+  "feature_path": "features/parallel_llm_calls.feature",
+  "ir_path": "acceptance/ir/parallel_llm_calls.json",
+  "feature_hash": "sha256:41553aaa9ecc9789bcb0189b6cd57622ce15f22f16b6983f30a4472c3eeafee7",
+  "implementation_hash": "sha256:5e3b79ed290f90b7ba7d78c4903130268f27a3ebf73e159af5e23722fa1f3418",
   "hash_scope": "generated_files",
   "generated_files": [
     "parallel_llm_calls_acceptance_test.py"

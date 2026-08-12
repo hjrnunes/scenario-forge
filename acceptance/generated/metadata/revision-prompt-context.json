@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "revision-prompt-context",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/critic-revision-fix/revision-prompt-context.json",
-  "implementation_hash": "sha256:3616f7f3f936b270a20f10cc567d081ab906b83f498bc02d9882e7d6bfd410f3",
+  "feature_path": "features/critic-revision-fix/revision-prompt-context.feature",
+  "ir_path": "acceptance/ir/critic-revision-fix/revision-prompt-context.json",
+  "feature_hash": "sha256:01200aa91a620f12d0ac7106f3a3cc8d6ae8ff63363070fb37c254847227dd59",
+  "implementation_hash": "sha256:9e412da6cd9284008dd070c6064518e08554065b7dfdb70a047b812f7db166f4",
   "hash_scope": "generated_files",
   "generated_files": [
     "revision-prompt-context_acceptance_test.py"

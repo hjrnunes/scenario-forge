@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp2 slot filling",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp2_slot_filling.json",
-  "implementation_hash": "sha256:add2b52a48890b29fb6104b9027d014313c01a915ae833cbdef014283ced1445",
+  "feature_path": "features/sp2_slot_filling.feature",
+  "ir_path": "acceptance/ir/sp2_slot_filling.json",
+  "feature_hash": "sha256:e325481ddd34cdc2cff5e3e9fd30103d43caa7a2b97744c0f37085127417cb39",
+  "implementation_hash": "sha256:23930bd89e4aa821d6be30e194caf2cef1fca709a1788865abcb0417fcdfbc78",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp2_slot_filling_acceptance_test.py"

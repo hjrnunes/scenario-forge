@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "sp1 revision runaway output",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_revision_runaway_output.json",
-  "implementation_hash": "sha256:950203c17da30d6a6b97b75f7c57a0496632a01535809cbd5d0f1841db8e07e7",
+  "feature_path": "features/sp1_revision_runaway_output.feature",
+  "ir_path": "acceptance/ir/sp1_revision_runaway_output.json",
+  "feature_hash": "sha256:4c59391e86663a1e73bfa16ff6b5dd762b2d2af60aa54f8b31951b64ee6ab25d",
+  "implementation_hash": "sha256:919e09860442961c7ba898c1c76fdf1292f49ab5207404a7ca7d6984cc62c18c",
   "hash_scope": "generated_files",
   "generated_files": [
     "sp1_revision_runaway_output_acceptance_test.py"

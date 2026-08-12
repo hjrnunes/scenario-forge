@@ -1,8 +1,8 @@
 """Tests for envelope enrichment — system_context (umcf) and consumer_hints (8b06).
 
 Covers the Gherkin acceptance specs in:
-- tests/stpa/features/envelope_umcf_system_context.feature
-- tests/stpa/features/envelope_8b06_consumer_hints.feature
+- features/envelope_umcf_system_context.feature
+- features/envelope_8b06_consumer_hints.feature
 """
 
 from __future__ import annotations

@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "feature_path": "stage1b-entry-point-guidance",
-  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/acceptance-refresh/stage1b-entry-point-guidance.json",
-  "implementation_hash": "sha256:ede7ac35dabea22ae7d3296ba7973cfea826011aebc018aee6a4dd15732fa8db",
+  "feature_path": "features/acceptance-refresh/stage1b-entry-point-guidance.feature",
+  "ir_path": "acceptance/ir/acceptance-refresh/stage1b-entry-point-guidance.json",
+  "feature_hash": "sha256:882edac548e1b1f7925fe21270701e0cc24ac7880b60f3e1c379335951e73c72",
+  "implementation_hash": "sha256:fee43825a58f61bf782141e8483267de46aaac7f656dd52aaaf2f34f545e6eb2",
   "hash_scope": "generated_files",
   "generated_files": [
     "stage1b-entry-point-guidance_acceptance_test.py"

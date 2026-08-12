@@ -2,7 +2,7 @@
 
 Covers SP1-CRITIC-SAN-01 through SP1-CRITIC-SAN-09 from the Gherkin
 feature file:
-  tests/stpa/features/sp1_critic_id_sanitization.feature
+  features/sp1_critic_id_sanitization.feature
 
 Tests verify that:
 - The critic system prompt instructs the LLM not to suggest specific IDs.

@@ -71,6 +71,9 @@ def _entry_point_ir_refs(entry_point: Path) -> list[str]:
     import re
 
     body = entry_point.read_text(encoding="utf-8")
+    relative = re.findall(r'_PROJECT_ROOT / "([^"]+\.json)"', body)
+    if relative:
+        return [str(_PROJECT_ROOT / rel) for rel in relative]
     return re.findall(r'Path\(r"([^"]+\.json)"\)', body)
 
 
@@ -159,6 +162,7 @@ class TestNoPatternShadowing:
     _LLM_BLOCKED = frozenset({
         "stage1_ordering", "stage1a_split", "stage1b_revision",
         "stage2_assembly", "stage2_call2a", "stage2_call2b", "stage2_call3",
+        "stage2-assembly", "stage2-call2a", "stage2-call2b", "stage2-call3",
     })
 
     def test_no_global_pattern_conflicts_on_ir_steps(self):
@@ -278,6 +282,7 @@ class TestHandlerResolution:
     _LLM_BLOCKED = frozenset({
         "stage1_ordering", "stage1a_split", "stage1b_revision",
         "stage2_assembly", "stage2_call2a", "stage2_call2b", "stage2_call3",
+        "stage2-assembly", "stage2-call2a", "stage2-call2b", "stage2-call3",
     })
 
     def test_every_ir_step_resolves(self):

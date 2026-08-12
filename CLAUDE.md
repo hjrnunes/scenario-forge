@@ -77,7 +77,8 @@ uv run pytest acceptance/generated/ # acceptance suite (generated from Gherkin I
 
 The acceptance suite lives at `acceptance/` — entrypoints are generated from
 the Gherkin IR, so a failure there can mean stale generation rather than a
-source regression. Regenerate with `acceptance/generate_entrypoints.py` before
+source regression. Snapshot features live in `features/`; regenerate with
+`acceptance/refresh_snapshot.py` (see `acceptance/SNAPSHOT.md`) before
 concluding the source is broken.
 
 Known-red baseline, so a passing run is distinguishable from an unchanged one:
