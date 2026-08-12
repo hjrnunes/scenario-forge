@@ -10,8 +10,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 # Make acceptance runtime importable
 _ACCEPTANCE_DIR = Path(__file__).resolve().parents[2] / "acceptance"
 if str(_ACCEPTANCE_DIR) not in sys.path:
