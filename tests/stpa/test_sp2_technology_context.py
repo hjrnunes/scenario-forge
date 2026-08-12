@@ -195,11 +195,34 @@ class TestEntryPointFailureModes:
 class TestToolInventoryFailureModes:
     """Tool inventory per-tool failure mode text."""
 
-    def test_tool_inventory(self):
+    def test_write_tool_emits_write_suffix(self):
         profile = _make_profile_with_tool("refund-api", "processes refunds")
         ctx = build_technology_context(profile)
         assert "refund-api" in ctx.lower()
         assert "parameter manipulation" in ctx.lower()
+        assert "unauthorized state change" in ctx.lower()
+
+    def test_read_tool_emits_read_suffix(self):
+        profile = _make_profile_with_tool("search-index", "Reads and retrieves documents")
+        ctx = build_technology_context(profile)
+        assert "search-index" in ctx.lower()
+        assert "output fabrication" in ctx.lower()
+        assert "exfiltration" in ctx.lower()
+
+    def test_unknown_tool_emits_fallback_suffix(self):
+        profile = _make_profile_with_tool("mystery-tool", "Does something unspecified")
+        ctx = build_technology_context(profile)
+        assert "mystery-tool" in ctx.lower()
+        assert "unexpected behavior" in ctx.lower()
+
+    def test_overlapping_verbs_classified_as_write(self):
+        """Write intent has priority when both read and write verbs are present."""
+        profile = _make_profile_with_tool(
+            "log-processor", "Reads logs and writes audit entries"
+        )
+        ctx = build_technology_context(profile)
+        assert "parameter manipulation" in ctx.lower()
+        assert "unauthorized state change" in ctx.lower()
 
 
 # ---------------------------------------------------------------------------
