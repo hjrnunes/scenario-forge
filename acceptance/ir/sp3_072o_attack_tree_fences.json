@@ -7,7 +7,7 @@
       "text" : "the Stage 6b system prompt contains a direct instruction not to use Markdown code fences"
     }, {
       "keyword" : "And",
-      "text" : "the Stage 6b system prompt contains the phrase \"Do not wrap\""
+      "text" : "the Stage 6b system prompt contains the phrase \"Return the YAML directly\""
     }, {
       "keyword" : "And",
       "text" : "the Stage 6b system prompt contains the phrase \"code fence\""

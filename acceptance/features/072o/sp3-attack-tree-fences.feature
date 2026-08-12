@@ -12,7 +12,7 @@ Feature: SP3 Stage 6b attack tree prompt forbids Markdown code fences
   # SP3-072o-20
   Scenario: SP3-072o-20 Stage 6b system prompt forbids Markdown code fences
     Then the Stage 6b system prompt contains a direct instruction not to use Markdown code fences
-    And the Stage 6b system prompt contains the phrase "Do not wrap"
+    And the Stage 6b system prompt contains the phrase "Return the YAML directly"
     And the Stage 6b system prompt contains the phrase "code fence"
 
   # SP3-072o-21

@@ -10,7 +10,7 @@
     "kind" : "possible-synonym",
     "confidence" : "medium",
     "members" : [ {
-      "text" : "the Stage 6b system prompt contains the phrase \"Do not wrap\"",
+      "text" : "the Stage 6b system prompt contains the phrase \"Return the YAML directly\"",
       "locations" : [ {
         "section" : "scenario",
         "scenario_index" : 0,

@@ -3022,6 +3022,470 @@ def _h_stage6_user_prompt_contains_ica_type(world: World, text: str, examples: d
         return False, f"User prompt does not contain ica_type NOT_PROVIDED: {prompt[:200]}"
     return True, ""
 
+# ---------------------------------------------------------------------------
+# SP3-072o acceptance handlers — prompt revision acceptance seam
+# ---------------------------------------------------------------------------
+
+_SP3_072O_STAGE_SYS: dict[str, str] = {
+    "Stage 5": "stage5_system.j2",
+    "Stage 6a": "stage6a_narrative_system.j2",
+    "Stage 6b": "stage6b_tree_system.j2",
+    "Stage 6c": "stage6c_gherkin_system.j2",
+}
+
+_SP3_072O_STAGE_USR: dict[str, str] = {
+    "Stage 5": "stage5_user.j2",
+    "Stage 6a": "stage6a_narrative_user.j2",
+    "Stage 6b": "stage6b_tree_user.j2",
+    "Stage 6c": "stage6c_gherkin_user.j2",
+}
+
+
+def _072o_resolve_stage(text: str) -> str | None:
+    """Extract a stage label like 'Stage 6c' from step text."""
+    m = re.search(r"(Stage \d\w?)", text)
+    return m.group(1) if m else None
+
+
+def _072o_has_loss_id_restriction(text: str) -> bool:
+    lower = text.lower()
+    return any(
+        p in lower
+        for p in (
+            "only l-* loss ids",
+            "l-* loss ids only",
+            "use only l-*",
+            "only use l-*",
+            "do not use h-*",
+            "not h-*",
+            "loss references use only l-*",
+            "consequence references must not use h-*",
+            "consequence references use only l-*",
+            "h-* hazard ids are not valid",
+        )
+    )
+
+
+def _072o_has_code_fence_restriction(text: str) -> bool:
+    lower = text.lower()
+    return any(
+        p in lower
+        for p in (
+            "do not wrap",
+            "code fence",
+            "code fences",
+            "markdown code",
+            "no code fences",
+        )
+    )
+
+
+# --- Background / fixture handlers -----------------------------------------
+
+
+def _h_072o_templates_renderable(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the SP3 ... prompt templates are renderable."""
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+
+    for tmpl in list(_SP3_072O_STAGE_SYS.values()) + list(_SP3_072O_STAGE_USR.values()):
+        if not (PROMPTS_DIR / tmpl).is_file():
+            return False, f"Template not found: {tmpl}"
+    return True, ""
+
+
+def _h_072o_minimal_fixture(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a minimal SP3 scenario fixture."""
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    return True, ""
+
+
+def _h_072o_minimal_loss_analysis(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a minimal SP3 loss analysis with loss L-1 and hazard H-1."""
+    world.loss_analysis = _make_sp3_loss_analysis()
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    return True, ""
+
+
+# --- System prompt rendering and assertion handlers -------------------------
+
+
+def _h_072o_render_system_prompt(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the <stage> system prompt is rendered."""
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+
+    stage = _072o_resolve_stage(text)
+    if stage is None or stage not in _SP3_072O_STAGE_SYS:
+        return False, f"Unknown stage in: {text}"
+    loader = TemplateLoader(PROMPTS_DIR)
+    world.sp3_system_prompt = loader.render_prompt(_SP3_072O_STAGE_SYS[stage])
+    world.sp3_current_stage = stage
+    return True, ""
+
+
+def _h_072o_sys_not_contains_string(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the <stage> system prompt does not contain the string."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    m = re.search(r'does not contain the string "([^"]+)"', text)
+    needle = m.group(1) if m else ""
+    if needle and needle in prompt:
+        return False, f"System prompt should not contain '{needle}'"
+    return True, ""
+
+
+def _h_072o_sys_contains_phrase(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the <stage> system prompt contains the phrase."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    m = re.search(r'contains the phrase "([^"]+)"', text)
+    phrase = m.group(1) if m else ""
+    if phrase and phrase not in prompt:
+        return False, f"System prompt does not contain phrase '{phrase}'"
+    return True, ""
+
+
+def _h_072o_sys_contains_task_framing(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the <stage> system prompt contains the task framing phrase."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    m = re.search(r'task framing phrase "([^"]+)"', text)
+    phrase = m.group(1) if m else ""
+    if phrase and phrase not in prompt:
+        return False, f"System prompt does not contain task framing '{phrase}'"
+    return True, ""
+
+
+def _h_072o_sys_code_fence_instruction(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6b system prompt contains a direct instruction not to use Markdown code fences."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    if not _072o_has_code_fence_restriction(prompt):
+        return False, "System prompt does not contain code-fence restriction"
+    return True, ""
+
+
+def _h_072o_sys_contains_yaml(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6b system prompt contains the YAML output format."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    if "YAML" not in prompt:
+        return False, "System prompt does not contain YAML output format"
+    return True, ""
+
+
+def _h_072o_sys_contains_attack_tree(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6b system prompt contains the attack tree structure."""
+    prompt = getattr(world, "sp3_system_prompt", None)
+    if prompt is None:
+        return False, "No system prompt rendered"
+    if "attack tree" not in prompt.lower():
+        return False, "System prompt does not contain attack tree structure"
+    return True, ""
+
+
+# --- Template source inspection handlers ------------------------------------
+
+
+def _h_072o_inspect_user_template(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the <stage> user prompt template source is inspected."""
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+
+    stage = _072o_resolve_stage(text)
+    if stage is None or stage not in _SP3_072O_STAGE_USR:
+        return False, f"Unknown stage in: {text}"
+    world.sp3_template_source = (PROMPTS_DIR / _SP3_072O_STAGE_USR[stage]).read_text(encoding="utf-8")
+    return True, ""
+
+
+def _h_072o_template_contains_var(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the template contains the variable."""
+    src = getattr(world, "sp3_template_source", None)
+    if src is None:
+        return False, "No template source inspected"
+    m = re.search(r'variable "([^"]+)"', text)
+    var = m.group(1) if m else ""
+    if var:
+        if f"{{{{ {var}" not in src and f"{{{{{var}" not in src:
+            return False, f"Template does not contain variable '{var}'"
+    return True, ""
+
+
+def _h_072o_template_not_contains_var(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the template does not contain the variable."""
+    src = getattr(world, "sp3_template_source", None)
+    if src is None:
+        return False, "No template source inspected"
+    m = re.search(r'variable "([^"]+)"', text)
+    var = m.group(1) if m else ""
+    if var:
+        if f"{{{{ {var}" in src or f"{{{{{var}" in src:
+            return False, f"Template should not contain variable '{var}'"
+    return True, ""
+
+
+# --- Gherkin user prompt handlers -------------------------------------------
+
+
+def _h_072o_render_gherkin_user(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6c user prompt is rendered."""
+    from scenario_forge.stpa.scenario_prod.gherkin import build_gherkin_prompts, find_security_constraint
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    loader = TemplateLoader(PROMPTS_DIR)
+    sc = find_security_constraint(world.scenario_spec, world.loss_analysis)
+    _, user_prompt = build_gherkin_prompts(world.scenario_spec, sc, world.loss_analysis, loader)
+    world.sp3_user_prompt = user_prompt
+    return True, ""
+
+
+def _h_072o_gherkin_contains_loss_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6c user prompt contains the valid loss IDs."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt rendered"
+    la = world.loss_analysis or _make_sp3_loss_analysis()
+    for loss in la.risk_card_losses + la.use_case_losses:
+        if loss.loss_id not in prompt:
+            return False, f"User prompt does not contain loss ID '{loss.loss_id}'"
+    return True, ""
+
+
+def _h_072o_gherkin_contains_task_heading(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6c user prompt contains the task instruction heading."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt rendered"
+    if "Your Task" not in prompt:
+        return False, "User prompt does not contain 'Your Task' heading"
+    return True, ""
+
+
+def _h_072o_loss_ids_before_task(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the valid loss IDs appear before the task instruction ends."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt rendered"
+    la = world.loss_analysis or _make_sp3_loss_analysis()
+    task_pos = prompt.find("Your Task")
+    if task_pos == -1:
+        return False, "No 'Your Task' heading found"
+    for loss in la.risk_card_losses + la.use_case_losses:
+        loss_pos = prompt.find(loss.loss_id)
+        if loss_pos == -1:
+            return False, f"Loss ID '{loss.loss_id}' not found in prompt"
+        if loss_pos < task_pos:
+            return False, f"Loss ID '{loss.loss_id}' appears before 'Your Task' heading"
+    return True, ""
+
+
+def _h_072o_gherkin_l_star(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6c user prompt contains a restriction that loss references use only L-* IDs."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt rendered"
+    if not _072o_has_loss_id_restriction(prompt):
+        return False, "User prompt does not contain L-* only restriction"
+    return True, ""
+
+
+def _h_072o_gherkin_no_h_star(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6c user prompt contains a statement that consequence references must not use H-* IDs."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt rendered"
+    lower = prompt.lower()
+    if not any(p in lower for p in ("not h-*", "do not use h-*", "must not use h-*")):
+        return False, "User prompt does not contain H-* prohibition"
+    return True, ""
+
+
+def _h_072o_gherkin_no_hazard_heading(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6c user prompt does not contain the heading."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt rendered"
+    m = re.search(r'heading "([^"]+)"', text)
+    heading = m.group(1) if m else "Valid Hazard IDs"
+    if heading in prompt:
+        return False, f"User prompt should not contain heading '{heading}'"
+    return True, ""
+
+
+def _h_072o_gherkin_no_hazard_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the Stage 6c user prompt does not list the hazard IDs."""
+    prompt = getattr(world, "sp3_user_prompt", None)
+    if prompt is None:
+        return False, "No user prompt rendered"
+    la = world.loss_analysis or _make_sp3_loss_analysis()
+    for hazard in la.hazards:
+        if hazard.hazard_id in prompt:
+            return False, f"User prompt should not list hazard ID '{hazard.hazard_id}'"
+    return True, ""
+
+
+# --- All-prompts-rendered handler -------------------------------------------
+
+
+def _h_072o_render_all_prompts(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: all SP3 Stage 5 through Stage 6c prompts are rendered."""
+    from scenario_forge.stpa.scenario_prod.attack_tree import build_attack_tree_prompts
+    from scenario_forge.stpa.scenario_prod.bdi_generation import _build_bdi_prompts
+    from scenario_forge.stpa.scenario_prod.gherkin import build_gherkin_prompts, find_security_constraint
+    from scenario_forge.stpa.scenario_prod.narrative import build_narrative_prompts
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    cs = world.control_structure or _make_sp3_cs()
+    loader = TemplateLoader(PROMPTS_DIR)
+    threat = _make_sp3_threat()
+    sc = find_security_constraint(world.scenario_spec, world.loss_analysis)
+    s5_sys, s5_usr = _build_bdi_prompts(world.scenario_spec.defender_bdi, threat, cs, "RESP-1", loader)
+    s6a_sys, s6a_usr = build_narrative_prompts(world.scenario_spec, loader)
+    s6b_sys, s6b_usr = build_attack_tree_prompts(world.scenario_spec, cs, loader)
+    s6c_sys, s6c_usr = build_gherkin_prompts(world.scenario_spec, sc, world.loss_analysis, loader)
+    world.sp3_all_rendered = [s5_sys, s5_usr, s6a_sys, s6a_usr, s6b_sys, s6b_usr, s6c_sys, s6c_usr]
+    return True, ""
+
+
+def _h_072o_no_rendered_pattern(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no rendered prompt contains the pattern."""
+    rendered = getattr(world, "sp3_all_rendered", None)
+    if rendered is None:
+        return False, "No rendered prompts available"
+    m = re.search(r'pattern "([^"]+)"', text)
+    pattern = m.group(1) if m else ""
+    if pattern:
+        for r_prompt in rendered:
+            if pattern in r_prompt:
+                return False, f"Rendered prompt contains pattern '{pattern}'"
+    return True, ""
+
+
+# --- Anti-vacuity handlers --------------------------------------------------
+
+
+def _h_072o_copy_remove_l_restriction(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a copy of the Stage 6c user prompt with the L-* only restriction removed."""
+    from scenario_forge.stpa.scenario_prod.gherkin import build_gherkin_prompts, find_security_constraint
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+
+    if world.scenario_spec is None:
+        world.scenario_spec = _make_sp3_scenario_spec()
+    if world.loss_analysis is None:
+        world.loss_analysis = _make_sp3_loss_analysis()
+    loader = TemplateLoader(PROMPTS_DIR)
+    sc = find_security_constraint(world.scenario_spec, world.loss_analysis)
+    _, user_prompt = build_gherkin_prompts(world.scenario_spec, sc, world.loss_analysis, loader)
+    for phrase in (
+        "only L-* loss IDs", "L-* loss IDs only", "use only L-*",
+        "only use L-*", "Do not use H-*", "not H-*",
+        "loss references use only L-*",
+        "consequence references must not use H-*",
+        "consequence references use only L-*",
+        "H-* hazard IDs are not valid",
+    ):
+        user_prompt = user_prompt.replace(phrase, "REMOVED")
+    world.sp3_copied_prompt = user_prompt
+    return True, ""
+
+
+def _h_072o_check_copied_loss(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the copied user prompt is checked against the loss ID restriction."""
+    prompt = getattr(world, "sp3_copied_prompt", None)
+    if prompt is None:
+        return False, "No copied prompt available"
+    world.sp3_check_result = _072o_has_loss_id_restriction(prompt)
+    return True, ""
+
+
+def _h_072o_check_fails_l(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the check fails because the L-* only restriction is missing."""
+    result = getattr(world, "sp3_check_result", None)
+    if result is None:
+        return False, "No check result available"
+    if result:
+        return False, "Check should have failed but restriction was found"
+    return True, ""
+
+
+def _h_072o_copy_remove_fences(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a copy of the Stage 6b system prompt with the no-code-fences instruction removed."""
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+
+    loader = TemplateLoader(PROMPTS_DIR)
+    sys_prompt = loader.render_prompt("stage6b_tree_system.j2")
+    for phrase in ("Do not wrap", "code fence", "code fences", "Markdown code", "no code fences"):
+        sys_prompt = sys_prompt.replace(phrase, "REMOVED")
+    world.sp3_copied_prompt = sys_prompt
+    return True, ""
+
+
+def _h_072o_check_copied_fence(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the copied system prompt is checked against the code-fence restriction."""
+    prompt = getattr(world, "sp3_copied_prompt", None)
+    if prompt is None:
+        return False, "No copied prompt available"
+    world.sp3_check_result = _072o_has_code_fence_restriction(prompt)
+    return True, ""
+
+
+def _h_072o_check_fails_fences(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the check fails because the no-code-fences instruction is missing."""
+    result = getattr(world, "sp3_check_result", None)
+    if result is None:
+        return False, "No check result available"
+    if result:
+        return False, "Check should have failed but restriction was found"
+    return True, ""
+
+
+def _h_072o_copy_insert_stpa_sec(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a copy of the Stage 5 system prompt with STPA-Sec jargon inserted."""
+    from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
+
+    loader = TemplateLoader(PROMPTS_DIR)
+    sys_prompt = loader.render_prompt("stage5_system.j2")
+    world.sp3_copied_prompt = sys_prompt.replace(
+        "security analyst", "security analyst specializing in STPA-Sec"
+    )
+    return True, ""
+
+
+def _h_072o_check_copied_terminology(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the copied system prompt is checked against the terminology requirement."""
+    prompt = getattr(world, "sp3_copied_prompt", None)
+    if prompt is None:
+        return False, "No copied prompt available"
+    world.sp3_check_result = "STPA-Sec" in prompt
+    return True, ""
+
+
+def _h_072o_check_fails_stpa_sec(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the check fails because STPA-Sec jargon is present."""
+    result = getattr(world, "sp3_check_result", None)
+    if result is None:
+        return False, "No check result available"
+    if not result:
+        return False, "Check should have detected STPA-Sec jargon"
+    return True, ""
+
+
 FEATURE_ID = 'sp3'
 
 def register(api: object) -> None:
@@ -3348,6 +3812,40 @@ def register(api: object) -> None:
     api.register_first('a ScenarioEnvelope with ica_type .* and attack_tree root .*', _h_stage6_envelope_with_ica_type_attack_tree, source_order=20188)
     api.register_first('the attack tree user prompt is built', _h_stage6_attack_tree_user_prompt_built, source_order=20189)
     api.register_first('the user prompt contains the scenario spec with ica_type NOT_PROVIDED', _h_stage6_user_prompt_contains_ica_type, source_order=20190)
+
+    # --- SP3-072o acceptance seam handlers --------------------------------
+    api.register_first('the SP3 .* prompt templates are renderable', _h_072o_templates_renderable, source_order=20200)
+    api.register_first('a minimal SP3 scenario fixture', _h_072o_minimal_fixture, source_order=20201)
+    api.register_first('a minimal SP3 loss analysis with', _h_072o_minimal_loss_analysis, source_order=20202)
+    api.register_first('the Stage \\S+ system prompt is rendered', _h_072o_render_system_prompt, source_order=20203)
+    api.register_first('the Stage \\S+ system prompt does not contain the string', _h_072o_sys_not_contains_string, source_order=20204)
+    api.register_first('the Stage \\S+ system prompt contains the phrase', _h_072o_sys_contains_phrase, source_order=20205)
+    api.register_first('the Stage \\S+ system prompt contains the task framing phrase', _h_072o_sys_contains_task_framing, source_order=20206)
+    api.register_first('the Stage \\S+ system prompt contains a direct instruction not to use Markdown code fences', _h_072o_sys_code_fence_instruction, source_order=20207)
+    api.register_first('the Stage \\S+ system prompt contains the YAML output format', _h_072o_sys_contains_yaml, source_order=20208)
+    api.register_first('the Stage \\S+ system prompt contains the attack tree structure', _h_072o_sys_contains_attack_tree, source_order=20209)
+    api.register_first('the Stage \\S+ user prompt template source is inspected', _h_072o_inspect_user_template, source_order=20210)
+    api.register_first('the template contains the variable', _h_072o_template_contains_var, source_order=20211)
+    api.register_first('the template does not contain the variable', _h_072o_template_not_contains_var, source_order=20212)
+    api.register_first('the Stage 6c user prompt is rendered', _h_072o_render_gherkin_user, source_order=20213)
+    api.register_first('the Stage 6c user prompt contains the valid loss IDs', _h_072o_gherkin_contains_loss_ids, source_order=20214)
+    api.register_first('the Stage 6c user prompt contains the task instruction heading', _h_072o_gherkin_contains_task_heading, source_order=20215)
+    api.register_first('the valid loss IDs appear before the task instruction ends', _h_072o_loss_ids_before_task, source_order=20216)
+    api.register_first('the Stage 6c user prompt contains a restriction that loss references use only L-\\* IDs', _h_072o_gherkin_l_star, source_order=20217)
+    api.register_first('the Stage 6c user prompt contains a statement that consequence references must not use H-\\* IDs', _h_072o_gherkin_no_h_star, source_order=20218)
+    api.register_first('the Stage 6c user prompt does not contain the heading', _h_072o_gherkin_no_hazard_heading, source_order=20219)
+    api.register_first('the Stage 6c user prompt does not list the hazard IDs', _h_072o_gherkin_no_hazard_ids, source_order=20220)
+    api.register_first('all SP3 Stage 5 through Stage 6c prompts are rendered', _h_072o_render_all_prompts, source_order=20221)
+    api.register_first('no rendered prompt contains the pattern', _h_072o_no_rendered_pattern, source_order=20222)
+    api.register_first('a copy of the Stage 6c user prompt with the L-\\* only restriction removed', _h_072o_copy_remove_l_restriction, source_order=20223)
+    api.register_first('the copied user prompt is checked against the loss ID restriction', _h_072o_check_copied_loss, source_order=20224)
+    api.register_first('the check fails because the L-\\* only restriction is missing', _h_072o_check_fails_l, source_order=20225)
+    api.register_first('a copy of the Stage 6b system prompt with the no-code-fences instruction removed', _h_072o_copy_remove_fences, source_order=20226)
+    api.register_first('the copied system prompt is checked against the code-fence restriction', _h_072o_check_copied_fence, source_order=20227)
+    api.register_first('the check fails because the no-code-fences instruction is missing', _h_072o_check_fails_fences, source_order=20228)
+    api.register_first('a copy of the Stage 5 system prompt with STPA-Sec jargon inserted', _h_072o_copy_insert_stpa_sec, source_order=20229)
+    api.register_first('the copied system prompt is checked against the terminology requirement', _h_072o_check_copied_terminology, source_order=20230)
+    api.register_first('the check fails because STPA-Sec jargon is present', _h_072o_check_fails_stpa_sec, source_order=20231)
     api.set_feature(None)
 
 __all__ = ["FEATURE_ID", "register"]
