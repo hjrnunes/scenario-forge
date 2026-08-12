@@ -79,9 +79,6 @@
       "keyword" : "Given",
       "text" : "a run directory for call logging"
     }, {
-      "keyword" : "When",
-      "text" : "a file nonexistent_file.txt exists in the run directory"
-    }, {
       "keyword" : "Then",
       "text" : "the handler returns false with a file-not-found message"
     } ],
@@ -91,9 +88,6 @@
     "steps" : [ {
       "keyword" : "Given",
       "text" : "a heuristic result that passed"
-    }, {
-      "keyword" : "When",
-      "text" : "the heuristic check fails with error containing something"
     }, {
       "keyword" : "Then",
       "text" : "the handler returns false because the heuristic passed"
@@ -149,9 +143,6 @@
     "steps" : [ {
       "keyword" : "Given",
       "text" : "an enriched threat set with an empty uncovered_reason"
-    }, {
-      "keyword" : "When",
-      "text" : "uncovered_reason is not empty"
     }, {
       "keyword" : "Then",
       "text" : "the handler returns false because uncovered_reason is empty"

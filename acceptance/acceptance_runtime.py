@@ -21644,12 +21644,14 @@ def _h_ar_add_coordination(world: World, text: str, examples: dict) -> tuple[boo
 
 def _h_ar_stage2_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
     _ar_stage2_defaults(world)
+    template_loader = TemplateLoader(_PQF_PROMPTS_DIR)
+    world.template_loader = template_loader
     world.control_structure, world.sp1_warnings = _sp1_derive_control_structure(
         llm_client=_ar_client(world),
         use_case_text=world.sp1_use_case_text,
         loss_analysis=LossAnalysis.model_validate(_sp1_valid_la_dict()),
         run_dir=_ar_run_dir(world),
-        template_loader=TemplateLoader(_PQF_PROMPTS_DIR),
+        template_loader=template_loader,
         temperature=0.4,
     )
     return True, ""

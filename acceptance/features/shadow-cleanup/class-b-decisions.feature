@@ -68,13 +68,11 @@ Feature: Class B handler decisions exhibit correct behavior
   # ShadowCleanup-15 — Case 6
   Scenario: ShadowCleanup-15 file exists live handler checks the run directory
     Given a run directory for call logging
-    When a file nonexistent_file.txt exists in the run directory
     Then the handler returns false with a file-not-found message
 
   # ShadowCleanup-16 — Case 7
   Scenario: ShadowCleanup-16 heuristic check fails live handler verifies the heuristic actually failed
     Given a heuristic result that passed
-    When the heuristic check fails with error containing something
     Then the handler returns false because the heuristic passed
 
   # ShadowCleanup-17 — Case 8
@@ -100,7 +98,6 @@ Feature: Class B handler decisions exhibit correct behavior
   # ShadowCleanup-20 — Case 11
   Scenario: ShadowCleanup-20 uncovered_reason live handler checks the enriched threat set coverage analysis
     Given an enriched threat set with an empty uncovered_reason
-    When uncovered_reason is not empty
     Then the handler returns false because uncovered_reason is empty
 
   # ShadowCleanup-21 — Case 12
