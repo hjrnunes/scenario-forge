@@ -34,8 +34,8 @@ import pytest
 # Paths
 # ---------------------------------------------------------------------------
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_ACCEPTANCE_DIR = _PROJECT_ROOT / "tmp" / "acceptance"
+_PROJECT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+_ACCEPTANCE_DIR = _PROJECT_ROOT / "acceptance"
 _IR_DIR = _ACCEPTANCE_DIR / "ir"
 _GENERATED_DIR = _ACCEPTANCE_DIR / "generated"
 
@@ -258,9 +258,9 @@ class TestIREntryPointCoverage:
         )
 
     def test_every_entry_point_references_canonical_ir_location(self):
-        """Every entry point references IR in tmp/acceptance/ir/.
+        """Every entry point references IR in acceptance/ir/.
 
-        Non-canonical IR locations (tmp/, tmp/acceptance/) are how IR drift
+        Non-canonical IR locations (tmp/, acceptance/) are how IR drift
         stayed hidden in the original staleness incident.  This test ensures
         all IR is consolidated under the canonical directory.
         """

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "stage1b-grounding",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/acceptance-refresh/stage1b-grounding.json",
+  "implementation_hash": "sha256:460582730ff5cb0aa60cdf7959d2f8ed7ca6a56bc3e2703e9202dd532b10bb92",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "stage1b-grounding_acceptance_test.py"
+  ]
+}

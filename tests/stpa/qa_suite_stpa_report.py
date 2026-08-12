@@ -9,7 +9,7 @@ and inspects the HTML output as a user would (via standard library
 HTML parsing).
 
 Usage:
-    uv run python tmp/acceptance/qa/stpa-report/qa_suite.py [--fixture-dir <dir>]
+    uv run python acceptance/qa/stpa-report/qa_suite.py [--fixture-dir <dir>]
 
 The suite creates a temporary combined output directory from fixture data,
 runs the CLI, and inspects the output HTML.

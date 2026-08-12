@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "stage2 call3",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/stage2_call3.json",
+  "implementation_hash": "sha256:050b0c749db52c6834f29e20c72d9e49c932eaec4d8bc96058d47dbe544ef997",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "stage2_call3_acceptance_test.py"
+  ]
+}

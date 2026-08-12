@@ -1,6 +1,6 @@
 # Acceptance suite staleness analysis (beads er9q + in8d)
 
-Baseline: `uv run pytest tmp/acceptance/generated/ -q` → **25 failed, 45 passed**
+Baseline: `uv run pytest acceptance/generated/ -q` → **25 failed, 45 passed**
 
 Captured by the orchestrator at HEAD `a9734ac`, after stage1-split-reorder (tgs3+82t5) and
 stage2-restructure (w5tp) both landed.
@@ -68,7 +68,7 @@ Do not fix these here; they belong to SP3/Stage 6 work items.
 
 In-scope: **16 tests** (Categories B + C + D). After this work item:
 
-- `uv run pytest tmp/acceptance/generated/ -q` → **10 failed, 60 passed**
+- `uv run pytest acceptance/generated/ -q` → **10 failed, 60 passed**
   (10 = 7 Category A LLM-endpoint + 2 Category E pre-existing + 1 genuine
   source defect, below)
 
@@ -109,11 +109,11 @@ handler.
 ## Pipeline artifacts to regenerate
 
 Feature files live in `tests/stpa/features/`. The generated artifacts are:
-- IR: `tmp/acceptance/ir/<name>.json` — regenerate via `bb gherkin-parser <feature> <out.json>`
+- IR: `acceptance/ir/<name>.json` — regenerate via `bb gherkin-parser <feature> <out.json>`
   (APS clone is at `tmp/Acceptance-Pipeline-Specification/`)
-- Entry points: `tmp/acceptance/generated/<name>_acceptance_test.py` — regenerate via
-  `tmp/acceptance/generate_entrypoints.py`
-- Step handlers: `tmp/acceptance/acceptance_runtime.py` (already partly updated by the hardender
+- Entry points: `acceptance/generated/<name>_acceptance_test.py` — regenerate via
+  `acceptance/generate_entrypoints.py`
+- Step handlers: `acceptance/acceptance_runtime.py` (already partly updated by the hardender
   in `a9734ac`; it added backward-compat wrappers that may now be removable)
 
 ## Note on prior misreporting

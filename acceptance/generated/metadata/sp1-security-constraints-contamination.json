@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 security constraints contamination",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp1_security_constraints_contamination.json",
+  "implementation_hash": "sha256:1bbeb84d0fcadf32a27d0ee1d12f56d2af9129268656f7485fe61195b192d54d",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_security_constraints_contamination_acceptance_test.py"
+  ]
+}

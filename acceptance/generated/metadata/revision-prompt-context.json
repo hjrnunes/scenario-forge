@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "revision-prompt-context",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/critic-revision-fix/revision-prompt-context.json",
+  "implementation_hash": "sha256:3616f7f3f936b270a20f10cc567d081ab906b83f498bc02d9882e7d6bfd410f3",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "revision-prompt-context_acceptance_test.py"
+  ]
+}

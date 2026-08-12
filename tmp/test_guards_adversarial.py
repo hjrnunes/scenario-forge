@@ -108,7 +108,7 @@ def test_check_entry_points_canonical_ir_location() -> bool:
     """
     IR_DIR = _ACCEPTANCE_DIR / "ir"
 
-    # A non-canonical path (outside tmp/acceptance/ir/)
+    # A non-canonical path (outside acceptance/ir/)
     non_canonical = str(_PROJECT_ROOT / "tmp" / "rogue_ir.json")
     canonical = str(IR_DIR / "acceptance-refresh" / "stage2-coordination-analysis.json")
 

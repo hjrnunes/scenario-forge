@@ -332,12 +332,12 @@ done
 # --- 8. Acceptance Tests ---
 
 check "QA-SP2-ACCEPT-01: SP2 Gherkin acceptance tests pass" \
-    uv run pytest tmp/acceptance/generated/sp2_catalog_enrichment_acceptance_test.py \
-                  tmp/acceptance/generated/sp2_na_quality_acceptance_test.py \
-                  tmp/acceptance/generated/sp2_run_orchestration_acceptance_test.py \
-                  tmp/acceptance/generated/sp2_slot_creation_acceptance_test.py \
-                  tmp/acceptance/generated/sp2_slot_filling_acceptance_test.py \
-                  tmp/acceptance/generated/sp2_technology_context_acceptance_test.py \
+    uv run pytest acceptance/generated/sp2_catalog_enrichment_acceptance_test.py \
+                  acceptance/generated/sp2_na_quality_acceptance_test.py \
+                  acceptance/generated/sp2_run_orchestration_acceptance_test.py \
+                  acceptance/generated/sp2_slot_creation_acceptance_test.py \
+                  acceptance/generated/sp2_slot_filling_acceptance_test.py \
+                  acceptance/generated/sp2_technology_context_acceptance_test.py \
                   -q --tb=short
 
 # --- 9. Full Test Suite Execution ---
