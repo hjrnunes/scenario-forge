@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=ecefa826ec48a436cc92ec9416597d2e75f022a14e1a3698ee2228e2d55f8a44
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-12T15:41:40.691853Z","feature_name":"Runtime split compatibility","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/features/runtime-split/compatibility.feature","background_hash":"430cbe8635c1a5b12000644c0a71c8f799e34809c736edac96a9a9bc4a52cfd2","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: Runtime split compatibility
   The split preserves the acceptance runtime facade, executable IR coverage,
   handler behavior, and known baseline without contacting a live LLM.

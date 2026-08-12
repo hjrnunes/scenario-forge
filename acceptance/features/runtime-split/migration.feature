@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=e8842e503e20684e83e1a2118fc54446da6eddd1b345c86f57316ee5c06873a3
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-12T15:41:43.950341Z","feature_name":"Runtime split migration atomicity","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/features/runtime-split/migration.feature","background_hash":"674b4bea20517bc6bbd8aff20d1598ed65936aab9926f3847d06d3e2d8c883d7","implementation_hash":"unknown","scenarios":[]}
+# acceptance-mutation-manifest-end
+
 Feature: Runtime split migration atomicity
   The migration publishes a complete registry or no registry and supports
   rollback to the unchanged facade when structural checks fail.

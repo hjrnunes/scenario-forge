@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=1c17e9c90870485be2281114d57f5d86bc7c6da2f35da7cee854b5960de1d8ef
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-12T15:41:36.926501Z","feature_name":"Runtime split registry semantics","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/features/runtime-split/registry.feature","background_hash":"290e5bc497c7011341a39e050c82da8ffcce6171518c9910c5c194f672de68a2","implementation_hash":"unknown","scenarios":[{"index":2,"name":"Runtime split registry semantics — 03 feature tags scope matching","scenario_hash":"6131ba6d8c93a12689249ac2ec17de453bdab403c438e9beb0a3570c2d16cd0c","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-12T15:41:36.926501Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: Runtime split registry semantics
   The facade owns the ordered registry and feature modules register only
   through its explicit registration API.
