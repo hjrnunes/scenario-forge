@@ -22802,9 +22802,14 @@ def _h_sc_keys_equal_patterns(world: World, text: str, examples: dict) -> tuple[
 # --- registration-priority handlers (use simulated STEP_PATTERNS copy) ---
 
 
-def _h_sc_reg_register_earlier(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: a pattern <pattern> is registered with _register by handler <handler> at an earlier line."""
-    m = re.search(r"a pattern (.*) is registered with _register by handler (\S+) at an earlier line", text)
+def _sc_simulate_priority_registration(
+    world: World,
+    text: str,
+    parse_pattern: str,
+    insert_first: bool,
+) -> tuple[bool, str]:
+    """Add a synthetic registration while preserving its priority semantics."""
+    m = re.search(parse_pattern, text)
     if not m:
         return False, f"Could not parse: {text}"
     pattern_str, handler_name = m.group(1), m.group(2)
@@ -22817,103 +22822,72 @@ def _h_sc_reg_register_earlier(world: World, text: str, examples: dict) -> tuple
     if test_list is None:
         test_list = []
         world.sc_test_patterns = test_list
-    test_list.append((re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
+    registration = (re.compile(pattern_str, re.IGNORECASE), _test_handler, None)
+    if insert_first:
+        test_list.insert(0, registration)
+    else:
+        test_list.append(registration)
     return True, ""
+
+
+def _h_sc_reg_register_earlier(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a pattern <pattern> is registered with _register by handler <handler> at an earlier line."""
+    return _sc_simulate_priority_registration(
+        world,
+        text,
+        r"a pattern (.*) is registered with _register by handler (\S+) at an earlier line",
+        insert_first=False,
+    )
 
 
 def _h_sc_reg_first_later(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the same pattern <pattern> is registered with _register_first by handler <handler> at a later line."""
-    m = re.search(r"the same pattern (.*) is registered with _register_first by handler (\S+) at a later line", text)
-    if not m:
-        return False, f"Could not parse: {text}"
-    pattern_str, handler_name = m.group(1), m.group(2)
-
-    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
-        return True, ""
-
-    _test_handler.__name__ = handler_name
-    test_list = getattr(world, "sc_test_patterns", None)
-    if test_list is None:
-        test_list = []
-        world.sc_test_patterns = test_list
-    test_list.insert(0, (re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
-    return True, ""
+    return _sc_simulate_priority_registration(
+        world,
+        text,
+        r"the same pattern (.*) is registered with _register_first by handler (\S+) at a later line",
+        insert_first=True,
+    )
 
 
 def _h_sc_reg_first_a(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a pattern <pattern> is registered with _register_first by handler <handler>."""
-    m = re.search(r"a pattern (.*) is registered with _register_first by handler (\S+)$", text)
-    if not m:
-        return False, f"Could not parse: {text}"
-    pattern_str, handler_name = m.group(1), m.group(2)
-
-    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
-        return True, ""
-
-    _test_handler.__name__ = handler_name
-    test_list = getattr(world, "sc_test_patterns", None)
-    if test_list is None:
-        test_list = []
-        world.sc_test_patterns = test_list
-    test_list.insert(0, (re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
-    return True, ""
+    return _sc_simulate_priority_registration(
+        world,
+        text,
+        r"a pattern (.*) is registered with _register_first by handler (\S+)$",
+        insert_first=True,
+    )
 
 
 def _h_sc_reg_first_b(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the same pattern <pattern> is registered with _register_first by handler <handler>."""
-    m = re.search(r"the same pattern (.*) is registered with _register_first by handler (\S+)$", text)
-    if not m:
-        return False, f"Could not parse: {text}"
-    pattern_str, handler_name = m.group(1), m.group(2)
-
-    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
-        return True, ""
-
-    _test_handler.__name__ = handler_name
-    test_list = getattr(world, "sc_test_patterns", None)
-    if test_list is None:
-        test_list = []
-        world.sc_test_patterns = test_list
-    test_list.insert(0, (re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
-    return True, ""
+    return _sc_simulate_priority_registration(
+        world,
+        text,
+        r"the same pattern (.*) is registered with _register_first by handler (\S+)$",
+        insert_first=True,
+    )
 
 
 def _h_sc_reg_register_a(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a pattern <pattern> is registered with _register by handler <handler>."""
-    m = re.search(r"a pattern (.*) is registered with _register by handler (\S+)$", text)
-    if not m:
-        return False, f"Could not parse: {text}"
-    pattern_str, handler_name = m.group(1), m.group(2)
-
-    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
-        return True, ""
-
-    _test_handler.__name__ = handler_name
-    test_list = getattr(world, "sc_test_patterns", None)
-    if test_list is None:
-        test_list = []
-        world.sc_test_patterns = test_list
-    test_list.append((re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
-    return True, ""
+    return _sc_simulate_priority_registration(
+        world,
+        text,
+        r"a pattern (.*) is registered with _register by handler (\S+)$",
+        insert_first=False,
+    )
 
 
 def _h_sc_reg_register_b(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the same pattern <pattern> is registered with _register by handler <handler>."""
-    m = re.search(r"the same pattern (.*) is registered with _register by handler (\S+)$", text)
-    if not m:
-        return False, f"Could not parse: {text}"
-    pattern_str, handler_name = m.group(1), m.group(2)
-
-    def _test_handler(w: World, t: str, e: dict) -> tuple[bool, str]:
-        return True, ""
-
-    _test_handler.__name__ = handler_name
-    test_list = getattr(world, "sc_test_patterns", None)
-    if test_list is None:
-        test_list = []
-        world.sc_test_patterns = test_list
-    test_list.append((re.compile(pattern_str, re.IGNORECASE), _test_handler, None))
-    return True, ""
+    return _sc_simulate_priority_registration(
+        world,
+        text,
+        r"the same pattern (.*) is registered with _register by handler (\S+)$",
+        insert_first=False,
+    )
 
 
 def _h_sc_verify_live_handler(world: World, text: str, examples: dict) -> tuple[bool, str]:
