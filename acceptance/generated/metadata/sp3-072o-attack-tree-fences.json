@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp3 072o attack tree fences",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_072o_attack_tree_fences.json",
+  "implementation_hash": "sha256:0d5423068ece6130d106ac8641f7cfedf40a47f492c69e4c5724477585a7cabc",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3_072o_attack_tree_fences_acceptance_test.py"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp3 072o prompt preservation",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_072o_prompt_preservation.json",
+  "implementation_hash": "sha256:0a8262a1028430634356aec689d22a35cd2c14be84e0515143f221920b666f5f",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3_072o_prompt_preservation_acceptance_test.py"
+  ]
+}

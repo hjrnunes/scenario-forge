@@ -1,0 +1,60 @@
+{
+  "schema_version" : 1,
+  "feature_name" : "SP3 prompt revision anti-vacuity checks",
+  "summary" : {
+    "step_occurrences" : 11,
+    "unique_steps" : 11,
+    "findings" : 2
+  },
+  "findings" : [ {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the copied system prompt is checked against the code-fence restriction",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "SP3-072o-41 removing the no-code-fences instruction from a copy of the Stage 6b system prompt causes QA failure",
+        "step_index" : 1,
+        "keyword" : "When"
+      } ]
+    }, {
+      "text" : "the copied system prompt is checked against the terminology requirement",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 2,
+        "scenario_name" : "SP3-072o-42 inserting STPA-Sec jargon into a copy of the Stage 5 system prompt causes QA failure",
+        "step_index" : 1,
+        "keyword" : "When"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.5
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the copied system prompt is checked against the code-fence restriction",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "SP3-072o-41 removing the no-code-fences instruction from a copy of the Stage 6b system prompt causes QA failure",
+        "step_index" : 1,
+        "keyword" : "When"
+      } ]
+    }, {
+      "text" : "the copied user prompt is checked against the loss ID restriction",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 0,
+        "scenario_name" : "SP3-072o-40 removing the L-* only restriction from a copy of the Stage 6c user prompt causes QA failure",
+        "step_index" : 1,
+        "keyword" : "When"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.455
+  } ]
+}

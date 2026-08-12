@@ -1,0 +1,110 @@
+{
+  "schema_version" : 1,
+  "feature_name" : "SP3 Stage 6b attack tree prompt forbids Markdown code fences",
+  "summary" : {
+    "step_occurrences" : 8,
+    "unique_steps" : 8,
+    "findings" : 4
+  },
+  "findings" : [ {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the Stage 6b system prompt contains the phrase \"Do not wrap\"",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 0,
+        "scenario_name" : "SP3-072o-20 Stage 6b system prompt forbids Markdown code fences",
+        "step_index" : 1,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the Stage 6b system prompt contains the phrase \"code fence\"",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 0,
+        "scenario_name" : "SP3-072o-20 Stage 6b system prompt forbids Markdown code fences",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.545
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the Stage 6b system prompt contains the YAML output format",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "SP3-072o-21 Stage 6b system prompt still requires YAML output",
+        "step_index" : 0,
+        "keyword" : "Then"
+      } ]
+    }, {
+      "text" : "the Stage 6b system prompt contains the attack tree structure",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "SP3-072o-21 Stage 6b system prompt still requires YAML output",
+        "step_index" : 1,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.455
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the Stage 6b system prompt contains the YAML output format",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "SP3-072o-21 Stage 6b system prompt still requires YAML output",
+        "step_index" : 0,
+        "keyword" : "Then"
+      } ]
+    }, {
+      "text" : "the Stage 6b system prompt contains the phrase \"code fence\"",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 0,
+        "scenario_name" : "SP3-072o-20 Stage 6b system prompt forbids Markdown code fences",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.455
+  }, {
+    "kind" : "possible-synonym",
+    "confidence" : "medium",
+    "members" : [ {
+      "text" : "the Stage 6b system prompt contains the attack tree structure",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 1,
+        "scenario_name" : "SP3-072o-21 Stage 6b system prompt still requires YAML output",
+        "step_index" : 1,
+        "keyword" : "And"
+      } ]
+    }, {
+      "text" : "the Stage 6b system prompt contains the phrase \"code fence\"",
+      "locations" : [ {
+        "section" : "scenario",
+        "scenario_index" : 0,
+        "scenario_name" : "SP3-072o-20 Stage 6b system prompt forbids Markdown code fences",
+        "step_index" : 2,
+        "keyword" : "And"
+      } ]
+    } ],
+    "reason" : "step texts share many non-placeholder tokens and may describe the same concept",
+    "suggested_action" : "Review manually before editing; normalize the Gherkin only when the different wording is accidental drift.",
+    "score" : 0.455
+  } ]
+}

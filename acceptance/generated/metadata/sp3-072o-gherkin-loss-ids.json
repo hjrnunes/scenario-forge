@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp3 072o gherkin loss ids",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/acceptance/ir/sp3_072o_gherkin_loss_ids.json",
+  "implementation_hash": "sha256:0075bd4c7185d66e13b13920ba09d89827005df023e7b87b408aa148b900431a",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp3_072o_gherkin_loss_ids_acceptance_test.py"
+  ]
+}
