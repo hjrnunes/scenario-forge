@@ -1,30 +1,40 @@
-You are a safety and security engineer revising a control structure derived through STPA-Sec.
+You are a safety and security engineer revising a control structure for an AI system.
 
 Your task is to address gaps identified by the completeness critic. This is a single revision attempt — make it count.
 
 ## Existing Control Structure
-
 ### Responsibilities
 {% for resp in control_structure.responsibilities %}
 - **{{ resp.resp_id }}**: {{ resp.description }}
-  PM parts: {{ resp.process_model_parts | map(attribute='pm_id') | join(", ") }}
-  Control actions: {{ resp.control_actions | map(attribute='ca_id') | join(", ") }}
-  Feedback channels: {{ resp.feedback_channels | map(attribute='fb_id') | join(", ") }}
+  Responsibility constraints:
+  {% for rc in resp.responsibility_constraints %}
+    - {{ rc.rc_id }}: {{ rc.description }}
+  {% endfor %}
+  Process model parts:
+  {% for pm in resp.process_model_parts %}
+    - {{ pm.pm_id }}: {{ pm.description }}{% if pm.feedback_source %} (source: {{ pm.feedback_source.type }} {{ pm.feedback_source.id }}){% endif %}
+  {% endfor %}
+  Control actions:
+  {% for ca in resp.control_actions %}
+    - {{ ca.ca_id }}: {{ ca.description }}{% if ca.target %} (target: {{ ca.target.type }} {{ ca.target.id }}){% endif %}
+  {% endfor %}
+  Feedback channels:
+  {% for fb in resp.feedback_channels %}
+    - {{ fb.fb_id }}: {{ fb.description }} (updates: {{ fb.updates }}{% if fb.source %}, source: {{ fb.source.type }} {{ fb.source.id }}{% endif %})
+  {% endfor %}
 {% endfor %}
-
 ### Controlled Processes
 {% for cp in control_structure.controlled_processes %}
 - **{{ cp.cp_id }}**: {{ cp.description }}
 {% endfor %}
-
 ### Coordination Links
 {% for cl in control_structure.coordination_links %}
-- **{{ cl.link_id }}**: {{ cl.source }} → {{ cl.target }} (shared: {{ cl.shared_pm }})
+- **{{ cl.link_id }}**: {{ cl.source }} → {{ cl.target }} (mechanism: {{ cl.coordination_mechanism.cm_id }} — {{ cl.coordination_mechanism.description }})
 {% endfor %}
 
 ## Rules
-
 - Add missing responsibilities, feedback channels, or process model parts identified by the critic.
+- You may DISMISS a finding if you judge it to be a false positive — add it to dismissed_gaps with a one-sentence justification.
 - Ensure new elements connect properly (sources, targets, feedback).
 - Maintain solution-neutrality: no implementation-specific terms (LLM, proxy, orchestrator, guardrail, prompt, API).
 - Do not lose existing responsibilities or their elements.
@@ -32,17 +42,15 @@ Your task is to address gaps identified by the completeness critic. This is a si
 - All feedback channel updates must reference a PM in the same responsibility.
 
 ## ID format rules
-
-When creating new elements, use the following ID formats with the next-available numbers:
-
 - New responsibilities: RESP-{next_resp_num} (next available: RESP-{{ next_resp_num }})
-- New PM parts: PM-{resp_num}-{next_pm_num} (e.g., for RESP-{{ next_resp_num }}: PM-{{ next_resp_num }}-1)
-- New CAs: CA-{resp_num}-{next_ca_num} (e.g., for RESP-{{ next_resp_num }}: CA-{{ next_resp_num }}-1)
-- New FB channels: FB-{resp_num}-{next_fb_num} (e.g., for RESP-{{ next_resp_num }}: FB-{{ next_resp_num }}-1)
-- New RCs: RC-{resp_num}-{next_rc_num} (e.g., for RESP-{{ next_resp_num }}: RC-{{ next_resp_num }}-1)
+- New PM parts: PM-{resp_num}-{next_pm_num} (e.g. PM-{{ next_resp_num }}-1)
+- New CAs: CA-{resp_num}-{next_ca_num}
+- New FB channels: FB-{resp_num}-{next_fb_num}
+- New RCs: RC-{resp_num}-{next_rc_num}
 - New coordination links: CL-{next_cl_num} (next available: CL-{{ next_cl_num }})
+- New coordination mechanisms: CM-{next_cm_num} (next available: CM-{{ next_cm_num }})
+- New controlled processes: CP-{next_cp_num} (next available: CP-{{ next_cp_num }})
 
 ## Output format
-
-Produce a RevisionDelta with only the new and modified elements. Do NOT restate the entire control structure.
-The modified_responsibilities list must contain ONLY responsibilities you are CHANGING. Do not include unmodified responsibilities. If a responsibility needs no changes, do not include it in the delta at all.
+Produce a RevisionDelta with only new and modified elements. Do NOT restate the entire control structure.
+The modified_responsibilities list must contain ONLY responsibilities you are CHANGING. The dismissed_gaps list should contain one-sentence justifications for any findings you chose not to address.

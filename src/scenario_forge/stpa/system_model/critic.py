@@ -38,7 +38,7 @@ STAGE = "stage_2"
 STEP_CRITIC = "critic"
 STEP_REVISION = "revision"
 DEFAULT_TEMPERATURE = 0.4
-REVISION_MAX_COMPLETION_TOKENS = 4096
+REVISION_MAX_COMPLETION_TOKENS = 8192
 logger = logging.getLogger(__name__)
 
 
@@ -76,6 +76,7 @@ class RevisionDelta(BaseModel):
     new_controlled_processes: list[ControlledProcess] = []
     new_coordination_links: list[CoordinationLink] = []
     modified_responsibilities: list[Responsibility] = []
+    dismissed_gaps: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +93,8 @@ def run_completeness_critic(
     run_dir: Path,
     template_loader: TemplateLoader | None = None,
     temperature: float = DEFAULT_TEMPERATURE,
+    loss_analysis: LossAnalysis | None = None,
+    call3_warnings: list[str] | None = None,
 ) -> CriticFindings:
     """Run the completeness critic on the control structure.
 
@@ -125,6 +128,8 @@ def run_completeness_critic(
         control_structure=control_structure,
         capability_profile=capability_profile,
         taxonomy_probes=taxonomy_probes,
+        loss_analysis=loss_analysis,
+        call3_warnings=call3_warnings,
     )
 
     findings, _, error_msg = safe_llm_call(
@@ -146,7 +151,8 @@ def run_completeness_critic(
 def has_unjustified_gaps(findings: CriticFindings) -> bool:
     """Check whether the critic findings contain any unjustified gaps.
 
-    Revision is triggered if any checklist result is ``absent_unjustified``.
+    Revision is triggered by an unjustified checklist or taxonomy result, or
+    by any adversarial structural gap.
 
     Args:
         findings: The critic findings to check.
@@ -154,7 +160,16 @@ def has_unjustified_gaps(findings: CriticFindings) -> bool:
     Returns:
         True if revision should be triggered, False otherwise.
     """
-    return any(status == "absent_unjustified" for status in findings.checklist_results.values())
+    has_checklist_gaps = any(
+        status == "absent_unjustified"
+        for status in findings.checklist_results.values()
+    )
+    has_taxonomy_gaps = any(
+        status == "absent_unjustified"
+        for status in findings.taxonomy_probe_results.values()
+    )
+    has_structural_gaps = len(findings.gaps) > 0
+    return has_checklist_gaps or has_taxonomy_gaps or has_structural_gaps
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +342,11 @@ def run_revision(
     if revision_delta is None:
         return control_structure, ["Revision failed: unexpected None response"]
 
+    dismissal_warnings = [
+        f"Revision dismissed finding: {justification}"
+        for justification in revision_delta.dismissed_gaps
+    ]
+
     # Merge the delta into the existing ControlStructure
     try:
         revised_cs, merge_warnings = _merge_revision_delta(
@@ -340,7 +360,7 @@ def run_revision(
 
     # Warnings are accumulated in chronological order: merge → strip →
     # heuristics, so consumers see the earliest root-cause first.
-    post_warnings = list(merge_warnings)
+    post_warnings = dismissal_warnings + list(merge_warnings)
 
     # Strip empty responsibilities as a safety net
     revised_cs, strip_warnings = strip_empty_responsibilities(revised_cs)
@@ -360,12 +380,16 @@ def _compute_next_ids(
     """Compute next-available ID numbers from an existing ControlStructure.
 
     Returns a dict of template variables for the revision system prompt:
-    ``next_resp_num``, ``next_cl_num``, ``next_cp_num``.
+    ``next_resp_num``, ``next_cl_num``, ``next_cp_num``, and ``next_cm_num``.
     """
     return {
         "next_resp_num": _next_num_from(cs.responsibilities, lambda r: r.resp_id),
         "next_cl_num": _next_num_from(cs.coordination_links, lambda cl: cl.link_id),
         "next_cp_num": _next_num_from(cs.controlled_processes, lambda cp: cp.cp_id),
+        "next_cm_num": _next_num_from(
+            cs.coordination_links,
+            lambda cl: cl.coordination_mechanism.cm_id,
+        ),
     }
 
 

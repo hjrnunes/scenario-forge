@@ -272,6 +272,8 @@ def _run_stage_2_block(
         run_dir=run_dir,
         template_loader=loader,
         temperature=temperature,
+        loss_analysis=loss_analysis,
+        call3_warnings=merge_warnings,
     )
 
     # Sanitize non-conforming IDs from critic remedies before revision

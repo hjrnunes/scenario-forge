@@ -391,15 +391,15 @@ class TestMaxCompletionTokensThreading:
         assert len(client.calls) == 1
         assert client.calls[0].max_completion_tokens is None
 
-    def test_revision_uses_4096_token_cap(self, tmp_path: Path) -> None:
-        """The critic revision call uses REVISION_MAX_COMPLETION_TOKENS (4096)."""
+    def test_revision_uses_8192_token_cap(self, tmp_path: Path) -> None:
+        """The critic revision call uses REVISION_MAX_COMPLETION_TOKENS (8192)."""
         from scenario_forge.stpa.system_model.critic import (
             REVISION_MAX_COMPLETION_TOKENS,
             RevisionDelta,
             run_revision,
         )
 
-        assert REVISION_MAX_COMPLETION_TOKENS == 4096
+        assert REVISION_MAX_COMPLETION_TOKENS == 8192
 
         # Verify the revision LLM call receives the token cap
         client = MockLLMClient()
@@ -462,7 +462,7 @@ class TestMaxCompletionTokensThreading:
             c for c in client.calls if c.max_completion_tokens is not None
         ]
         assert len(revision_calls) == 1
-        assert revision_calls[0].max_completion_tokens == 4096
+        assert revision_calls[0].max_completion_tokens == 8192
 
 
 # ---------------------------------------------------------------------------
