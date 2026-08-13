@@ -157,3 +157,26 @@ Feature: SP1 deterministic control-structure ID renumbering
     Examples:
       | coordination_field | reference_field        |
       | shared_pm          | coordination shared_pm |
+
+  # SP1-ID-RENUMBERING-12
+  Scenario: SP1-ID-RENUMBERING-12 omits cross-namespace collisions from the flat mapping
+    Given responsibility 1 and controlled process 1 both use source ID shared-element
+    When the payload IDs are normalized
+    Then the flat normalization mapping does not resolve shared-element
+    And the responsibility mapping resolves shared-element to RESP-1
+    And the controlled-process mapping resolves shared-element to CP-1
+
+  # SP1-ID-RENUMBERING-13
+  Scenario: SP1-ID-RENUMBERING-13 tolerates a missing local process-model map
+    Given responsibility reference rewriting receives one responsibility whose feedback updates value is missing-state
+    And no local process-model mapping is available for responsibility 1
+    When the responsibility references are rewritten
+    Then responsibility 1 feedback channel 1 updates missing-state
+    And reference rewriting completes without an error
+
+  # SP1-ID-RENUMBERING-14
+  Scenario: SP1-ID-RENUMBERING-14 sources the acceptance normalizer from the leaf module
+    Given the SP1 acceptance normalizer is resolved
+    Then its module is scenario_forge.stpa.system_model.id_normalization
+    And neither the control-structure module nor the system-model package re-exports the normalizer
+    And it normalizes responsibility 1 source ID controller-alpha to RESP-1
