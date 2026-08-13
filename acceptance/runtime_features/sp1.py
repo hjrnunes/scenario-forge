@@ -2015,9 +2015,14 @@ _SP1_ID_UNRESOLVED_FIELDS = {
     "coordination target",
     "coordination shared_pm",
 }
+_SP1_ID_TYPED_REFERENCE_FIELDS = {
+    "process feedback_source": "feedback_source",
+    "control action target": "target",
+    "feedback source": "source",
+}
 
 
-def _sp1_id_lookup(payload: dict, position: str) -> tuple[dict, str]:
+def findOwnerEl(payload: dict, position: str) -> tuple[dict, str]:
     """Return the element and ID key named by a structural-position phrase."""
     text = position.strip()
     match = re.fullmatch(r"responsibility (\d+)", text)
@@ -2117,7 +2122,7 @@ def _h_sp1_id_position_has_id(world: World, text: str, examples: dict) -> tuple[
     position = examples.get("structural_position", "")
     expected = examples.get("canonical_id", "")
     try:
-        element, id_key = _sp1_id_lookup(normalized.payload, position)
+        element, id_key = findOwnerEl(normalized.payload, position)
     except (KeyError, IndexError, TypeError):
         return False, f"Unknown structural position {position}"
     actual = element.get(id_key)
@@ -2146,7 +2151,7 @@ def _h_sp1_id_unique_source(world: World, text: str, examples: dict) -> tuple[bo
     old_id = examples.get("old_id", "")
     position = examples.get("structural_position", "")
     try:
-        element, id_key = _sp1_id_lookup(payload, position)
+        element, id_key = findOwnerEl(payload, position)
     except (KeyError, IndexError, TypeError):
         return False, f"Unknown structural position {position}"
     actual = element.get(id_key)
@@ -2322,8 +2327,8 @@ def _h_sp1_id_typed_ref_setup(world: World, text: str, examples: dict) -> tuple[
     referenced_position = examples.get("referenced_position", "")
     owner = examples.get("reference_owner", "")
     try:
-        referenced, referenced_key = _sp1_id_lookup(payload, referenced_position)
-        owner_element, _owner_key = _sp1_id_lookup(payload, owner)
+        referenced, referenced_key = findOwnerEl(payload, referenced_position)
+        owner_element, _owner_slot = findOwnerEl(payload, owner)
     except (KeyError, IndexError, TypeError) as exc:
         return False, f"Unknown typed-reference location: {exc}"
     if referenced.get(referenced_key) != old_id:
@@ -2335,13 +2340,168 @@ def _h_sp1_id_typed_ref_setup(world: World, text: str, examples: dict) -> tuple[
     return True, ""
 
 
+def _h_sp1_id_ambiguous_global_setup(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a typed global reference targets a duplicated source ID."""
+    payload = getattr(world, "sp1_id_payload", None)
+    if not isinstance(payload, dict):
+        return False, "The SP1 ID payload was not initialized"
+
+    target_scope = examples.get("target_scope", "")
+    ambiguous_id = examples.get("ambiguous_source_id", "")
+    reference_owner = examples.get("reference_owner", "")
+    reference_field = examples.get("reference_field", "")
+    field = _SP1_ID_TYPED_REFERENCE_FIELDS.get(reference_field)
+    if field is None:
+        return False, f"Unknown typed reference field {reference_field}"
+
+    if target_scope == "responsibilities":
+        for responsibility in payload["responsibilities"][:2]:
+            responsibility["resp_id"] = ambiguous_id
+        # Keep all non-example references valid after canonicalization.  The
+        # duplicated source ID is intentionally reserved for the requested
+        # typed reference below.
+        for responsibility in payload["responsibilities"]:
+            for process_model_part in responsibility.get("process_model_parts", []):
+                if process_model_part.get("feedback_source") is not None:
+                    process_model_part["feedback_source"] = {
+                        "type": "responsibility",
+                        "id": "RESP-2",
+                    }
+        for link in payload.get("coordination_links", []):
+            link["source"] = "RESP-1"
+            link["target"] = "RESP-2"
+    elif target_scope == "controlled processes":
+        for process in payload["controlled_processes"][:2]:
+            process["cp_id"] = ambiguous_id
+        # The default payload has references to both controlled processes.
+        # Use canonical IDs for those unrelated references so only the
+        # example field remains unresolved.
+        for responsibility in payload["responsibilities"]:
+            for control_action in responsibility.get("control_actions", []):
+                if control_action.get("target") is not None:
+                    control_action["target"] = {
+                        "type": "controlled_process",
+                        "id": "CP-1",
+                    }
+            for feedback_channel in responsibility.get("feedback_channels", []):
+                if feedback_channel.get("source") is not None:
+                    feedback_channel["source"] = {
+                        "type": "controlled_process",
+                        "id": "CP-1",
+                    }
+    else:
+        return False, f"Unknown ambiguous target scope {target_scope}"
+
+    try:
+        owner_element, _owner_slot = findOwnerEl(payload, reference_owner)
+    except (KeyError, IndexError, TypeError) as exc:
+        return False, f"Unknown ambiguous-reference owner: {exc}"
+    owner_element[field] = {"type": examples.get("reference_type", ""), "id": ambiguous_id}
+    return True, ""
+
+
+def _h_sp1_id_ambiguous_global_assert(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the ambiguous typed reference remains unchanged."""
+    normalized = getattr(world, "sp1_id_normalization", None)
+    if normalized is None:
+        return False, "No normalized payload available"
+    reference_field = examples.get("reference_field", "")
+    field = _SP1_ID_TYPED_REFERENCE_FIELDS.get(reference_field)
+    if field is None:
+        return False, f"Unknown typed reference field {reference_field}"
+    try:
+        owner_element, _owner_slot = findOwnerEl(
+            normalized.payload, examples.get("reference_owner", "")
+        )
+    except (KeyError, IndexError, TypeError) as exc:
+        return False, f"Unknown ambiguous-reference owner: {exc}"
+    reference = owner_element.get(field)
+    actual = reference.get("id") if isinstance(reference, dict) else None
+    expected = examples.get("ambiguous_source_id", "")
+    if actual != expected:
+        return False, f"Expected {reference_field} to remain {expected}, got {actual}"
+    return True, ""
+
+
+def _h_sp1_id_ambiguous_pm_setup(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: both responsibilities contain the same PM source ID."""
+    payload = getattr(world, "sp1_id_payload", None)
+    if not isinstance(payload, dict):
+        return False, "The SP1 ID payload was not initialized"
+    ambiguous_id = examples.get("ambiguous_pm_id", "")
+    responsibilities = payload.get("responsibilities", [])
+    if len(responsibilities) < 2:
+        return False, "Expected at least two responsibilities"
+    first_parts = responsibilities[0].get("process_model_parts", [])
+    second_parts = responsibilities[1].get("process_model_parts", [])
+    if not first_parts or not second_parts:
+        return False, "Expected a process model part in each responsibility"
+    first_parts[0]["pm_id"] = ambiguous_id
+    second_parts[0]["pm_id"] = ambiguous_id
+
+    # Make every unrelated PM update resolve to its canonical position.  The
+    # coordination link's shared_pm is set to the ambiguous ID by the next
+    # step and is the only expected validation failure.
+    for responsibility_index, responsibility in enumerate(responsibilities, start=1):
+        for feedback_channel in responsibility.get("feedback_channels", []):
+            feedback_channel["updates"] = f"PM-{responsibility_index}-1"
+    for link in payload.get("coordination_links", []):
+        link["shared_pm"] = "PM-1-1"
+    if len(payload.get("coordination_links", [])) > 1:
+        payload["coordination_links"][1]["shared_pm"] = "PM-2-1"
+    return True, ""
+
+
+def _h_sp1_id_ambiguous_coord_setup(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: coordination link 1 selects the duplicated PM source ID."""
+    payload = getattr(world, "sp1_id_payload", None)
+    if not isinstance(payload, dict):
+        return False, "The SP1 ID payload was not initialized"
+    links = payload.get("coordination_links", [])
+    if not links:
+        return False, "Expected at least one coordination link"
+    field = examples.get("coordination_field", "")
+    if field not in {"shared_pm"}:
+        return False, f"Unknown coordination reference field {field}"
+    links[0][field] = examples.get("ambiguous_pm_id", "")
+    return True, ""
+
+
+def _h_sp1_id_ambiguous_coord_assert(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the ambiguous coordination reference remains unchanged."""
+    normalized = getattr(world, "sp1_id_normalization", None)
+    if normalized is None:
+        return False, "No normalized payload available"
+    field = examples.get("coordination_field", "")
+    if field not in {"shared_pm"}:
+        return False, f"Unknown coordination reference field {field}"
+    try:
+        actual = normalized.payload["coordination_links"][0][field]
+    except (KeyError, IndexError, TypeError) as exc:
+        return False, f"Unknown coordination reference field {field}: {exc}"
+    expected = examples.get("ambiguous_pm_id", "")
+    if actual != expected:
+        return False, f"Expected coordination link 1 {field} to remain {expected}, got {actual}"
+    return True, ""
+
+
 def _h_sp1_id_typed_ref_assert(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a typed reference has its canonical ID and original type."""
     payload = getattr(world, "sp1_id_normalization").payload
     field = examples.get("reference_field", "")
     owner = examples.get("reference_owner", "")
     try:
-        owner_element, _owner_key = _sp1_id_lookup(payload, owner)
+        owner_element, _owner_slot = findOwnerEl(payload, owner)
     except (KeyError, IndexError, TypeError):
         return False, f"Unknown reference owner {owner}"
     ref = owner_element.get(field, {})
@@ -3332,6 +3492,11 @@ def register(api: object) -> None:
     api.register('the payload contains an unresolved .* value$', _h_sp1_id_unresolved_setup, source_order=7034)
     api.register('the normalized payload is validated$', _h_sp1_id_validate_unresolved, source_order=7035)
     api.register('validation fails with an error identifying', _h_sp1_id_validation_error, source_order=7036)
+    api.register('an otherwise reference-resolvable payload has two .* using source ID .* and .* .* references it as .*', _h_sp1_id_ambiguous_global_setup, source_order=7037)
+    api.register('responsibility \\d+ (?:process model part|control action|feedback channel) \\d+ .* still references .*', _h_sp1_id_ambiguous_global_assert, source_order=7038)
+    api.register('an otherwise reference-resolvable payload has responsibility 1 and responsibility 2 each containing a process model part with source ID .*', _h_sp1_id_ambiguous_pm_setup, source_order=7039)
+    api.register('coordination link 1 selects .* as .*', _h_sp1_id_ambiguous_coord_setup, source_order=7040)
+    api.register('normalization leaves coordination link 1 .* as .*', _h_sp1_id_ambiguous_coord_assert, source_order=7041)
     api.register('a JSON-shaped LLM result$', _h_tolerant_json_result, source_order=7040)
     api.register('the result is decoded without field validation$', _h_tolerant_decode_without_validation, source_order=7041)
     api.register('the response model declares an omitted required field with annotation', _h_tolerant_declares_omitted_field, source_order=7042)
