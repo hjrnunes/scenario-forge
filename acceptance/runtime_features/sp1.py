@@ -76,6 +76,17 @@ from scenario_forge.stpa.system_model.id_normalization import (
     normalize_control_structure_payload as _sp1_normalize_control_structure_payload,
 )
 
+
+def _tolerant_llm_result(content: object) -> LLMResult:
+    """Wrap acceptance content in the minimal result used by tolerant decoding."""
+    return LLMResult(
+        content=content,
+        prompt_tokens=0,
+        completion_tokens=0,
+        duration_ms=0,
+    )
+
+
 def _h_sp1_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the STPA system model ... module is importable."""
     import scenario_forge.stpa.system_model  # noqa: F401
@@ -2591,12 +2602,7 @@ def _h_tolerant_decode_result(world: World, text: str, examples: dict) -> tuple[
     if world.tolerant_model is None:
         return False, "No tolerant response model declared"
     world.tolerant_result = _sp1_parse_llm_result_unvalidated(
-        LLMResult(
-            content=world.tolerant_content,
-            prompt_tokens=0,
-            completion_tokens=0,
-            duration_ms=0,
-        ),
+        _tolerant_llm_result(world.tolerant_content),
         world.tolerant_model,
     )
     return True, ""
@@ -2948,12 +2954,7 @@ def _h_sp1_tolerant_assemble(
         )
     payload = _sp1_tolerant_control_element_payload(world)
     world.sp1_control_element_set = _sp1_parse_llm_result_unvalidated(
-        LLMResult(
-            content=payload,
-            prompt_tokens=0,
-            completion_tokens=0,
-            duration_ms=0,
-        ),
+        _tolerant_llm_result(payload),
         _SP1ControlElementSet,
     )
     decoded_payload = _sp1_tolerant_decoded_assembly_payload(world)
@@ -2981,12 +2982,7 @@ def _h_sp1_tolerant_normalize_payload(
     """Handle: normalize a tolerant assembled payload."""
     if hasattr(world, "sp1_tolerant_nested_payload"):
         parsed = _sp1_parse_llm_result_unvalidated(
-            LLMResult(
-                content=world.sp1_tolerant_nested_payload,
-                prompt_tokens=0,
-                completion_tokens=0,
-                duration_ms=0,
-            ),
+            _tolerant_llm_result(world.sp1_tolerant_nested_payload),
             ControlStructure,
         )
         world.sp1_normalized_payload = (
@@ -3001,12 +2997,7 @@ def _h_sp1_tolerant_normalize_payload(
             _sp1_valid_resp_set_2a_dict()
         )
     world.sp1_control_element_set = _sp1_parse_llm_result_unvalidated(
-        LLMResult(
-            content=payload,
-            prompt_tokens=0,
-            completion_tokens=0,
-            duration_ms=0,
-        ),
+        _tolerant_llm_result(payload),
         _SP1ControlElementSet,
     )
     enriched = _sp1_enrich_responsibilities(
