@@ -20,10 +20,14 @@ SWARMFORGE_SPEC_REVIEW=false    # true | false (operator opt-in; true = orchestr
 SWARMFORGE_TEST_CMD="uv run pytest tests/ -x"
 SWARMFORGE_ACCEPTANCE_CMD="./scripts/acceptance.sh --test"
 SWARMFORGE_QA_CMD=""
-SWARMFORGE_COVERAGE_CMD="uv run pytest tests/ --cov=src --cov-branch --cov-report=lcov:lcov.info"      # generates lcov.info for LCOV-consuming tools (Python: crap4py, mutate4py)
+SWARMFORGE_COVERAGE_CMD="uv run pytest tests/ --cov=src --cov-branch --cov-report=lcov:lcov.info -q"      # generates lcov.info for LCOV-consuming tools (Python: crap4py, mutate4py); -q avoids flooding the subagent context with ~6000 test lines
 SWARMFORGE_CRAP_CMD="crap4py src/ --lcov lcov.info --max-crap 6"
 SWARMFORGE_DRY_CMD="drywall --threshold 0.82 ./src"
-SWARMFORGE_MUTATION_CMD="mutate4py src/ --test-command 'uv run pytest tests/ -x' --lcov lcov.info --max-workers 8"      # language mutation tool invocation (hardender)
+# Mutation invocation TEMPLATE. The hardender substitutes the changed source
+# file paths for `src/` (never run the whole tree unless explicitly directed —
+# a full-tree run with the full suite per mutant can take hours and times out
+# the delegation). --since-last-run skips already-manifested unchanged code.
+SWARMFORGE_MUTATION_CMD="mutate4py src/ --since-last-run --test-command 'uv run pytest tests/ -x -q' --lcov lcov.info --max-workers 8 --verbose"      # language mutation tool invocation (hardender)
 SWARMFORGE_CRAP_THRESHOLD=6
 SWARMFORGE_MUTATION_SCORE_MIN=80
 SWARMFORGE_MUTATION_SITES_MAX=100
