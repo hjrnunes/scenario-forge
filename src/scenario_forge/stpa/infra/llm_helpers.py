@@ -96,6 +96,63 @@ def _decode_llm_content(result: LLMResult) -> Any:
     )
 
 
+def _construct_collection(
+    value: Any,
+    origin: Any,
+    args: tuple[Any, ...],
+) -> Any:
+    """Construct a supported collection while preserving its element values."""
+    item_type = args[0] if args else Any
+    converted = [
+        _construct_unvalidated(item, item_type)
+        for item in value
+    ]
+    if origin is tuple:
+        return tuple(converted)
+    if origin is set:
+        return set(converted)
+    return converted
+
+
+def _construct_union(value: Any, candidates: tuple[Any, ...]) -> Any:
+    """Construct the first union member that accepts *value*."""
+    for candidate in candidates:
+        if candidate is type(None):
+            continue
+        try:
+            return _construct_unvalidated(value, candidate)
+        except (TypeError, ValueError):
+            continue
+    return value
+
+
+def _construct_enum(value: Any, annotation: type[Enum]) -> Any:
+    """Convert an enum value, retaining malformed values for later validation."""
+    try:
+        return annotation(value)
+    except ValueError:
+        return value
+
+
+def _construct_model(value: dict[str, Any], annotation: type[BaseModel]) -> Any:
+    """Construct a nested model without running field validators."""
+    values = {
+        name: _construct_unvalidated(value[name], field.annotation)
+        for name, field in annotation.model_fields.items()
+        if name in value
+    }
+    return annotation.model_construct(**values)
+
+
+def _construct_typed_value(value: Any, annotation: type[Any]) -> Any:
+    """Construct enum or model annotations without running validators."""
+    if issubclass(annotation, Enum):
+        return _construct_enum(value, annotation)
+    if issubclass(annotation, BaseModel) and isinstance(value, dict):
+        return _construct_model(value, annotation)
+    return value
+
+
 def _construct_unvalidated(value: Any, annotation: Any) -> Any:
     """Construct nested Pydantic models without running field validators."""
     if value is None:
@@ -104,39 +161,11 @@ def _construct_unvalidated(value: Any, annotation: Any) -> Any:
     origin = get_origin(annotation)
     args = get_args(annotation)
     if origin in (list, tuple, set):
-        item_type = args[0] if args else Any
-        converted = [_construct_unvalidated(item, item_type) for item in value]
-        if origin is tuple:
-            return tuple(converted)
-        if origin is set:
-            return set(converted)
-        return converted
+        return _construct_collection(value, origin, args)
     if origin in (_UNION_TYPE, Union):
-        for candidate in args:
-            if candidate is type(None):
-                continue
-            try:
-                return _construct_unvalidated(value, candidate)
-            except (TypeError, ValueError):
-                continue
-        return value
-    if isinstance(annotation, type) and issubclass(annotation, Enum):
-        try:
-            return annotation(value)
-        except ValueError:
-            return value
-    if (
-        isinstance(annotation, type)
-        and issubclass(annotation, BaseModel)
-        and isinstance(value, dict)
-    ):
-        values = {}
-        for name, field in annotation.model_fields.items():
-            if name in value:
-                values[name] = _construct_unvalidated(
-                    value[name], field.annotation
-                )
-        return annotation.model_construct(**values)
+        return _construct_union(value, args)
+    if isinstance(annotation, type):
+        return _construct_typed_value(value, annotation)
     return value
 
 
@@ -163,6 +192,63 @@ def parse_llm_result_unvalidated(result: LLMResult, model_class: type[_T]) -> _T
         if name in content
     }
     return model_class.model_construct(**values)
+
+
+def _build_completion_kwargs(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    response_format: type[_T],
+    temperature: float,
+    max_completion_tokens: int | None,
+    allow_unvalidated: bool,
+) -> dict[str, Any]:
+    """Build the common keyword arguments for a structured completion."""
+    completion_kwargs: dict[str, Any] = {
+        "system_prompt": system_prompt,
+        "user_prompt": user_prompt,
+        "response_format": response_format,
+        "temperature": temperature,
+    }
+    if max_completion_tokens is not None:
+        completion_kwargs["max_completion_tokens"] = max_completion_tokens
+    if allow_unvalidated:
+        completion_kwargs["allow_unvalidated"] = True
+    return completion_kwargs
+
+
+def _is_unsupported_unvalidated_error(
+    error: TypeError,
+    allow_unvalidated: bool,
+) -> bool:
+    """Check whether a client rejected the optional compatibility argument."""
+    return (
+        allow_unvalidated
+        and "unexpected keyword argument" in str(error)
+    )
+
+
+def _result_usage(
+    result: LLMResult | None,
+) -> tuple[int, int, int]:
+    """Return prompt tokens, completion tokens, and duration for a result."""
+    if result is None:
+        return 0, 0, 0
+    return result.prompt_tokens, result.completion_tokens, result.duration_ms
+
+
+def _parse_structured_result(
+    result: LLMResult,
+    response_format: type[_T],
+    allow_unvalidated: bool,
+) -> _T:
+    """Validate a structured result, with a tolerant fallback when requested."""
+    try:
+        return parse_llm_result(result, response_format)
+    except ValidationError:
+        if not allow_unvalidated:
+            raise
+        return parse_llm_result_unvalidated(result, response_format)
 
 
 def log_llm_call(
@@ -280,39 +366,31 @@ def safe_llm_call(
     """
     result: LLMResult | None = None
     try:
-        completion_kwargs: dict[str, Any] = {
-            "system_prompt": system_prompt,
-            "user_prompt": user_prompt,
-            "response_format": response_format,
-            "temperature": temperature,
-        }
-        if max_completion_tokens is not None:
-            completion_kwargs["max_completion_tokens"] = max_completion_tokens
-        if allow_unvalidated:
-            try:
-                result = llm_client.complete(
-                    **completion_kwargs,
-                    allow_unvalidated=True,
-                )
-            except TypeError as exc:
-                if "unexpected keyword argument" not in str(exc):
-                    raise
-                result = llm_client.complete(**completion_kwargs)
-        else:
-            result = llm_client.complete(**completion_kwargs)
+        completion_kwargs = _build_completion_kwargs(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_format=response_format,
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+            allow_unvalidated=allow_unvalidated,
+        )
         try:
-            model = parse_llm_result(result, response_format)
-        except ValidationError:
-            if not allow_unvalidated:
+            result = llm_client.complete(**completion_kwargs)
+        except TypeError as exc:
+            if not _is_unsupported_unvalidated_error(exc, allow_unvalidated):
                 raise
-            model = parse_llm_result_unvalidated(result, response_format)
+            completion_kwargs.pop("allow_unvalidated", None)
+            result = llm_client.complete(**completion_kwargs)
+        model = _parse_structured_result(
+            result,
+            response_format,
+            allow_unvalidated,
+        )
         log_llm_call(result, llm_client.model, run_dir, stage, step)
         return model, result, None
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
-        _prompt_tokens = result.prompt_tokens if result else 0
-        _completion_tokens = result.completion_tokens if result else 0
-        _duration_ms = result.duration_ms if result else 0
+        _prompt_tokens, _completion_tokens, _duration_ms = _result_usage(result)
         log_llm_call_failure(
             llm_client.model,
             run_dir,
@@ -383,9 +461,7 @@ def safe_llm_call_raw(
         return content, result, None
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
-        _prompt_tokens = result.prompt_tokens if result else 0
-        _completion_tokens = result.completion_tokens if result else 0
-        _duration_ms = result.duration_ms if result else 0
+        _prompt_tokens, _completion_tokens, _duration_ms = _result_usage(result)
         log_llm_call_failure(
             llm_client.model,
             run_dir,

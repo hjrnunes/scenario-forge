@@ -6,6 +6,7 @@ These improve coverage of the infra helpers extracted during cleanup.
 from __future__ import annotations
 
 import json
+from enum import Enum
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from scenario_forge.stpa.infra.llm_helpers import (
     parse_llm_result,
     parse_llm_result_unvalidated,
     safe_llm_call,
+    safe_llm_call_raw,
 )
 
 
@@ -44,6 +46,19 @@ class _ContainerModel(BaseModel):
     items: list[_NestedModel]
 
 
+class _Mode(str, Enum):
+    READY = "ready"
+
+
+class _CollectionModel(BaseModel):
+    """Model covering collection, enum, and union tolerant decoding."""
+
+    labels: set[str]
+    checkpoints: tuple[str, ...]
+    mode: _Mode
+    note: str | None = None
+
+
 class _TolerantClient:
     """Minimal client exposing the raw structured-response escape hatch."""
 
@@ -68,6 +83,50 @@ class _TolerantClient:
             prompt_tokens=0,
             completion_tokens=0,
             duration_ms=0,
+        )
+
+
+class _LegacyClient:
+    """Minimal client without the optional compatibility argument."""
+
+    model = "legacy-model"
+
+    def complete(
+        self,
+        *,
+        system_prompt,
+        user_prompt,
+        response_format,
+        temperature,
+        max_completion_tokens=None,
+    ):
+        return LLMResult(
+            content={"name": "legacy"},
+            prompt_tokens=1,
+            completion_tokens=2,
+            duration_ms=3,
+        )
+
+
+class _RawClient:
+    """Minimal client returning configurable raw-call content."""
+
+    model = "raw-model"
+
+    def __init__(self, content=None, error=None) -> None:
+        self.content = content
+        self.error = error
+        self.kwargs = None
+
+    def complete(self, **kwargs):
+        self.kwargs = kwargs
+        if self.error is not None:
+            raise self.error
+        return LLMResult(
+            content=self.content,
+            prompt_tokens=1,
+            completion_tokens=2,
+            duration_ms=3,
         )
 
 
@@ -123,6 +182,61 @@ class TestParseLlmResult:
 
         assert parsed.items[0].item_id == "malformed"
 
+    def test_unvalidated_parser_constructs_collections_and_enums(self):
+        """Tolerant decoding preserves supported nested annotation shapes."""
+        result = LLMResult(
+            content={
+                "labels": ["one", "two"],
+                "checkpoints": ["first", "second"],
+                "mode": "ready",
+                "note": "optional",
+            },
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+        parsed = parse_llm_result_unvalidated(result, _CollectionModel)
+
+        assert parsed.labels == {"one", "two"}
+        assert parsed.checkpoints == ("first", "second")
+        assert parsed.mode is _Mode.READY
+        assert parsed.note == "optional"
+
+    def test_unvalidated_parser_accepts_json_and_model_content(self):
+        """Tolerant decoding handles JSON strings and Pydantic content."""
+        content = {"name": "decoded"}
+        for encoded in (json.dumps(content), _SampleModel(**content)):
+            parsed = parse_llm_result_unvalidated(
+                LLMResult(
+                    content=encoded,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                ),
+                _SampleModel,
+            )
+            assert parsed.name == "decoded"
+
+    def test_unvalidated_parser_rejects_non_mapping_content(self):
+        """Tolerant decoding still requires a mapping-shaped response."""
+        result = LLMResult(
+            content=["not", "a", "mapping"],
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+        with pytest.raises(
+            TypeError,
+            match="Unexpected LLM result content type",
+        ):
+            parse_llm_result_unvalidated(result, _SampleModel)
+
+        result.content = json.dumps(["not", "a", "mapping"])
+        with pytest.raises(TypeError, match="Expected a mapping"):
+            parse_llm_result_unvalidated(result, _SampleModel)
+
     def test_safe_call_passes_tolerant_mode_and_defers_validation(self, tmp_path):
         """safe_llm_call exposes malformed nested IDs to post-processing."""
         client = _TolerantClient()
@@ -141,6 +255,71 @@ class TestParseLlmResult:
         assert error is None
         assert client.allow_unvalidated is True
         assert parsed.items[0].item_id == "malformed"
+
+    def test_safe_call_retries_for_legacy_client(self, tmp_path):
+        """safe_llm_call falls back when a client rejects the optional flag."""
+        parsed, result, error = safe_llm_call(
+            llm_client=_LegacyClient(),
+            system_prompt="system",
+            user_prompt="user",
+            response_format=_SampleModel,
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+            allow_unvalidated=True,
+        )
+
+        assert error is None
+        assert result is not None
+        assert parsed.name == "legacy"
+
+    def test_safe_raw_call_stringifies_content(self, tmp_path):
+        """Raw calls return stringified non-string response content."""
+        client = _RawClient(content={"answer": "ok"})
+
+        content, result, error = safe_llm_call_raw(
+            llm_client=client,
+            system_prompt="system",
+            user_prompt="user",
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+            max_completion_tokens=10,
+        )
+
+        assert error is None
+        assert result is not None
+        assert content == "{'answer': 'ok'}"
+        assert client.kwargs["max_completion_tokens"] == 10
+
+    def test_safe_raw_call_converts_none_content_to_empty_string(self, tmp_path):
+        """Raw calls turn an empty response into an empty string."""
+        content, _, error = safe_llm_call_raw(
+            llm_client=_RawClient(content=None),
+            system_prompt="system",
+            user_prompt="user",
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+        )
+
+        assert error is None
+        assert content == ""
+
+    def test_safe_raw_call_logs_and_returns_failures(self, tmp_path):
+        """Raw calls return an error tuple when the client fails."""
+        content, result, error = safe_llm_call_raw(
+            llm_client=_RawClient(error=RuntimeError("offline")),
+            system_prompt="system",
+            user_prompt="user",
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+        )
+
+        assert content is None
+        assert result is None
+        assert error == "RuntimeError: offline"
 
 
 class TestLogLlmCall:

@@ -161,6 +161,30 @@ class LLMClient:
             kwargs["extra_body"] = {"top_k": self.top_k}
         return kwargs
 
+    def _request_completion(
+        self,
+        messages: list[dict[str, str]],
+        response_format: type[BaseModel] | None,
+        extra_kwargs: dict[str, Any],
+        allow_unvalidated: bool,
+    ) -> tuple[Any, Any]:
+        """Request a completion and return its response plus extracted content."""
+        if response_format is not None and not allow_unvalidated:
+            response = self._client.beta.chat.completions.parse(
+                model=self.model,
+                messages=messages,
+                response_format=response_format,
+                **extra_kwargs,
+            )
+            return response, response.choices[0].message.parsed
+
+        response = self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            **extra_kwargs,
+        )
+        return response, response.choices[0].message.content
+
     def complete(
         self,
         system_prompt: str,
@@ -183,22 +207,12 @@ class LLMClient:
             extra_kwargs["response_format"] = {"type": "json_object"}
 
         t0 = time.perf_counter_ns()
-
-        if response_format is not None and not allow_unvalidated:
-            response = self._client.beta.chat.completions.parse(
-                model=self.model,
-                messages=messages,
-                response_format=response_format,
-                **extra_kwargs,
-            )
-            content = response.choices[0].message.parsed
-        else:
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                **extra_kwargs,
-            )
-            content = response.choices[0].message.content
+        response, content = self._request_completion(
+            messages,
+            response_format,
+            extra_kwargs,
+            allow_unvalidated,
+        )
 
         duration_ms = (time.perf_counter_ns() - t0) // 1_000_000
         usage = (

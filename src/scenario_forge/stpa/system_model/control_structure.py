@@ -49,6 +49,36 @@ DEFAULT_TEMPERATURE = 0.4
 # Deterministic ID normalization
 # ---------------------------------------------------------------------------
 
+SourceIdEntry = tuple[str, str]
+NamespaceEntries = dict[str, list[SourceIdEntry]]
+
+_NAMESPACE_NAMES = (
+    "responsibility",
+    "responsibility_constraint",
+    "process_model_part",
+    "control_action",
+    "feedback_channel",
+    "controlled_process",
+    "coordination_link",
+    "coordination_mechanism",
+)
+_RESPONSIBILITY_CHILD_SPECS = (
+    (
+        "responsibility_constraints",
+        "rc_id",
+        "RC",
+        "responsibility_constraint",
+    ),
+    ("process_model_parts", "pm_id", "PM", "process_model_part"),
+    ("control_actions", "ca_id", "CA", "control_action"),
+    ("feedback_channels", "fb_id", "FB", "feedback_channel"),
+)
+_TYPED_REFERENCE_FIELDS = (
+    ("process_model_parts", "feedback_source"),
+    ("control_actions", "target"),
+    ("feedback_channels", "source"),
+)
+
 
 @dataclass(frozen=True)
 class ControlStructureNormalization:
@@ -85,99 +115,147 @@ def _payload_dict(payload: Mapping[str, Any] | BaseModel) -> dict[str, Any]:
     return copy.deepcopy(dict(value))
 
 
+def _empty_namespace_entries() -> NamespaceEntries:
+    """Return empty source-ID buckets in canonical namespace order."""
+    return {namespace: [] for namespace in _NAMESPACE_NAMES}
+
+
+def _collect_child_source_ids(
+    children: Any,
+    parent_index: int,
+    id_key: str,
+    prefix: str,
+) -> list[SourceIdEntry]:
+    """Collect source IDs from one responsibility child collection."""
+    if not isinstance(children, list):
+        return []
+    entries: list[SourceIdEntry] = []
+    for child_index, child in enumerate(children, start=1):
+        entry = _child_source_id_entry(
+            child,
+            child_index,
+            parent_index,
+            id_key,
+            prefix,
+        )
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
+def _child_source_id_entry(
+    child: Any,
+    child_index: int,
+    parent_index: int,
+    id_key: str,
+    prefix: str,
+) -> SourceIdEntry | None:
+    """Return one child source-ID entry when its ID is a string."""
+    if not isinstance(child, dict):
+        return None
+    old_id = child.get(id_key)
+    if not isinstance(old_id, str):
+        return None
+    return old_id, f"{prefix}-{parent_index}-{child_index}"
+
+
+def _collect_responsibility_source_ids(
+    responsibility: dict[str, Any],
+    responsibility_index: int,
+) -> NamespaceEntries:
+    """Collect a responsibility and its child source IDs."""
+    entries: NamespaceEntries = {"responsibility": []}
+    old_resp_id = responsibility.get("resp_id")
+    if isinstance(old_resp_id, str):
+        entries["responsibility"].append(
+            (old_resp_id, f"RESP-{responsibility_index}")
+        )
+
+    for child_key, id_key, prefix, namespace in _RESPONSIBILITY_CHILD_SPECS:
+        entries[namespace] = _collect_child_source_ids(
+            responsibility.get(child_key, []),
+            responsibility_index,
+            id_key,
+            prefix,
+        )
+    return entries
+
+
+def _collect_controlled_process_source_ids(
+    payload: dict[str, Any],
+    entries: NamespaceEntries,
+) -> None:
+    """Append controlled-process source IDs to *entries*."""
+    processes = payload.get("controlled_processes", [])
+    if not isinstance(processes, list):
+        return
+    for process_index, process in enumerate(processes, start=1):
+        old_id = _string_id(process, "cp_id")
+        if old_id is not None:
+            entries["controlled_process"].append(
+                (old_id, f"CP-{process_index}")
+            )
+
+
+def _collect_coordination_source_ids(
+    payload: dict[str, Any],
+    entries: NamespaceEntries,
+) -> None:
+    """Append coordination-link and mechanism source IDs to *entries*."""
+    links = payload.get("coordination_links", [])
+    if not isinstance(links, list):
+        return
+    for link_index, link in enumerate(links, start=1):
+        _collect_coordination_link_source_ids(link, link_index, entries)
+
+
+def _string_id(value: Any, key: str) -> str | None:
+    """Return a mapping value when *value[key]* is a string."""
+    if isinstance(value, dict) and isinstance(value.get(key), str):
+        return value[key]
+    return None
+
+
+def _collect_coordination_link_source_ids(
+    link: Any,
+    link_index: int,
+    entries: NamespaceEntries,
+) -> None:
+    """Collect source IDs from one coordination link."""
+    link_id = _string_id(link, "link_id")
+    if link_id is not None:
+        entries["coordination_link"].append((link_id, f"CL-{link_index}"))
+    if not isinstance(link, dict):
+        return
+    mechanism = link.get("coordination_mechanism")
+    mechanism_id = _string_id(mechanism, "cm_id")
+    if mechanism_id is not None:
+        entries["coordination_mechanism"].append(
+            (mechanism_id, f"CM-{link_index}")
+        )
+
+
 def _source_id_entries(
     payload: dict[str, Any],
-) -> tuple[
-    list[tuple[str, str]],
-    list[tuple[str, str]],
-    list[tuple[str, str]],
-    list[tuple[str, str]],
-    list[tuple[str, str]],
-    list[tuple[str, str]],
-    list[tuple[str, str]],
-    list[tuple[str, str]],
-]:
-    """Collect ``(source_id, canonical_id)`` entries by element namespace."""
+) -> NamespaceEntries:
+    """Collect ``(source_id, canonical_id)`` entries by namespace."""
+    entries = _empty_namespace_entries()
     responsibilities = payload.get("responsibilities", [])
-    controlled_processes = payload.get("controlled_processes", [])
-    coordination_links = payload.get("coordination_links", [])
-
-    resp_entries: list[tuple[str, str]] = []
-    rc_entries: list[tuple[str, str]] = []
-    pm_entries: list[tuple[str, str]] = []
-    ca_entries: list[tuple[str, str]] = []
-    fb_entries: list[tuple[str, str]] = []
-    cp_entries: list[tuple[str, str]] = []
-    cl_entries: list[tuple[str, str]] = []
-    cm_entries: list[tuple[str, str]] = []
-
     if not isinstance(responsibilities, list):
-        return (
-            resp_entries,
-            rc_entries,
-            pm_entries,
-            ca_entries,
-            fb_entries,
-            cp_entries,
-            cl_entries,
-            cm_entries,
-        )
+        return entries
 
     for resp_index, resp in enumerate(responsibilities, start=1):
         if not isinstance(resp, dict):
             continue
-        old_resp_id = resp.get("resp_id")
-        if isinstance(old_resp_id, str):
-            resp_entries.append((old_resp_id, f"RESP-{resp_index}"))
+        responsibility_entries = _collect_responsibility_source_ids(
+            resp, resp_index
+        )
+        for namespace, source_entries in responsibility_entries.items():
+            entries[namespace].extend(source_entries)
 
-        for child_key, id_key, prefix, entries in (
-            (
-                "responsibility_constraints",
-                "rc_id",
-                "RC",
-                rc_entries,
-            ),
-            ("process_model_parts", "pm_id", "PM", pm_entries),
-            ("control_actions", "ca_id", "CA", ca_entries),
-            ("feedback_channels", "fb_id", "FB", fb_entries),
-        ):
-            children = resp.get(child_key, [])
-            if not isinstance(children, list):
-                continue
-            for child_index, child in enumerate(children, start=1):
-                if isinstance(child, dict) and isinstance(child.get(id_key), str):
-                    entries.append(
-                        (
-                            child[id_key],
-                            f"{prefix}-{resp_index}-{child_index}",
-                        )
-                    )
-
-    if isinstance(controlled_processes, list):
-        for process_index, process in enumerate(controlled_processes, start=1):
-            if isinstance(process, dict) and isinstance(process.get("cp_id"), str):
-                cp_entries.append((process["cp_id"], f"CP-{process_index}"))
-
-    if isinstance(coordination_links, list):
-        for link_index, link in enumerate(coordination_links, start=1):
-            if not isinstance(link, dict):
-                continue
-            if isinstance(link.get("link_id"), str):
-                cl_entries.append((link["link_id"], f"CL-{link_index}"))
-            mechanism = link.get("coordination_mechanism")
-            if isinstance(mechanism, dict) and isinstance(mechanism.get("cm_id"), str):
-                cm_entries.append((mechanism["cm_id"], f"CM-{link_index}"))
-
-    return (
-        resp_entries,
-        rc_entries,
-        pm_entries,
-        ca_entries,
-        fb_entries,
-        cp_entries,
-        cl_entries,
-        cm_entries,
-    )
+    _collect_controlled_process_source_ids(payload, entries)
+    _collect_coordination_source_ids(payload, entries)
+    return entries
 
 
 def _unique_source_map(entries: list[tuple[str, str]]) -> dict[str, str]:
@@ -207,42 +285,64 @@ def _flat_unique_source_map(
     }
 
 
+def _set_responsibility_canonical_ids(
+    responsibilities: list[Any],
+) -> None:
+    """Replace responsibility and child IDs with structural IDs."""
+    for resp_index, resp in enumerate(responsibilities, start=1):
+        if not isinstance(resp, dict):
+            continue
+        resp["resp_id"] = f"RESP-{resp_index}"
+        _set_responsibility_child_canonical_ids(resp, resp_index)
+
+
+def _set_responsibility_child_canonical_ids(
+    responsibility: dict[str, Any],
+    responsibility_index: int,
+) -> None:
+    """Replace IDs in one responsibility's child collections."""
+    for child_key, id_key, prefix, _namespace in _RESPONSIBILITY_CHILD_SPECS:
+        children = responsibility.get(child_key, [])
+        if not isinstance(children, list):
+            continue
+        for child_index, child in enumerate(children, start=1):
+            if isinstance(child, dict):
+                child[id_key] = (
+                    f"{prefix}-{responsibility_index}-{child_index}"
+                )
+
+
+def _set_controlled_process_canonical_ids(processes: list[Any]) -> None:
+    """Replace controlled-process IDs with structural IDs."""
+    for process_index, process in enumerate(processes, start=1):
+        if isinstance(process, dict):
+            process["cp_id"] = f"CP-{process_index}"
+
+
+def _set_coordination_canonical_ids(links: list[Any]) -> None:
+    """Replace coordination-link and mechanism IDs with structural IDs."""
+    for link_index, link in enumerate(links, start=1):
+        if not isinstance(link, dict):
+            continue
+        link["link_id"] = f"CL-{link_index}"
+        mechanism = link.get("coordination_mechanism")
+        if isinstance(mechanism, dict):
+            mechanism["cm_id"] = f"CM-{link_index}"
+
+
 def _set_canonical_ids(payload: dict[str, Any]) -> None:
-    """Replace element IDs in *payload* with the canonical IDs in *entries*."""
+    """Replace element IDs in *payload* with structural IDs."""
     responsibilities = payload.get("responsibilities", [])
     if isinstance(responsibilities, list):
-        for resp_index, resp in enumerate(responsibilities, start=1):
-            if not isinstance(resp, dict):
-                continue
-            resp["resp_id"] = f"RESP-{resp_index}"
-            for child_key, id_key, prefix in (
-                ("responsibility_constraints", "rc_id", "RC"),
-                ("process_model_parts", "pm_id", "PM"),
-                ("control_actions", "ca_id", "CA"),
-                ("feedback_channels", "fb_id", "FB"),
-            ):
-                children = resp.get(child_key, [])
-                if not isinstance(children, list):
-                    continue
-                for child_index, child in enumerate(children, start=1):
-                    if isinstance(child, dict):
-                        child[id_key] = f"{prefix}-{resp_index}-{child_index}"
+        _set_responsibility_canonical_ids(responsibilities)
 
     controlled_processes = payload.get("controlled_processes", [])
     if isinstance(controlled_processes, list):
-        for process_index, process in enumerate(controlled_processes, start=1):
-            if isinstance(process, dict):
-                process["cp_id"] = f"CP-{process_index}"
+        _set_controlled_process_canonical_ids(controlled_processes)
 
     coordination_links = payload.get("coordination_links", [])
     if isinstance(coordination_links, list):
-        for link_index, link in enumerate(coordination_links, start=1):
-            if not isinstance(link, dict):
-                continue
-            link["link_id"] = f"CL-{link_index}"
-            mechanism = link.get("coordination_mechanism")
-            if isinstance(mechanism, dict):
-                mechanism["cm_id"] = f"CM-{link_index}"
+        _set_coordination_canonical_ids(coordination_links)
 
 
 def _reference_type_value(value: Any) -> str | None:
@@ -283,6 +383,97 @@ def _rewrite_local_pm_reference(
         feedback_channel["updates"] = local_pm_map[old_id]
 
 
+def _rewrite_responsibility_references(
+    responsibility: dict[str, Any],
+    namespace_maps: dict[str, dict[str, str]],
+    local_pm_map: dict[str, str],
+) -> None:
+    """Rewrite typed and locally scoped references in one responsibility."""
+    _rewrite_typed_responsibility_references(responsibility, namespace_maps)
+    _rewrite_feedback_channel_references(responsibility, local_pm_map)
+
+
+def _rewrite_typed_responsibility_references(
+    responsibility: dict[str, Any],
+    namespace_maps: dict[str, dict[str, str]],
+) -> None:
+    """Rewrite ElementRefs nested in a single responsibility."""
+    for child_key, ref_key in _TYPED_REFERENCE_FIELDS:
+        children = responsibility.get(child_key, [])
+        if not isinstance(children, list):
+            continue
+        for child in children:
+            if isinstance(child, dict):
+                _rewrite_typed_reference(child.get(ref_key), namespace_maps)
+
+
+def _rewrite_feedback_channel_references(
+    responsibility: dict[str, Any],
+    local_pm_map: dict[str, str],
+) -> None:
+    """Rewrite locally scoped PM references in a responsibility's feedback."""
+    feedback_channels = responsibility.get("feedback_channels", [])
+    if not isinstance(feedback_channels, list):
+        return
+    for feedback_channel in feedback_channels:
+        if isinstance(feedback_channel, dict):
+            _rewrite_local_pm_reference(feedback_channel, local_pm_map)
+
+
+def _rewrite_coordination_references(
+    links: list[Any],
+    namespace_maps: dict[str, dict[str, str]],
+) -> None:
+    """Rewrite coordination references using their source-ID namespaces."""
+    resp_map = namespace_maps["responsibility"]
+    pm_map = namespace_maps["process_model_part"]
+    reference_maps = (
+        ("source", resp_map),
+        ("target", resp_map),
+        ("shared_pm", pm_map),
+    )
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        for field_name, source_map in reference_maps:
+            old_id = link.get(field_name)
+            if isinstance(old_id, str) and old_id in source_map:
+                link[field_name] = source_map[old_id]
+
+
+def _build_source_id_maps(
+    payload: dict[str, Any],
+) -> tuple[NamespaceEntries, dict[str, dict[str, str]]]:
+    """Collect source IDs and build unique maps for each namespace."""
+    entries = _source_id_entries(payload)
+    maps = {
+        namespace: _unique_source_map(source_entries)
+        for namespace, source_entries in entries.items()
+    }
+    return entries, maps
+
+
+def _build_local_pm_maps(payload: dict[str, Any]) -> list[dict[str, str]]:
+    """Build per-responsibility maps for locally scoped PM references."""
+    local_maps: list[dict[str, str]] = []
+    responsibilities = payload.get("responsibilities", [])
+    if not isinstance(responsibilities, list):
+        return local_maps
+
+    for resp_index, resp in enumerate(responsibilities, start=1):
+        if not isinstance(resp, dict):
+            local_maps.append({})
+            continue
+        entries = _collect_child_source_ids(
+            resp.get("process_model_parts", []),
+            resp_index,
+            "pm_id",
+            "PM",
+        )
+        local_maps.append(_unique_source_map(entries))
+    return local_maps
+
+
 def normalize_control_structure_payload(
     payload: Mapping[str, Any] | BaseModel,
 ) -> ControlStructureNormalization:
@@ -298,53 +489,12 @@ def normalize_control_structure_payload(
     reports them as unresolved.
     """
     normalized = _payload_dict(payload)
-    (
-        resp_entries,
-        rc_entries,
-        pm_entries,
-        ca_entries,
-        fb_entries,
-        cp_entries,
-        cl_entries,
-        cm_entries,
-    ) = _source_id_entries(normalized)
-
-    namespace_entries = {
-        "responsibility": resp_entries,
-        "responsibility_constraint": rc_entries,
-        "process_model_part": pm_entries,
-        "control_action": ca_entries,
-        "feedback_channel": fb_entries,
-        "controlled_process": cp_entries,
-        "coordination_link": cl_entries,
-        "coordination_mechanism": cm_entries,
-    }
-    namespace_maps = {
-        namespace: _unique_source_map(entries)
-        for namespace, entries in namespace_entries.items()
-    }
+    namespace_entries, namespace_maps = _build_source_id_maps(normalized)
 
     # Keep the source maps available before replacing IDs.  PM maps are
     # intentionally local for feedback updates, because the same PM source
     # ID is valid in separate responsibilities.
-    local_pm_maps: list[dict[str, str]] = []
-    responsibilities = normalized.get("responsibilities", [])
-    if isinstance(responsibilities, list):
-        for resp_index, resp in enumerate(responsibilities, start=1):
-            if not isinstance(resp, dict):
-                local_pm_maps.append({})
-                continue
-            children = resp.get("process_model_parts", [])
-            entries = (
-                [
-                    (pm.get("pm_id"), f"PM-{resp_index}-{child_index}")
-                    for child_index, pm in enumerate(children, start=1)
-                    if isinstance(pm, dict) and isinstance(pm.get("pm_id"), str)
-                ]
-                if isinstance(children, list)
-                else []
-            )
-            local_pm_maps.append(_unique_source_map(entries))
+    local_pm_maps = _build_local_pm_maps(normalized)
 
     # Capture reference values before IDs are overwritten.
     _rewrite_references_before_id_replacement(
@@ -367,53 +517,38 @@ def _rewrite_references_before_id_replacement(
     local_pm_maps: list[dict[str, str]],
 ) -> None:
     """Rewrite references while their source IDs still match the maps."""
-    responsibilities = payload.get("responsibilities", [])
-    if isinstance(responsibilities, list):
-        for resp_index, resp in enumerate(responsibilities):
-            if not isinstance(resp, dict):
-                continue
-            local_pm_map = (
-                local_pm_maps[resp_index]
-                if resp_index < len(local_pm_maps)
-                else {}
-            )
-            for child_key, ref_key in (
-                ("process_model_parts", "feedback_source"),
-                ("control_actions", "target"),
-                ("feedback_channels", "source"),
-            ):
-                children = resp.get(child_key, [])
-                if not isinstance(children, list):
-                    continue
-                for child in children:
-                    if isinstance(child, dict):
-                        _rewrite_typed_reference(
-                            child.get(ref_key), namespace_maps
-                        )
-            feedback_channels = resp.get("feedback_channels", [])
-            if isinstance(feedback_channels, list):
-                for feedback_channel in feedback_channels:
-                    if isinstance(feedback_channel, dict):
-                        _rewrite_local_pm_reference(
-                            feedback_channel, local_pm_map
-                        )
-
+    _rewrite_responsibility_references_in_payload(
+        payload,
+        namespace_maps,
+        local_pm_maps,
+    )
     coordination_links = payload.get("coordination_links", [])
-    if not isinstance(coordination_links, list):
+    if isinstance(coordination_links, list):
+        _rewrite_coordination_references(coordination_links, namespace_maps)
+
+
+def _rewrite_responsibility_references_in_payload(
+    payload: dict[str, Any],
+    namespace_maps: dict[str, dict[str, str]],
+    local_pm_maps: list[dict[str, str]],
+) -> None:
+    """Rewrite references nested under every responsibility."""
+    responsibilities = payload.get("responsibilities", [])
+    if not isinstance(responsibilities, list):
         return
-    resp_map = namespace_maps["responsibility"]
-    pm_map = namespace_maps["process_model_part"]
-    for link in coordination_links:
-        if not isinstance(link, dict):
+    for resp_index, resp in enumerate(responsibilities):
+        if not isinstance(resp, dict):
             continue
-        for field_name, source_map in (
-            ("source", resp_map),
-            ("target", resp_map),
-            ("shared_pm", pm_map),
-        ):
-            old_id = link.get(field_name)
-            if isinstance(old_id, str) and old_id in source_map:
-                link[field_name] = source_map[old_id]
+        local_pm_map = (
+            local_pm_maps[resp_index]
+            if resp_index < len(local_pm_maps)
+            else {}
+        )
+        _rewrite_responsibility_references(
+            resp,
+            namespace_maps,
+            local_pm_map,
+        )
 
 
 def _validate_normalized_control_structure(
@@ -605,7 +740,19 @@ def _assemble_control_structure(
     )
     controlled_processes = copy.deepcopy(control_element_set.controlled_processes)
 
-    payload = {
+    return _build_control_structure(
+        responsibilities,
+        controlled_processes,
+        normalize_ids=normalize_ids,
+    )
+
+
+def _control_structure_payload(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> dict[str, Any]:
+    """Build a dictionary payload from assembled control-structure elements."""
+    return {
         "responsibilities": [
             resp.model_dump(mode="python", exclude_none=False)
             for resp in responsibilities
@@ -616,8 +763,19 @@ def _assemble_control_structure(
         ],
         "coordination_links": [],
     }
+
+
+def _build_control_structure(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+    *,
+    normalize_ids: bool,
+) -> ControlStructure:
+    """Construct a control structure, optionally normalizing its IDs."""
     if normalize_ids:
-        return _validate_normalized_control_structure(payload)
+        return _validate_normalized_control_structure(
+            _control_structure_payload(responsibilities, controlled_processes)
+        )
     return ControlStructure(
         responsibilities=responsibilities,
         controlled_processes=controlled_processes,
@@ -765,6 +923,46 @@ def _strip_all_element_refs(
     return stripped_resps, stripped_cps, warnings
 
 
+def _fallback_control_structure(
+    enriched_responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+    *,
+    normalize_ids: bool,
+) -> tuple[ControlStructure, list[str]]:
+    """Build the sanitized fallback, degrading to stripped refs if needed."""
+    warnings: list[str] = []
+    try:
+        sanitized_resps, sanitized_cps, sanitize_warnings = (
+            _sanitize_for_fallback(
+                enriched_responsibilities,
+                controlled_processes,
+            )
+        )
+        warnings.extend(sanitize_warnings)
+        return (
+            _build_control_structure(
+                sanitized_resps,
+                sanitized_cps,
+                normalize_ids=normalize_ids,
+            ),
+            warnings,
+        )
+    except Exception:
+        stripped_resps, stripped_cps, strip_warnings = _strip_all_element_refs(
+            enriched_responsibilities,
+            controlled_processes,
+        )
+        warnings.extend(strip_warnings)
+        return (
+            _build_control_structure(
+                stripped_resps,
+                stripped_cps,
+                normalize_ids=normalize_ids,
+            ),
+            warnings,
+        )
+
+
 def _assemble_with_fallback(
     responsibility_set: ResponsibilitySet,
     control_element_set: ControlElementSet,
@@ -833,65 +1031,13 @@ def _assemble_with_fallback(
             control_element_set,
             normalize_ids=normalize_ids,
         )
-
-        # First fallback: sanitize invalid ElementRefs
-        try:
-            sanitized_resps, sanitized_cps, sanitize_warnings = (
-                _sanitize_for_fallback(
-                    enriched_resps,
-                    control_element_set.controlled_processes,
-                )
-            )
-            warnings.extend(sanitize_warnings)
-            fallback_payload = {
-                "responsibilities": [
-                    resp.model_dump(mode="python", exclude_none=False)
-                    for resp in sanitized_resps
-                ],
-                "controlled_processes": [
-                    process.model_dump(mode="python", exclude_none=False)
-                    for process in sanitized_cps
-                ],
-                "coordination_links": [],
-            }
-            fallback = (
-                _validate_normalized_control_structure(fallback_payload)
-                if normalize_ids
-                else ControlStructure(
-                    responsibilities=sanitized_resps,
-                    controlled_processes=sanitized_cps,
-                )
-            )
-            return fallback, warnings
-        except Exception:
-            # Further-degraded fallback: strip ALL ElementRefs
-            stripped_resps, stripped_cps, strip_warnings = (
-                _strip_all_element_refs(
-                    enriched_resps,
-                    control_element_set.controlled_processes,
-                )
-            )
-            warnings.extend(strip_warnings)
-            fallback_payload = {
-                "responsibilities": [
-                    resp.model_dump(mode="python", exclude_none=False)
-                    for resp in stripped_resps
-                ],
-                "controlled_processes": [
-                    process.model_dump(mode="python", exclude_none=False)
-                    for process in stripped_cps
-                ],
-                "coordination_links": [],
-            }
-            fallback = (
-                _validate_normalized_control_structure(fallback_payload)
-                if normalize_ids
-                else ControlStructure(
-                    responsibilities=stripped_resps,
-                    controlled_processes=stripped_cps,
-                )
-            )
-            return fallback, warnings
+        fallback, fallback_warnings = _fallback_control_structure(
+            enriched_resps,
+            control_element_set.controlled_processes,
+            normalize_ids=normalize_ids,
+        )
+        warnings.extend(fallback_warnings)
+        return fallback, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -955,21 +1101,30 @@ def _rewrite_coordination_link_source_ids(
     resp_map = source_id_mappings.get("responsibility", {})
     pm_map = source_id_mappings.get("process_model_part", {})
     canonical_ids = set(resp_map.values()) | set(pm_map.values())
+    reference_maps = (
+        ("source", resp_map),
+        ("target", resp_map),
+        ("shared_pm", pm_map),
+    )
     for link in links:
-        if not isinstance(link, dict):
-            continue
-        for field_name, source_map in (
-            ("source", resp_map),
-            ("target", resp_map),
-            ("shared_pm", pm_map),
+        if isinstance(link, dict):
+            _rewrite_coordination_link(link, reference_maps, canonical_ids)
+
+
+def _rewrite_coordination_link(
+    link: dict[str, Any],
+    reference_maps: tuple[tuple[str, dict[str, str]], ...],
+    canonical_ids: set[str],
+) -> None:
+    """Rewrite source IDs in one Call 3 coordination link."""
+    for field_name, source_map in reference_maps:
+        old_id = link.get(field_name)
+        if (
+            isinstance(old_id, str)
+            and old_id not in canonical_ids
+            and old_id in source_map
         ):
-            old_id = link.get(field_name)
-            if (
-                isinstance(old_id, str)
-                and old_id not in canonical_ids
-                and old_id in source_map
-            ):
-                link[field_name] = source_map[old_id]
+            link[field_name] = source_map[old_id]
 
 
 # ---------------------------------------------------------------------------

@@ -240,6 +240,39 @@ def test_normalization_preserves_order_and_non_id_fields() -> None:
     ] == ["Connection A", "Connection B"]
 
 
+def test_normalization_handles_non_mapping_children_and_links() -> None:
+    payload = {
+        "responsibilities": [
+            {
+                "resp_id": "controller",
+                "description": "Controller",
+                "responsibility_constraints": ["not-a-mapping"],
+                "process_model_parts": "not-a-list",
+                "control_actions": [None],
+                "feedback_channels": [None],
+            }
+        ],
+        "controlled_processes": [
+            {"cp_id": "process", "description": "Process"},
+            None,
+        ],
+        "coordination_links": [
+            None,
+            {
+                "link_id": "link",
+                "coordination_mechanism": None,
+            },
+        ],
+    }
+
+    result = normalize_control_structure_payload(payload)
+
+    assert result.payload["responsibilities"][0]["resp_id"] == "RESP-1"
+    assert result.payload["controlled_processes"][0]["cp_id"] == "CP-1"
+    assert result.payload["coordination_links"][1]["link_id"] == "CL-2"
+    assert payload["responsibilities"][0]["resp_id"] == "controller"
+
+
 def test_stage2_uses_tolerant_decode_then_normalizes_before_validation(tmp_path) -> None:
     client = MockLLMClient()
     client.set_response_for(
