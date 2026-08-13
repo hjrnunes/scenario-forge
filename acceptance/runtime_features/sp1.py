@@ -2063,6 +2063,16 @@ def findOwnerEl(payload: dict, position: str) -> tuple[dict, str]:
     raise KeyError(position)
 
 
+def ownerAt(payload: dict, position: str) -> dict:
+    """Return the element at a structural position."""
+    return findOwnerEl(payload, position)[0]
+
+
+def coordAt(payload: dict, field: str):
+    """Return a field from the first coordination link."""
+    return payload["coordination_links"][0][field]
+
+
 def _h_sp1_id_payload_parsed(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a syntactically parsed SP1 control-structure payload."""
     world.sp1_id_payload = _sp1_id_payload()
@@ -2328,7 +2338,7 @@ def _h_sp1_id_typed_ref_setup(world: World, text: str, examples: dict) -> tuple[
     owner = examples.get("reference_owner", "")
     try:
         referenced, referenced_key = findOwnerEl(payload, referenced_position)
-        owner_element, _owner_slot = findOwnerEl(payload, owner)
+        owner_element = ownerAt(payload, owner)
     except (KeyError, IndexError, TypeError) as exc:
         return False, f"Unknown typed-reference location: {exc}"
     if referenced.get(referenced_key) != old_id:
@@ -2395,7 +2405,7 @@ def _h_sp1_id_ambiguous_global_setup(
         return False, f"Unknown ambiguous target scope {target_scope}"
 
     try:
-        owner_element, _owner_slot = findOwnerEl(payload, reference_owner)
+        owner_element = ownerAt(payload, reference_owner)
     except (KeyError, IndexError, TypeError) as exc:
         return False, f"Unknown ambiguous-reference owner: {exc}"
     owner_element[field] = {"type": examples.get("reference_type", ""), "id": ambiguous_id}
@@ -2486,7 +2496,7 @@ def _h_sp1_id_ambiguous_coord_assert(
     if field not in {"shared_pm"}:
         return False, f"Unknown coordination reference field {field}"
     try:
-        actual = normalized.payload["coordination_links"][0][field]
+        actual = coordAt(normalized.payload, field)
     except (KeyError, IndexError, TypeError) as exc:
         return False, f"Unknown coordination reference field {field}: {exc}"
     expected = examples.get("ambiguous_pm_id", "")
@@ -2501,7 +2511,7 @@ def _h_sp1_id_typed_ref_assert(world: World, text: str, examples: dict) -> tuple
     field = examples.get("reference_field", "")
     owner = examples.get("reference_owner", "")
     try:
-        owner_element, _owner_slot = findOwnerEl(payload, owner)
+        owner_element = ownerAt(payload, owner)
     except (KeyError, IndexError, TypeError):
         return False, f"Unknown reference owner {owner}"
     ref = owner_element.get(field, {})
@@ -2525,7 +2535,7 @@ def _h_sp1_id_coord_setup(world: World, text: str, examples: dict) -> tuple[bool
 def _h_sp1_id_coord_assert(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a coordination reference has its canonical ID."""
     field = examples.get("reference_field", "")
-    actual = getattr(world, "sp1_id_normalization").payload["coordination_links"][0][field]
+    actual = coordAt(getattr(world, "sp1_id_normalization").payload, field)
     if actual != examples.get("new_reference"):
         return False, f"Expected {field} {examples.get('new_reference')}, got {actual}"
     return True, ""
@@ -3495,8 +3505,8 @@ def register(api: object) -> None:
     api.register('an otherwise reference-resolvable payload has two .* using source ID .* and .* .* references it as .*', _h_sp1_id_ambiguous_global_setup, source_order=7037)
     api.register('responsibility \\d+ (?:process model part|control action|feedback channel) \\d+ .* still references .*', _h_sp1_id_ambiguous_global_assert, source_order=7038)
     api.register('an otherwise reference-resolvable payload has responsibility 1 and responsibility 2 each containing a process model part with source ID .*', _h_sp1_id_ambiguous_pm_setup, source_order=7039)
-    api.register('coordination link 1 selects .* as .*', _h_sp1_id_ambiguous_coord_setup, source_order=7040)
-    api.register('normalization leaves coordination link 1 .* as .*', _h_sp1_id_ambiguous_coord_assert, source_order=7041)
+    api.register('coordination link 1 selects .* as .*', _h_sp1_id_ambiguous_coord_setup, source_order=7070)
+    api.register('normalization leaves coordination link 1 .* as .*', _h_sp1_id_ambiguous_coord_assert, source_order=7071)
     api.register('a JSON-shaped LLM result$', _h_tolerant_json_result, source_order=7040)
     api.register('the result is decoded without field validation$', _h_tolerant_decode_without_validation, source_order=7041)
     api.register('the response model declares an omitted required field with annotation', _h_tolerant_declares_omitted_field, source_order=7042)
