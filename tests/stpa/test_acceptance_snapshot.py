@@ -19,7 +19,10 @@ from snapshot import (  # noqa: E402
     SnapshotError,
     artifact_paths,
     discover_features,
+    find_step_data_tables,
     metadata_name,
+    snapshot_layout,
+    validate_committed_snapshot,
     validate_snapshot,
 )
 
@@ -28,12 +31,26 @@ def test_artifact_paths_preserve_feature_subdir():
     paths = artifact_paths("features/critic-revision-fix/critic-gap-detection.feature")
 
     assert paths.feature_path == "features/critic-revision-fix/critic-gap-detection.feature"
-    assert paths.ir_path == "acceptance/ir/critic-revision-fix/critic-gap-detection.json"
-    assert paths.test_path == "acceptance/generated/critic-gap-detection_acceptance_test.py"
+    assert paths.ir_path == "build/acceptance/ir/critic-revision-fix/critic-gap-detection.json"
+    assert paths.test_path == "build/acceptance/generated/critic-gap-detection_acceptance_test.py"
     assert paths.metadata_path == (
-        "acceptance/generated/metadata/critic-gap-detection.json"
+        "build/acceptance/generated/metadata/critic-gap-detection.json"
     )
-    assert paths.dry_path == "acceptance/dry/critic-revision-fix/critic-gap-detection.txt"
+    assert paths.dry_path == "build/acceptance/dry/critic-revision-fix/critic-gap-detection.txt"
+
+
+def test_snapshot_layout_reads_env_overrides(monkeypatch):
+    monkeypatch.setenv("SWARMFORGE_ACCEPTANCE_IR_DIR", "tmp/custom-ir")
+    monkeypatch.setenv("SWARMFORGE_ACCEPTANCE_GENERATED_DIR", "tmp/custom-generated")
+    monkeypatch.setenv("SWARMFORGE_ACCEPTANCE_DRY_DIR", "tmp/custom-dry")
+
+    layout = snapshot_layout()
+
+    assert layout.ir_dir == "tmp/custom-ir"
+    assert layout.generated_dir == "tmp/custom-generated"
+    assert layout.metadata_dir == "tmp/custom-generated/metadata"
+    assert layout.dry_dir == "tmp/custom-dry"
+    assert artifact_paths("features/example.feature").ir_path == "tmp/custom-ir/example.json"
 
 
 def test_metadata_name_slugifies_feature_stem():
@@ -70,8 +87,8 @@ def test_discover_features_rejects_duplicate_stems(tmp_path: Path):
 
 def test_generate_writes_repo_relative_paths_and_feature_hash(tmp_path: Path):
     feature = tmp_path / "features" / "group" / "example.feature"
-    ir = tmp_path / "acceptance" / "ir" / "group" / "example.json"
-    generated = tmp_path / "acceptance" / "generated"
+    ir = tmp_path / "build" / "acceptance" / "ir" / "group" / "example.json"
+    generated = tmp_path / "build" / "acceptance" / "generated"
     feature.parent.mkdir(parents=True)
     ir.parent.mkdir(parents=True)
     generated.mkdir(parents=True)
@@ -86,10 +103,12 @@ def test_generate_writes_repo_relative_paths_and_feature_hash(tmp_path: Path):
     body = test_file.read_text()
     meta = json.loads(meta_file.read_text())
 
-    assert "acceptance/ir/group/example.json" in body
+    assert "build/acceptance/ir/group/example.json" in body
+    assert "_PROJECT_ROOT / \"acceptance\"" in body
+    assert "_GENERATED_DIR.parent" not in body
     assert "/Users/" not in body
     assert meta["feature_path"] == "features/group/example.feature"
-    assert meta["ir_path"] == "acceptance/ir/group/example.json"
+    assert meta["ir_path"] == "build/acceptance/ir/group/example.json"
     assert meta["generated_files"] == ["example_acceptance_test.py"]
     assert meta["feature_hash"].startswith("sha256:")
     assert meta["implementation_hash"].startswith("sha256:")
@@ -101,9 +120,9 @@ def test_refresh_snapshot_writes_mapped_artifacts_and_removes_orphans(tmp_path: 
     feature.write_text("Feature: Kept\n")
     (tmp_path / "pyproject.toml").write_text("[project]\nname = \"tmp\"\n")
 
-    orphan_ir = tmp_path / "acceptance" / "ir" / "gone.json"
-    orphan_test = tmp_path / "acceptance" / "generated" / "gone_acceptance_test.py"
-    orphan_meta = tmp_path / "acceptance" / "generated" / "metadata" / "gone.json"
+    orphan_ir = tmp_path / "build" / "acceptance" / "ir" / "gone.json"
+    orphan_test = tmp_path / "build" / "acceptance" / "generated" / "gone_acceptance_test.py"
+    orphan_meta = tmp_path / "build" / "acceptance" / "generated" / "metadata" / "gone.json"
     orphan_ir.parent.mkdir(parents=True)
     orphan_test.parent.mkdir(parents=True)
     orphan_meta.parent.mkdir(parents=True)
@@ -124,49 +143,29 @@ def test_refresh_snapshot_writes_mapped_artifacts_and_removes_orphans(tmp_path: 
 
     refresh_snapshot(tmp_path)
 
-    assert (tmp_path / "acceptance" / "ir" / "group" / "kept.json").is_file()
-    assert (tmp_path / "acceptance" / "dry" / "group" / "kept.txt").is_file()
-    assert (tmp_path / "acceptance" / "generated" / "kept_acceptance_test.py").is_file()
-    assert (tmp_path / "acceptance" / "generated" / "metadata" / "kept.json").is_file()
+    assert (tmp_path / "build" / "acceptance" / "ir" / "group" / "kept.json").is_file()
+    assert (tmp_path / "build" / "acceptance" / "dry" / "group" / "kept.txt").is_file()
+    assert (tmp_path / "build" / "acceptance" / "generated" / "kept_acceptance_test.py").is_file()
+    assert (tmp_path / "build" / "acceptance" / "generated" / "metadata" / "kept.json").is_file()
     assert not orphan_ir.exists()
     assert not orphan_test.exists()
     assert not orphan_meta.exists()
 
 
-def test_refresh_snapshot_keeps_ir_data_tables_when_parser_omits_them(tmp_path: Path, monkeypatch):
-    feature = tmp_path / "features" / "table.feature"
+def test_refresh_snapshot_honors_env_output_dirs(tmp_path: Path, monkeypatch):
+    feature = tmp_path / "features" / "kept.feature"
     feature.parent.mkdir(parents=True)
-    feature.write_text("Feature: Table\n")
+    feature.write_text("Feature: Kept\n")
     (tmp_path / "pyproject.toml").write_text("[project]\nname = \"tmp\"\n")
-    ir = tmp_path / "acceptance" / "ir" / "table.json"
-    ir.parent.mkdir(parents=True)
-    ir.write_text(
-        json.dumps({
-            "name": "Table",
-            "background": [
-                {
-                    "keyword": "Given",
-                    "text": "a table:",
-                    "data_table": [["a", "b"], ["1", "2"]],
-                }
-            ],
-            "scenarios": [],
-        })
-        + "\n"
-    )
+    monkeypatch.setenv("SWARMFORGE_ACCEPTANCE_IR_DIR", "tmp/custom-ir")
+    monkeypatch.setenv("SWARMFORGE_ACCEPTANCE_GENERATED_DIR", "tmp/custom-generated")
+    monkeypatch.setenv("SWARMFORGE_ACCEPTANCE_DRY_DIR", "tmp/custom-dry")
 
     def fake_run(command, **_kwargs):
         output = Path(command[-1])
         output.parent.mkdir(parents=True, exist_ok=True)
         if "gherkin-parser" in command:
-            output.write_text(
-                json.dumps({
-                    "name": "Table",
-                    "background": [{"keyword": "Given", "text": "a table:"}],
-                    "scenarios": [],
-                })
-                + "\n"
-            )
+            output.write_text('{"name": "Kept", "scenarios": []}\n')
         else:
             output.write_text("dry ok\n")
         return 0
@@ -175,8 +174,32 @@ def test_refresh_snapshot_keeps_ir_data_tables_when_parser_omits_them(tmp_path: 
 
     refresh_snapshot(tmp_path)
 
-    kept = json.loads(ir.read_text())
-    assert kept["background"][0]["data_table"] == [["a", "b"], ["1", "2"]]
+    assert (tmp_path / "tmp" / "custom-ir" / "kept.json").is_file()
+    assert (tmp_path / "tmp" / "custom-generated" / "kept_acceptance_test.py").is_file()
+    assert (tmp_path / "tmp" / "custom-dry" / "kept.txt").is_file()
+
+
+def test_refresh_snapshot_reconstructs_from_empty_build(tmp_path: Path, monkeypatch):
+    feature = tmp_path / "features" / "kept.feature"
+    feature.parent.mkdir(parents=True)
+    feature.write_text("Feature: Kept\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = \"tmp\"\n")
+
+    def fake_run(command, **_kwargs):
+        output = Path(command[-1])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if "gherkin-parser" in command:
+            output.write_text('{"name": "Kept", "scenarios": []}\n')
+        else:
+            output.write_text("dry ok\n")
+        return 0
+
+    monkeypatch.setattr("refresh_snapshot.run_tool", fake_run)
+
+    refresh_snapshot(tmp_path)
+
+    assert (tmp_path / "build" / "acceptance" / "ir" / "kept.json").is_file()
+    assert (tmp_path / "build" / "acceptance" / "generated" / "kept_acceptance_test.py").is_file()
 
 
 def _write_valid_snapshot(root: Path) -> None:
@@ -184,21 +207,21 @@ def _write_valid_snapshot(root: Path) -> None:
     feature.parent.mkdir(parents=True)
     feature.write_text("Feature: Kept\n")
     (root / "pyproject.toml").write_text("[project]\nname = \"tmp\"\n")
-    ir = root / "acceptance" / "ir" / "group" / "kept.json"
+    ir = root / "build" / "acceptance" / "ir" / "group" / "kept.json"
     ir.parent.mkdir(parents=True)
     ir.write_text('{"name": "Kept", "scenarios": []}\n')
     generate(
         str(ir),
-        str(root / "acceptance" / "generated"),
+        str(root / "build" / "acceptance" / "generated"),
         feature_path="features/group/kept.feature",
     )
 
 
 def test_validate_snapshot_reports_absolute_paths_and_orphans(tmp_path: Path):
     _write_valid_snapshot(tmp_path)
-    generated = tmp_path / "acceptance" / "generated" / "kept_acceptance_test.py"
+    generated = tmp_path / "build" / "acceptance" / "generated" / "kept_acceptance_test.py"
     generated.write_text(generated.read_text() + 'ABS = "/Users/someone/repo"\n')
-    (tmp_path / "acceptance" / "generated" / "metadata" / "gone.json").write_text("{}\n")
+    (tmp_path / "build" / "acceptance" / "generated" / "metadata" / "gone.json").write_text("{}\n")
 
     problems = validate_snapshot(tmp_path)
 
@@ -213,5 +236,42 @@ def test_validate_snapshot_accepts_complete_relative_tree(tmp_path: Path):
 
 
 def test_committed_snapshot_has_no_contract_problems():
-    problems = validate_snapshot(_PROJECT_ROOT)
+    problems = validate_committed_snapshot(_PROJECT_ROOT)
+    assert problems == []
+
+
+def test_find_step_data_tables_ignores_examples_blocks(tmp_path: Path):
+    feature = tmp_path / "ok.feature"
+    feature.write_text(
+        "Feature: Ok\n"
+        "  Scenario Outline: uses examples\n"
+        "    Then the column is <column>\n"
+        "    Examples:\n"
+        "      | column |\n"
+        "      | model  |\n"
+    )
+
+    assert find_step_data_tables(feature) == []
+
+
+def test_find_step_data_tables_reports_step_tables(tmp_path: Path):
+    feature = tmp_path / "table.feature"
+    feature.write_text(
+        "Feature: Table\n"
+        "  Background:\n"
+        "    Given a table:\n"
+        "      | a | b |\n"
+        "      | 1 | 2 |\n"
+    )
+
+    found = find_step_data_tables(feature)
+
+    assert found
+    assert "table.feature" in found[0]
+
+
+def test_committed_features_have_no_step_data_tables():
+    problems = []
+    for feature_path in discover_features(_PROJECT_ROOT):
+        problems.extend(find_step_data_tables(_PROJECT_ROOT / feature_path))
     assert problems == []

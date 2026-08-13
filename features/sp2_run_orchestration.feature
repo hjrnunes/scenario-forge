@@ -83,18 +83,20 @@ Feature: SP2 — Run orchestration
       | stage3_user.j2   |
 
   # SP2-RUN-10
-  Scenario: SP2-RUN-10 module layout matches spec
+  Scenario Outline: SP2-RUN-10 module layout matches spec
     Given the SP2 threat enumeration module
-    Then the following modules exist and are importable:
-      | module                  |
-      | slot_creation.py        |
-      | technology_context.py   |
-      | slot_filling.py         |
-      | na_quality.py           |
-      | catalog_enrichment.py   |
-      | catalog_data.py         |
-      | coverage.py             |
-      | run.py                  |
+    Then the module `<module>` exists and is importable
+
+    Examples:
+      | module                |
+      | slot_creation.py      |
+      | technology_context.py |
+      | slot_filling.py       |
+      | na_quality.py         |
+      | catalog_enrichment.py |
+      | catalog_data.py       |
+      | coverage.py           |
+      | run.py                |
 
   # SP2-RUN-11
   Scenario: SP2-RUN-11 SP1 artifacts are consumed as input

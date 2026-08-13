@@ -28,6 +28,7 @@ from acceptance_runtime import (  # noqa: E402
     _track_registration,
     find_pattern_conflicts,
 )
+from snapshot import snapshot_layout  # noqa: E402
 
 
 def test_track_registration_fires_on_duplicate() -> bool:
@@ -113,9 +114,9 @@ def test_check_entry_points_canonical_ir_location() -> bool:
     We can't easily run the full QA runner, so we replicate the core logic
     and prove it catches a non-canonical path.
     """
-    IR_DIR = _ACCEPTANCE_DIR / "ir"
+    IR_DIR = _PROJECT_ROOT / snapshot_layout().ir_dir
 
-    # A non-canonical path (outside acceptance/ir/)
+    # A non-canonical path (outside the generated IR dir)
     non_canonical = str(_PROJECT_ROOT / "tmp" / "rogue_ir.json")
     canonical = str(IR_DIR / "acceptance-refresh" / "stage2-coordination-analysis.json")
 

@@ -112,16 +112,18 @@ Feature: SP1 — Run orchestration
       | stage2_call2_user.j2   |
 
   # SP1-RUN-10
-  Scenario: SP1-RUN-10 module layout matches spec
+  Scenario Outline: SP1-RUN-10 module layout matches spec
     Given the STPA system model module
-    Then the following modules exist and are importable:
-      | module              |
-      | loss_analysis.py    |
-      | profile.py          |
-      | control_structure.py|
-      | critic.py           |
-      | heuristics.py       |
-      | run.py              |
+    Then the module `<module>` exists and is importable
+
+    Examples:
+      | module               |
+      | loss_analysis.py     |
+      | profile.py           |
+      | control_structure.py |
+      | critic.py            |
+      | heuristics.py        |
+      | run.py               |
 
   # SP1-RUN-11
   Scenario Outline: SP1-RUN-11 internal models are defined

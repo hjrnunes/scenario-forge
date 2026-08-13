@@ -1972,14 +1972,18 @@ def _h_sp3_template_files_exist(world: World, text: str, examples: dict) -> tupl
     return True, ""
 
 def _h_sp3_modules_exist(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the following modules exist and are importable."""
+    """Handle: the following modules exist and are importable / the module `X` exists."""
     from scenario_forge.stpa.scenario_prod import _constants
     pkg_dir = Path(_constants.__file__).parent
-    if world.current_data_table:
-        for row in world.current_data_table:
-            module_name = row[0] if isinstance(row, list) else row
-            if not (pkg_dir / module_name).exists():
-                return False, f"Module {module_name} does not exist"
+    names: list[str] = []
+    match = re.search(r"the module [`']?([^`'\s]+)[`']? exists", text)
+    if match:
+        names = [match.group(1)]
+    elif world.current_data_table:
+        names = [row[0] if isinstance(row, list) else row for row in world.current_data_table]
+    for module_name in names:
+        if not (pkg_dir / module_name).exists():
+            return False, f"Module {module_name} does not exist"
     return True, ""
 
 def _h_sp3_existing_tests(world: World, text: str, examples: dict) -> tuple[bool, str]:

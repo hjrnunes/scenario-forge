@@ -1486,14 +1486,18 @@ def _h_sp2_template_files_exist(world: World, text: str, examples: dict) -> tupl
     return True, ""
 
 def _h_sp2_module_exists(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Handle: the following modules exist and are importable."""
-    if world.current_data_table:
-        for row in world.current_data_table:
-            mod_name = row[0].replace(".py", "")
-            try:
-                __import__(f"scenario_forge.stpa.threat_enum.{mod_name}")
-            except ImportError as e:
-                return False, f"Module {mod_name} not importable: {e}"
+    """Handle: the following modules exist and are importable / the module `X` exists."""
+    names: list[str] = []
+    match = re.search(r"the module [`']?([^`'\s]+)[`']? exists", text)
+    if match:
+        names = [match.group(1).replace(".py", "")]
+    elif world.current_data_table:
+        names = [row[0].replace(".py", "") for row in world.current_data_table if row]
+    for mod_name in names:
+        try:
+            __import__(f"scenario_forge.stpa.threat_enum.{mod_name}")
+        except ImportError as e:
+            return False, f"Module {mod_name} not importable: {e}"
     return True, ""
 
 def _h_sp2_ica_validated(world: World, text: str, examples: dict) -> tuple[bool, str]:

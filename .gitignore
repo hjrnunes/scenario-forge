@@ -27,6 +27,8 @@ tmp/
 
 # Quality-tool output, regenerated on every run
 acceptance/dry/
+acceptance/ir/
+acceptance/generated/
 lcov*.info
 coverage.lcov
 .coverage

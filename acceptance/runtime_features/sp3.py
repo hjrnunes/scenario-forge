@@ -27,6 +27,7 @@ from runtime_shared import (
     UCAType,
     World,
     _VALID_GHERKIN_YAML,
+    _h_sp3_modules_exist,
     _make_sp3_cs,
     _make_sp3_envelope,
     _make_sp3_ets,
@@ -3501,6 +3502,7 @@ def register(api: object) -> None:
     api.register('the SP3 coverage module is importable', _h_sp3_coverage_module_importable, source_order=18837)
     api.register('the SP3 run module is importable', _h_sp3_run_module_importable, source_order=18838)
     api.register('the SP3 scenario production module', _h_sp3_scenario_prod_module, source_order=18839)
+    api.register_first('the following modules exist and are importable', _h_sp3_modules_exist, source_order=19294)
     api.register('the SP3 prompt templates directory', _h_sp3_prompt_templates_dir, source_order=18840)
     api.register_first('the scripts directory', _h_sp3_scripts_dir, source_order=18841)
     api.register('a control structure with responsibility RESP-1 having process model parts.*', _h_sp3_cs_resp1, source_order=18844)

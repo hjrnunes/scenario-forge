@@ -98,19 +98,21 @@ Feature: SP3 — Run orchestration
       | stage6c_gherkin_user.j2     |
 
   # SP3-RUN-10
-  Scenario: SP3-RUN-10 module layout matches spec
+  Scenario Outline: SP3-RUN-10 module layout matches spec
     Given the SP3 scenario production module
-    Then the following modules exist and are importable:
-      | module             |
-      | bdi_generation.py  |
-      | narrative.py       |
-      | attack_tree.py     |
-      | gherkin.py         |
-      | validators.py      |
-      | eval_metrics.py    |
-      | coverage.py        |
-      | assembly.py        |
-      | run.py             |
+    Then the module `<module>` exists and is importable
+
+    Examples:
+      | module            |
+      | bdi_generation.py |
+      | narrative.py      |
+      | attack_tree.py    |
+      | gherkin.py        |
+      | validators.py     |
+      | eval_metrics.py   |
+      | coverage.py       |
+      | assembly.py       |
+      | run.py            |
 
   # SP3-RUN-11
   Scenario: SP3-RUN-11 SP1 and SP2 artifacts are consumed as input

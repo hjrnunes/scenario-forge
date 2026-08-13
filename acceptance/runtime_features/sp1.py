@@ -1565,6 +1565,26 @@ def _h_sp1_run_modules_exist(world: World, text: str, examples: dict) -> tuple[b
     assert all([loss_analysis, profile, control_structure, critic, heuristics, run])
     return True, ""
 
+
+def _h_named_module_exists(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the module `X.py` exists and is importable."""
+    match = re.search(r"the module [`']?([^`'\s]+)[`']? exists", text)
+    if not match:
+        return False, f"Could not parse module from: {text}"
+    filename = match.group(1)
+    if not filename.endswith(".py"):
+        filename += ".py"
+    from scenario_forge.stpa import scenario_prod, system_model, threat_enum
+
+    roots = (
+        Path(system_model.__file__).parent,
+        Path(threat_enum.__file__).parent,
+        Path(scenario_prod.__file__).parent,
+    )
+    if not any((root / filename).exists() for root in roots):
+        return False, f"Module {filename} does not exist"
+    return True, ""
+
 def _h_sp1_run_models_defined(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the following internal models are defined:"""
     from scenario_forge.stpa.system_model import (
@@ -1968,6 +1988,7 @@ def register(api: object) -> None:
     api.register('Stage 2 receives the capability profile for the critic', _h_sp1_run_s2_receives_profile, source_order=6934)
     api.register('the following template files exist:', _h_sp1_run_templates_exist, source_order=6935)
     api.register('the following modules exist and are importable:', _h_sp1_run_modules_exist, source_order=6936)
+    api.register('the module [`\'].*[`\'] exists and is importable', _h_named_module_exists, source_order=6947)
     api.register('the following internal models are defined:', _h_sp1_run_models_defined, source_order=6937)
     api.register('no call log entry has stage stage_1b', _h_sp1_run_no_stage_1b, source_order=6938)
     api.register('the pre-built capability profile is used', _h_sp1_run_prebuilt_used, source_order=6939)

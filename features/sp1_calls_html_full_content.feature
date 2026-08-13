@@ -83,10 +83,7 @@ Feature: SP1 — Calls HTML report shows full prompts and responses
 
   # FullContent-12
   Scenario: FullContent-12 summary table is preserved at top of report
-    Given a calls.jsonl file with the following entries:
-      | stage    | step         | model    | prompt_tokens | completion_tokens | duration_ms | success |
-      | stage_1a | call_1a      | model-a  | 1000          | 500               | 3000        | true    |
-      | stage_2  | call_2       | model-a  | 2000          | 800               | 5000        | true    |
+    Given a two-successful-call calls.jsonl fixture
     When the calls.jsonl file is rendered to HTML
     Then the HTML summary shows total calls 2
     And the HTML summary shows success count 2

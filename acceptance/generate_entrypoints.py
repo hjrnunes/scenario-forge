@@ -40,8 +40,11 @@ def _relative_ir_path(ir_file: Path, root: Path) -> str:
 def _feature_path_for(ir_rel: str, feature_path: str | None) -> str:
     if feature_path:
         return Path(feature_path).as_posix()
-    if ir_rel.startswith("acceptance/ir/"):
-        rel_inside = Path(ir_rel).relative_to("acceptance/ir").with_suffix(".feature")
+    from snapshot import snapshot_layout
+
+    ir_dir = snapshot_layout().ir_dir
+    if ir_rel.startswith(f"{ir_dir}/"):
+        rel_inside = Path(ir_rel).relative_to(ir_dir).with_suffix(".feature")
         return f"features/{rel_inside.as_posix()}"
     return f"features/{Path(ir_rel).with_suffix('.feature').name}"
 
@@ -71,10 +74,8 @@ Do not edit manually; regenerate from the JSON IR.
 import sys
 from pathlib import Path
 
-# Add acceptance runtime to path
-_GENERATED_DIR = Path(__file__).resolve().parent
-_ACCEPTANCE_DIR = _GENERATED_DIR.parent  # acceptance_runtime.py lives one level up
-_PROJECT_ROOT = next(p for p in _ACCEPTANCE_DIR.parents if (p / "pyproject.toml").is_file())
+_PROJECT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+_ACCEPTANCE_DIR = _PROJECT_ROOT / "acceptance"
 sys.path.insert(0, str(_ACCEPTANCE_DIR))
 sys.path.insert(0, str(_PROJECT_ROOT))
 

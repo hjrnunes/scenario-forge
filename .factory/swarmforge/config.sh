@@ -5,7 +5,7 @@ SWARMFORGE_TOOLS_CONSENT="given"    # given | declined (set by /swarmforge-setup
 SWARMFORGE_TEST_CMD="uv run pytest tests/ -x"
 # Acceptance tests — run by the hardender SubagentStop hook to catch
 # behavioral regressions from architect changes before QA.
-SWARMFORGE_ACCEPTANCE_CMD="uv run pytest acceptance/generated/ -q"
+SWARMFORGE_ACCEPTANCE_CMD="uv run python acceptance/refresh_snapshot.py --run"
 SWARMFORGE_QA_CMD=""
 SWARMFORGE_COVERAGE_CMD="uv run pytest tests/ --cov=src --cov-branch --cov-report=lcov:lcov.info"      # generates lcov.info for LCOV-consuming tools (Python: crap4py, mutate4py)
 SWARMFORGE_CRAP_CMD="crap4py src/ --lcov lcov.info --max-crap 6"

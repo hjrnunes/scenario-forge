@@ -36,8 +36,6 @@ import pytest
 
 _PROJECT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
 _ACCEPTANCE_DIR = _PROJECT_ROOT / "acceptance"
-_IR_DIR = _ACCEPTANCE_DIR / "ir"
-_GENERATED_DIR = _ACCEPTANCE_DIR / "generated"
 
 # Ensure the acceptance runtime is importable.
 sys.path.insert(0, str(_ACCEPTANCE_DIR))
@@ -47,6 +45,11 @@ from acceptance_runtime import (  # noqa: E402
     _derive_feature_tag,
     find_pattern_conflicts,
 )
+from snapshot import snapshot_layout  # noqa: E402
+
+_LAYOUT = snapshot_layout()
+_IR_DIR = _PROJECT_ROOT / _LAYOUT.ir_dir
+_GENERATED_DIR = _PROJECT_ROOT / _LAYOUT.generated_dir
 
 
 # ---------------------------------------------------------------------------
@@ -249,11 +252,11 @@ class TestIREntryPointCoverage:
         )
 
     def test_every_entry_point_references_canonical_ir_location(self):
-        """Every entry point references IR in acceptance/ir/.
+        """Every entry point references IR in the configured snapshot IR dir.
 
-        Non-canonical IR locations (tmp/, acceptance/) are how IR drift
-        stayed hidden in the original staleness incident.  This test ensures
-        all IR is consolidated under the canonical directory.
+        Non-canonical IR locations (tmp/, leftover acceptance/ir/) are how
+        IR drift stayed hidden in the original staleness incident.  This
+        test ensures all IR is consolidated under the generated output dir.
         """
         non_canonical = []
         for ep in _entry_points():

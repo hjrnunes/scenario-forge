@@ -71,15 +71,16 @@ uv run pytest              # Unit suite (testpaths=tests; ~5900 tests)
 Two separate suites. `pytest` with no arguments runs the unit suite only.
 
 ```bash
-uv run pytest                       # unit suite
-uv run pytest acceptance/generated/ # acceptance suite (generated from Gherkin IR)
+uv run pytest                              # unit suite
+uv run python acceptance/refresh_snapshot.py
+uv run pytest build/acceptance/generated/  # acceptance suite (generated from Gherkin IR)
 ```
 
 The acceptance suite lives at `acceptance/` — entrypoints are generated from
-the Gherkin IR, so a failure there can mean stale generation rather than a
-source regression. Snapshot features live in `features/`; regenerate with
-`acceptance/refresh_snapshot.py` (see `acceptance/SNAPSHOT.md`) before
-concluding the source is broken.
+the Gherkin IR into ignored `build/acceptance/` output, so a failure there can
+mean stale generation rather than a source regression. Snapshot features live
+in `features/`; regenerate with `acceptance/refresh_snapshot.py` (see
+`acceptance/SNAPSHOT.md`) before concluding the source is broken.
 
 Known-red baseline, so a passing run is distinguishable from an unchanged one:
 

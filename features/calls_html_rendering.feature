@@ -13,12 +13,7 @@ Feature: HTML rendering of calls.jsonl
 
   Background:
     Given the calls_html module is importable
-    And a calls.jsonl file with the following entries:
-      | stage    | step                    | model              | prompt_tokens | completion_tokens | duration_ms | success | error           |
-      | stage_1a | call_1a_losses          | gemma-4-26b-a4b-it | 4500          | 1200              | 8500        | true    |                 |
-      | stage_1b | call_1b_profile         | gemma-4-26b-a4b-it | 3200          | 800               | 4200        | true    |                 |
-      | stage_2  | call_2a_responsibilities | gemma-4-26b-a4b-it | 5100          | 1500              | 9800        | true    |                 |
-      | stage_2  | call_2_requirements     | gemma-4-26b-a4b-it | 4800          | 1300              | 7600        | false   | timeout exceeded |
+    And the standard four-call calls.jsonl fixture
 
   # CH-01
   Scenario: CH-01 render_calls_html produces a self-contained HTML file
@@ -79,10 +74,7 @@ Feature: HTML rendering of calls.jsonl
 
   # CH-08
   Scenario: CH-08 rendering a calls.jsonl with only successful calls
-    Given a calls.jsonl file with the following entries:
-      | stage    | step         | model        | prompt_tokens | completion_tokens | duration_ms | success |
-      | stage_1a | call_1a      | model-a      | 1000          | 500               | 3000        | true    |
-      | stage_2  | call_2       | model-a      | 2000          | 800               | 5000        | true    |
+    Given a two-successful-call calls.jsonl fixture
     When the calls.jsonl file is rendered to HTML
     Then the HTML summary shows success count 2
     And the HTML summary shows failure count 0

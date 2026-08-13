@@ -13,11 +13,7 @@ Feature: Model profiles with tunable parameters
 
   Background:
     Given the model profiles module is importable
-    And a profiles YAML file with the following profiles:
-      | profile           | base_url                          | model                       | api_key       | max_completion_tokens | temperature |
-      | gemma4-openrouter | https://openrouter.ai/api/v1      | google/gemma-4-26b-a4b-it   | sk-or-v1-xxx  | 16384                 | 0.4         |
-      | gemma4-local      | https://local.example.com/v1      | gemma-4-26b-a4b-it          | unused        |                       | 0.4         |
-      | sonnet-4          | https://openrouter.ai/api/v1      | anthropic/claude-sonnet-4   | sk-or-v1-yyy  | 16384                 | 0.3         |
+    And the standard three-profile YAML fixture
 
   # MP-01
   Scenario: MP-01 loading a named profile returns all its parameters
@@ -29,22 +25,26 @@ Feature: Model profiles with tunable parameters
     And the returned parameters include temperature 0.4
 
   # MP-02
-  Scenario: MP-02 loading a profile with optional parameters top_p and top_k
-    Given a profiles YAML file with the following profiles:
-      | profile  | base_url                     | model      | api_key | top_p | top_k |
-      | tuned    | https://local.example.com/v1 | local-lm   | unused  | 0.9   | 40    |
-    When the profile "tuned" is loaded
-    Then the returned parameters include top_p 0.9
-    And the returned parameters include top_k 40
+  Scenario Outline: MP-02 loading a profile with optional parameters top_p and top_k
+    Given a single-profile YAML fixture named "<profile>" with base_url "<base_url>" model "<model>" api_key "<api_key>" top_p <top_p> top_k <top_k>
+    When the profile "<profile>" is loaded
+    Then the returned parameters include top_p <top_p>
+    And the returned parameters include top_k <top_k>
+
+    Examples:
+      | profile | base_url                     | model    | api_key | top_p | top_k |
+      | tuned   | https://local.example.com/v1 | local-lm | unused  | 0.9   | 40    |
 
   # MP-03
-  Scenario: MP-03 loading a profile with custom headers
-    Given a profiles YAML file with the following profiles:
-      | profile    | base_url                     | model    | api_key | headers                                         |
-      | with-hdr   | https://custom.example.com/v1| custom-1 | sk-123  | {"X-Custom":"value","X-Region":"eu"}            |
-    When the profile "with-hdr" is loaded
+  Scenario Outline: MP-03 loading a profile with custom headers
+    Given a single-profile YAML fixture named "<profile>" with base_url "<base_url>" model "<model>" api_key "<api_key>" headers <headers>
+    When the profile "<profile>" is loaded
     Then the returned parameters include headers with key "X-Custom" and value "value"
     And the returned parameters include headers with key "X-Region" and value "eu"
+
+    Examples:
+      | profile  | base_url                      | model    | api_key | headers                              |
+      | with-hdr | https://custom.example.com/v1 | custom-1 | sk-123  | {"X-Custom":"value","X-Region":"eu"} |
 
   # MP-04
   Scenario: MP-04 loading a profile without optional fields uses defaults
@@ -70,12 +70,14 @@ Feature: Model profiles with tunable parameters
     Then a clear error is raised mentioning the profile name "nonexistent"
 
   # MP-08
-  Scenario: MP-08 profile missing a required field raises a clear error
-    Given a profiles YAML file with the following profiles:
-      | profile     | base_url                     | model      | api_key |
-      | missing-url |                              | some-model | sk-xxx  |
-    When the profile "missing-url" is loaded
+  Scenario Outline: MP-08 profile missing a required field raises a clear error
+    Given a single-profile YAML fixture named "<profile>" with base_url "<base_url>" model "<model>" api_key "<api_key>"
+    When the profile "<profile>" is loaded
     Then a clear error is raised mentioning "base_url"
+
+    Examples:
+      | profile     | base_url | model      | api_key |
+      | missing-url |          | some-model | sk-xxx  |
 
   # MP-09
   Scenario: MP-09 runner script with --profile passes parameters to LLMClient

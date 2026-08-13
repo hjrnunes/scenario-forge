@@ -929,14 +929,89 @@ def _h_mp_module_importable(world: World, text: str, examples: dict) -> tuple[bo
     assert model_profiles is not None
     return True, ""
 
-def _h_mp_profiles_yaml(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    """Create a profiles YAML file from the data table."""
-    rows = _data_table_to_dicts(world.current_data_table)
+def _write_profiles_yaml(world: World, rows: list[dict[str, str]]) -> None:
     yaml_text = _profiles_to_yaml(rows)
     fd, tmp_path = _tempfile_mp.mkstemp(suffix=".yaml", prefix="qa_profiles_")
     os.close(fd)
     Path(tmp_path).write_text(yaml_text, encoding="utf-8")
     world.profiles_path = Path(tmp_path)
+
+
+def _write_calls_jsonl(world: World, entries: list[dict], prefix: str) -> None:
+    fd, tmp_path = _tempfile_mp.mkstemp(suffix=".jsonl", prefix=prefix)
+    os.close(fd)
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        for entry in entries:
+            handle.write(json.dumps(entry) + "\n")
+    world.calls_jsonl_path = Path(tmp_path)
+    world.calls_html_path = Path(tmp_path.replace(".jsonl", ".html"))
+    world.calls_html_content = None
+    world.calls_html_result = None
+
+
+_STANDARD_FOUR_CALL_TABLE = [
+    ["stage", "step", "model", "prompt_tokens", "completion_tokens", "duration_ms", "success", "error"],
+    ["stage_1a", "call_1a_losses", "gemma-4-26b-a4b-it", "4500", "1200", "8500", "true", ""],
+    ["stage_1b", "call_1b_profile", "gemma-4-26b-a4b-it", "3200", "800", "4200", "true", ""],
+    ["stage_2", "call_2a_responsibilities", "gemma-4-26b-a4b-it", "5100", "1500", "9800", "true", ""],
+    ["stage_2", "call_2_requirements", "gemma-4-26b-a4b-it", "4800", "1300", "7600", "false", "timeout exceeded"],
+]
+
+_TWO_SUCCESSFUL_CALL_TABLE = [
+    ["stage", "step", "model", "prompt_tokens", "completion_tokens", "duration_ms", "success"],
+    ["stage_1a", "call_1a", "model-a", "1000", "500", "3000", "true"],
+    ["stage_2", "call_2", "model-a", "2000", "800", "5000", "true"],
+]
+
+_STANDARD_THREE_PROFILES = [
+    {
+        "profile": "gemma4-openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "google/gemma-4-26b-a4b-it",
+        "api_key": "sk-or-v1-xxx",
+        "max_completion_tokens": "16384",
+        "temperature": "0.4",
+    },
+    {
+        "profile": "gemma4-local",
+        "base_url": "https://local.example.com/v1",
+        "model": "gemma-4-26b-a4b-it",
+        "api_key": "unused",
+        "temperature": "0.4",
+    },
+    {
+        "profile": "sonnet-4",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "anthropic/claude-sonnet-4",
+        "api_key": "sk-or-v1-yyy",
+        "max_completion_tokens": "16384",
+        "temperature": "0.3",
+    },
+]
+
+
+def _h_mp_profiles_yaml(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Create a profiles YAML file from the data table."""
+    _write_profiles_yaml(world, _data_table_to_dicts(world.current_data_table))
+    return True, ""
+
+
+def _h_mp_standard_three_profiles(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the standard three-profile YAML fixture."""
+    _write_profiles_yaml(world, _STANDARD_THREE_PROFILES)
+    return True, ""
+
+
+def _h_mp_single_profile_fixture(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a single-profile YAML fixture named "..." with field values."""
+    match = re.search(r'a single-profile YAML fixture named "([^"]+)"(?: with (.+))?$', text)
+    if not match:
+        return False, f"Could not parse single-profile fixture from: {text}"
+    row: dict[str, str] = {"profile": match.group(1)}
+    remainder = match.group(2) or ""
+    for field, value in re.findall(r'(\w+)\s+("[^"]*"|\{.*?\}|\S+)', remainder):
+        row[field] = value.strip('"')
+    _write_profiles_yaml(world, [row])
     return True, ""
 
 def _h_mp_load_profile(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -1278,16 +1353,19 @@ def _h_ch_module_importable(world: World, text: str, examples: dict) -> tuple[bo
 
 def _h_ch_calls_jsonl(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Create a calls.jsonl file from the data table."""
-    entries = _calls_entries_from_data_table(world.current_data_table)
-    fd, tmp_path = _tempfile_mp.mkstemp(suffix=".jsonl", prefix="qa_calls_")
-    os.close(fd)
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        for entry in entries:
-            f.write(json.dumps(entry) + "\n")
-    world.calls_jsonl_path = Path(tmp_path)
-    world.calls_html_path = Path(tmp_path.replace(".jsonl", ".html"))
-    world.calls_html_content = None
-    world.calls_html_result = None
+    _write_calls_jsonl(world, _calls_entries_from_data_table(world.current_data_table), "qa_calls_")
+    return True, ""
+
+
+def _h_ch_standard_four_call_fixture(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the standard four-call calls.jsonl fixture."""
+    _write_calls_jsonl(world, _calls_entries_from_data_table(_STANDARD_FOUR_CALL_TABLE), "qa_calls_")
+    return True, ""
+
+
+def _h_ch_two_successful_call_fixture(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a two-successful-call calls.jsonl fixture."""
+    _write_calls_jsonl(world, _calls_entries_from_data_table(_TWO_SUCCESSFUL_CALL_TABLE), "qa_calls_")
     return True, ""
 
 def _h_ch_empty_calls(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -2925,26 +3003,8 @@ def _h_fc_calls_jsonl_with_entries_default(world: World, text: str, examples: di
     """Handle: a calls.jsonl file with the following entries: (when data table is missing from IR)."""
     entries = _calls_entries_from_data_table(world.current_data_table)
     if not entries:
-        # Default: create 2 successful entries
-        entries = [
-            {"stage": "stage_1a", "step": "call_1a", "model": "model-a", "prompt_tokens": 1000,
-             "completion_tokens": 500, "duration_ms": 3000, "timestamp": "2024-01-01T00:00:00Z",
-             "success": True, "slot_id": None, "scenario_id": None,
-             "system_prompt_hash": "sha256-aaa", "user_prompt_hash": "sha256-bbb"},
-            {"stage": "stage_2", "step": "call_2", "model": "model-a", "prompt_tokens": 2000,
-             "completion_tokens": 800, "duration_ms": 5000, "timestamp": "2024-01-01T00:01:00Z",
-             "success": True, "slot_id": None, "scenario_id": None,
-             "system_prompt_hash": "sha256-aaa", "user_prompt_hash": "sha256-bbb"},
-        ]
-    fd, tmp_path = _tempfile_mp.mkstemp(suffix=".jsonl", prefix="fc_entries_")
-    os.close(fd)
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        for entry in entries:
-            f.write(json.dumps(entry) + "\n")
-    world.calls_jsonl_path = Path(tmp_path)
-    world.calls_html_path = Path(tmp_path.replace(".jsonl", ".html"))
-    world.calls_html_content = None
-    world.calls_html_result = None
+        entries = _calls_entries_from_data_table(_TWO_SUCCESSFUL_CALL_TABLE)
+    _write_calls_jsonl(world, entries, "fc_entries_")
     return True, ""
 
 def _h_fc_html_contains_text_unquoted(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -4200,6 +4260,8 @@ def register(api: object) -> None:
     api.register('an LLM that returns a valid ConnectionSet with coordination link CL-1 from RESP-1 to RESP-2', _h_mf_llm_valid_connectionset_with_cl, source_order=8127)
     api.register('the model profiles module is importable', _h_mp_module_importable, source_order=9307)
     api.register('a profiles YAML file with the following profiles:', _h_mp_profiles_yaml, source_order=9308)
+    api.register('the standard three-profile YAML fixture', _h_mp_standard_three_profiles, source_order=9336)
+    api.register('a single-profile YAML fixture named', _h_mp_single_profile_fixture, source_order=9337)
     api.register('the profile \\"([^\\"]+)\\" is loaded from the custom path', _h_mp_load_profile_custom, source_order=9309)
     api.register('the profile \\"([^\\"]+)\\" is loaded$', _h_mp_load_profile, source_order=9310)
     api.register('the returned parameters include headers with key', _h_mp_params_include, source_order=9311)
@@ -4229,6 +4291,8 @@ def register(api: object) -> None:
     api.register('ai/model-profiles.yaml is listed in .gitignore', _h_mp_gitignored, source_order=9335)
     api.register_first('the calls_html module is importable', _h_ch_module_importable, source_order=9661)
     api.register_first('a calls.jsonl file with the following entries:', _h_ch_calls_jsonl, source_order=9662)
+    api.register_first('the standard four-call calls.jsonl fixture', _h_ch_standard_four_call_fixture, source_order=9683)
+    api.register_first('a two-successful-call calls.jsonl fixture', _h_ch_two_successful_call_fixture, source_order=9684)
     api.register_first('a calls.jsonl file with zero entries', _h_ch_empty_calls, source_order=9663)
     api.register_first('the calls.jsonl file is rendered to HTML', _h_ch_render, source_order=9664)
     api.register_first('an HTML file is produced at the output path', _h_ch_html_produced, source_order=9665)
