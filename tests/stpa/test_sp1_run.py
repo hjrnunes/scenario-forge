@@ -381,6 +381,34 @@ class TestRunOrchestration:
         stage_1b_entries = [e for e in entries if e["stage"] == "stage_1b"]
         assert len(stage_1b_entries) == 0
 
+    def test_run_with_external_profile_publishes_capability_artifact(self, tmp_path):
+        """A pre-built profile outside the run directory is copied to outputs."""
+        profile = Stage1Profile(
+            entry_points=[
+                {"name": "User chat", "direction": "input", "controllability": "direct"},
+            ],
+            confidence="medium",
+            kc_subcodes=["KC1.1", "KC5.1", "KC6.1.1"],
+            tool_inventory=[{"name": "tool1", "description": "A tool"}],
+        ).to_capability_profile()
+        input_dir = tmp_path / "inputs"
+        input_dir.mkdir()
+        profile_path = input_dir / "capability-profile.yaml"
+        write_yaml(profile, profile_path)
+        run_dir = tmp_path / "output"
+
+        result = run_sp1(
+            llm_client=_setup_mock_client(),
+            use_case_text="Test use case",
+            risk_cards=make_risk_cards(),
+            run_dir=run_dir,
+            profile_path=profile_path,
+        )
+
+        artifact = run_dir / "capability-profile.yaml"
+        assert artifact.exists()
+        assert result.capability_profile == profile
+
     def test_run_13_temperature_is_0_4(self, tmp_path):
         """SP1-RUN-13: all Stage 2 LLM calls use temperature 0.4."""
         client = _setup_mock_client()

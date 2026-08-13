@@ -14,7 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from scenario_forge.models.capability_profile import CapabilityProfile
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    inject_kc_subcodes_display,
+)
 from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import StageError
@@ -215,7 +218,13 @@ def _try_derive_capability_profile(
 ) -> CapabilityProfile | None:
     """Run Stage 1b (or load a pre-built profile), recording errors on failure."""
     if profile_path is not None:
-        return load_capability_profile(profile_path)
+        capability_profile = load_capability_profile(profile_path)
+        write_yaml(
+            capability_profile,
+            run_dir / "capability-profile.yaml",
+            post_process=inject_kc_subcodes_display,
+        )
+        return capability_profile
     try:
         return derive_capability_profile(
             llm_client=llm_client,
@@ -389,5 +398,5 @@ def _write_manifest(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-11T16:06:15Z","module_hash":"dc5be5a3c7b3e1bfd3c20d66370a2ccc457ce1dcfc32053bae58e747b808710b","functions":[{"id":"func/run_sp1","name":"run_sp1","line":76,"end_line":163,"hash":"751c68199a62a3b0b14e06518feb5c5c7f7b68ef6f6d9b1fb27bff6f778033a6"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":179,"end_line":202,"hash":"b1795ba3b9e34725aac83d6c52e299ce98641aa62de59de074c6709bb2fc2119"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":205,"end_line":227,"hash":"25e85ec2df3a6c1af9a1631cf37281017ad90c6b8b1b7488ea1715212afb85d4"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":230,"end_line":310,"hash":"94e5849c052aa1f15ecddd7aa6a36632a9d3f8a665bdb5186aaad7660de7da06"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":313,"end_line":321,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":324,"end_line":328,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":331,"end_line":380,"hash":"531f735de7511c069e142211401dcdafb5e2d810e9ddd2762661975e8da99224"}]}
+# {"version":1,"tested_at":"2026-08-13T19:48:27Z","module_hash":"5763124a1343cf5c8f78e35f44ae47b8d2c59f7e87a2b54c3f5fdbca639f20da","functions":[{"id":"func/run_sp1","name":"run_sp1","line":79,"end_line":168,"hash":"d424caecdd95117094deece88e91b9bbcf78aa74f58e3d1fee52c0aedb776d1d"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":184,"end_line":207,"hash":"b1795ba3b9e34725aac83d6c52e299ce98641aa62de59de074c6709bb2fc2119"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":210,"end_line":238,"hash":"cdeddcc8136f89427881ec908455e5a85949ae0aa19030b9b137a52923038840"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":241,"end_line":323,"hash":"21a7f70f55bbfccef88c20e398955fcf1f858ea7aa1497fac1ac39a0bd03533a"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":326,"end_line":334,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":337,"end_line":341,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":344,"end_line":397,"hash":"f717c04a63526fc8352afd95bf559a30ac330856291c910cf0c6cfb68364bcc1"}]}
 # mutate4py-manifest-end
