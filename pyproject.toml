@@ -29,6 +29,7 @@ scenario-forge = "scenario_forge.cli:app"
 dev = [
     "hypothesis>=6.164.0",
     "pytest-cov>=7.1.0",
+    "ruff",
 ]
 
 [tool.pytest.ini_options]

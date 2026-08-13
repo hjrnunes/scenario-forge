@@ -61,8 +61,8 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 ## Build & Test
 
 ```bash
-uv sync                    # Install/update dependencies
-ruff check src/            # Linting
+uv sync                    # Install/update dependencies (includes ruff)
+uv run ruff check src/     # Linting
 uv run pytest              # Unit suite (testpaths=tests; ~5900 tests)
 ```
 
@@ -88,8 +88,8 @@ Known-red baseline, so a passing run is distinguishable from an unchanged one:
 |---|---|
 | unit | 11 failed / ~5897 passed (10 need an LLM endpoint, 1 pre-existing) |
 | acceptance | 9 failed / 68 passed (7 need an LLM endpoint, 2 out of scope) |
-| `ruff check src/` | clean |
-| `ruff check tests/` | 14 pre-existing |
+| `uv run ruff check src/` | clean |
+| `uv run ruff check tests/` | 14 pre-existing |
 
 `tmp/` is gitignored scratch and is excluded from collection. Nothing
 load-bearing belongs there.

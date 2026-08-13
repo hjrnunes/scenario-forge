@@ -545,8 +545,9 @@ class TestCLIScript:
 
     def test_cli_help(self):
         import subprocess
+        import sys
         result = subprocess.run(
-            ["uv", "run", "python", "scripts/run_sp2.py", "--help"],
+            [sys.executable, "scripts/run_sp2.py", "--help"],
             capture_output=True,
             text=True,
             cwd=str(Path(__file__).resolve().parents[2]),
