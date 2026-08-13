@@ -7,16 +7,17 @@ that would otherwise be copy-pasted in every stage module.
 from __future__ import annotations
 
 import json
+from enum import Enum
 from pathlib import Path
-from typing import Any
-from typing import TypeVar
+from typing import Any, TypeVar, Union, get_args, get_origin
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from scenario_forge.stpa.infra.call_log import append_call_log, make_call_log_entry
 from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
 
 _T = TypeVar("_T", bound=BaseModel)
+_UNION_TYPE = type(int | str)
 
 
 class StageError(Exception):
@@ -78,6 +79,90 @@ def parse_llm_result(result: LLMResult, model_class: type[_T]) -> _T:
         f"Unexpected LLM result content type: {type(content).__name__}, "
         f"expected {model_class.__name__}, dict, or str."
     )
+
+
+def _decode_llm_content(result: LLMResult) -> Any:
+    """Decode the JSON-shaped content of an LLM result without validation."""
+    content = result.content
+    if isinstance(content, BaseModel):
+        return content.model_dump(mode="python", exclude_none=False)
+    if isinstance(content, dict):
+        return content
+    if isinstance(content, str):
+        return json.loads(content)
+    raise TypeError(
+        f"Unexpected LLM result content type: {type(content).__name__}, "
+        "expected a Pydantic model, dict, or JSON string."
+    )
+
+
+def _construct_unvalidated(value: Any, annotation: Any) -> Any:
+    """Construct nested Pydantic models without running field validators."""
+    if value is None:
+        return None
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin in (list, tuple, set):
+        item_type = args[0] if args else Any
+        converted = [_construct_unvalidated(item, item_type) for item in value]
+        if origin is tuple:
+            return tuple(converted)
+        if origin is set:
+            return set(converted)
+        return converted
+    if origin in (_UNION_TYPE, Union):
+        for candidate in args:
+            if candidate is type(None):
+                continue
+            try:
+                return _construct_unvalidated(value, candidate)
+            except (TypeError, ValueError):
+                continue
+        return value
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        try:
+            return annotation(value)
+        except ValueError:
+            return value
+    if (
+        isinstance(annotation, type)
+        and issubclass(annotation, BaseModel)
+        and isinstance(value, dict)
+    ):
+        values = {}
+        for name, field in annotation.model_fields.items():
+            if name in value:
+                values[name] = _construct_unvalidated(
+                    value[name], field.annotation
+                )
+        return annotation.model_construct(**values)
+    return value
+
+
+def parse_llm_result_unvalidated(result: LLMResult, model_class: type[_T]) -> _T:
+    """Decode an LLM result into nested models without field validation.
+
+    This narrow escape hatch is used by SP1 control-structure parsing so
+    malformed IDs can be repaired from structural position before the final
+    ``ControlStructure`` validation.  It still requires a decodable
+    JSON-shaped response; missing fields and other schema errors are left for
+    the post-normalization model validation to report.
+    """
+    content = _decode_llm_content(result)
+    if isinstance(content, model_class):
+        return content
+    if not isinstance(content, dict):
+        raise TypeError(
+            f"Expected a mapping for {model_class.__name__}, "
+            f"got {type(content).__name__}."
+        )
+    values = {
+        name: _construct_unvalidated(content[name], field.annotation)
+        for name, field in model_class.model_fields.items()
+        if name in content
+    }
+    return model_class.model_construct(**values)
 
 
 def log_llm_call(
@@ -167,6 +252,7 @@ def safe_llm_call(
     step: str,
     temperature: float = 0.4,
     max_completion_tokens: int | None = None,
+    allow_unvalidated: bool = False,
 ) -> tuple[_T | None, LLMResult | None, str | None]:
     """Wrap complete() + parse_llm_result() in a try/except.
 
@@ -184,6 +270,10 @@ def safe_llm_call(
         temperature: LLM temperature.
         max_completion_tokens: Optional cap on completion tokens. When
             provided, forwarded to ``llm_client.complete``.
+        allow_unvalidated: When true, decode a JSON-shaped response into
+            nested models without field validators if normal validation
+            fails.  Callers must validate the resulting structure after
+            deterministic normalization.
 
     Returns:
         A tuple of (validated_model_or_None, llm_result_or_None, error_or_None).
@@ -198,8 +288,24 @@ def safe_llm_call(
         }
         if max_completion_tokens is not None:
             completion_kwargs["max_completion_tokens"] = max_completion_tokens
-        result = llm_client.complete(**completion_kwargs)
-        model = parse_llm_result(result, response_format)
+        if allow_unvalidated:
+            try:
+                result = llm_client.complete(
+                    **completion_kwargs,
+                    allow_unvalidated=True,
+                )
+            except TypeError as exc:
+                if "unexpected keyword argument" not in str(exc):
+                    raise
+                result = llm_client.complete(**completion_kwargs)
+        else:
+            result = llm_client.complete(**completion_kwargs)
+        try:
+            model = parse_llm_result(result, response_format)
+        except ValidationError:
+            if not allow_unvalidated:
+                raise
+            model = parse_llm_result_unvalidated(result, response_format)
         log_llm_call(result, llm_client.model, run_dir, stage, step)
         return model, result, None
     except Exception as exc:

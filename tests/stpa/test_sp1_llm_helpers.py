@@ -9,15 +9,66 @@ import json
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from scenario_forge.stpa.infra.llm import LLMResult
-from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
+from scenario_forge.stpa.infra.llm_helpers import (
+    log_llm_call,
+    parse_llm_result,
+    parse_llm_result_unvalidated,
+    safe_llm_call,
+)
 
 
 class _SampleModel(BaseModel):
     name: str
     value: int = 0
+
+
+class _NestedModel(BaseModel):
+    """Nested model with a validator that rejects one source ID."""
+
+    item_id: str
+
+    @field_validator("item_id")
+    @classmethod
+    def reject_malformed(cls, value: str) -> str:
+        if value == "malformed":
+            raise ValueError("malformed source ID")
+        return value
+
+
+class _ContainerModel(BaseModel):
+    """Container used to verify tolerant nested construction."""
+
+    items: list[_NestedModel]
+
+
+class _TolerantClient:
+    """Minimal client exposing the raw structured-response escape hatch."""
+
+    model = "test-model"
+
+    def __init__(self) -> None:
+        self.allow_unvalidated = False
+
+    def complete(
+        self,
+        *,
+        system_prompt,
+        user_prompt,
+        response_format,
+        temperature,
+        max_completion_tokens=None,
+        allow_unvalidated=False,
+    ):
+        self.allow_unvalidated = allow_unvalidated
+        return LLMResult(
+            content={"items": [{"item_id": "malformed"}]},
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
 
 
 class TestParseLlmResult:
@@ -58,6 +109,38 @@ class TestParseLlmResult:
         )
         with pytest.raises(TypeError, match="Unexpected LLM result content type"):
             parse_llm_result(result, _SampleModel)
+
+    def test_unvalidated_parser_preserves_nested_invalid_source_id(self):
+        """Tolerant decoding defers nested validation to post-processing."""
+        result = LLMResult(
+            content={"items": [{"item_id": "malformed"}]},
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+        parsed = parse_llm_result_unvalidated(result, _ContainerModel)
+
+        assert parsed.items[0].item_id == "malformed"
+
+    def test_safe_call_passes_tolerant_mode_and_defers_validation(self, tmp_path):
+        """safe_llm_call exposes malformed nested IDs to post-processing."""
+        client = _TolerantClient()
+
+        parsed, _, error = safe_llm_call(
+            llm_client=client,
+            system_prompt="system",
+            user_prompt="user",
+            response_format=_ContainerModel,
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+            allow_unvalidated=True,
+        )
+
+        assert error is None
+        assert client.allow_unvalidated is True
+        assert parsed.items[0].item_id == "malformed"
 
 
 class TestLogLlmCall:

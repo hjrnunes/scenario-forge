@@ -1839,6 +1839,594 @@ def _h_sp1_neut_results_available(world: World, text: str, examples: dict) -> tu
         return False, "No solution-neutrality results available"
     return True, ""
 
+
+# ---------------------------------------------------------------------------
+# SP1 deterministic ID-renumbering acceptance steps
+# ---------------------------------------------------------------------------
+
+
+def _sp1_id_payload() -> dict:
+    """Build the ordered source-ID payload used by the renumbering feature."""
+    return {
+        "responsibilities": [
+            {
+                "resp_id": "controller-alpha",
+                "description": "First controller",
+                "responsibility_constraints": [
+                    {"rc_id": "constraint-a", "description": "Constraint A"},
+                    {"rc_id": "constraint-b", "description": "Constraint B"},
+                ],
+                "process_model_parts": [
+                    {
+                        "pm_id": "state-alpha",
+                        "description": "State A",
+                        "feedback_source": {
+                            "type": "responsibility",
+                            "id": "controller-beta",
+                        },
+                    },
+                    {"pm_id": "state-b", "description": "State B"},
+                ],
+                "control_actions": [
+                    {
+                        "ca_id": "action-a",
+                        "description": "Action A",
+                        "target": {
+                            "type": "controlled_process",
+                            "id": "process-beta",
+                        },
+                    },
+                    {"ca_id": "action-b", "description": "Action B"},
+                ],
+                "feedback_channels": [
+                    {
+                        "fb_id": "feedback-a",
+                        "description": "Feedback A",
+                        "updates": "state-alpha",
+                    },
+                    {
+                        "fb_id": "feedback-b",
+                        "description": "Feedback B",
+                        "updates": "state-b",
+                    },
+                ],
+            },
+            {
+                "resp_id": "controller-beta",
+                "description": "Second controller",
+                "responsibility_constraints": [
+                    {"rc_id": "constraint-c", "description": "Constraint C"},
+                    {"rc_id": "constraint-d", "description": "Constraint D"},
+                ],
+                "process_model_parts": [
+                    {"pm_id": "state-c", "description": "State C"}
+                ],
+                "control_actions": [
+                    {"ca_id": "action-c", "description": "Action C"},
+                    {"ca_id": "action-d", "description": "Action D"},
+                ],
+                "feedback_channels": [
+                    {
+                        "fb_id": "feedback-c",
+                        "description": "Feedback C",
+                        "updates": "state-c",
+                        "source": {
+                            "type": "controlled_process",
+                            "id": "process-alpha",
+                        },
+                    },
+                    {
+                        "fb_id": "feedback-d",
+                        "description": "Feedback D",
+                        "updates": "state-c",
+                    },
+                ],
+            },
+        ],
+        "controlled_processes": [
+            {"cp_id": "process-alpha", "description": "Process A"},
+            {"cp_id": "process-beta", "description": "Process B"},
+        ],
+        "coordination_links": [
+            {
+                "link_id": "connection-alpha",
+                "source": "controller-alpha",
+                "target": "controller-beta",
+                "shared_pm": "state-alpha",
+                "coordination_mechanism": {
+                    "cm_id": "mechanism-alpha",
+                    "description": "Mechanism A",
+                    "payload": "State payload A",
+                },
+                "description": "Connection A",
+            },
+            {
+                "link_id": "connection-beta",
+                "source": "controller-beta",
+                "target": "controller-alpha",
+                "shared_pm": "state-c",
+                "coordination_mechanism": {
+                    "cm_id": "mechanism-beta",
+                    "description": "Mechanism B",
+                    "payload": "State payload B",
+                },
+                "description": "Connection B",
+            },
+        ],
+    }
+
+
+def _sp1_id_normalizer():
+    """Import the product normalizer lazily for acceptance execution."""
+    from scenario_forge.stpa.system_model.control_structure import (
+        normalize_control_structure_payload,
+    )
+
+    return normalize_control_structure_payload
+
+
+def _h_sp1_id_payload_parsed(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a syntactically parsed SP1 control-structure payload."""
+    world.sp1_id_payload = _sp1_id_payload()
+    return True, ""
+
+
+def _h_sp1_id_payload_ordered(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the payload preserves all required list order."""
+    payload = getattr(world, "sp1_id_payload", None)
+    if not isinstance(payload, dict):
+        return False, "The SP1 ID payload was not initialized"
+    if len(payload.get("responsibilities", [])) < 2:
+        return False, "Expected at least two responsibilities"
+    return True, ""
+
+
+def _h_sp1_id_at_least_two(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the payload contains at least two elements at a scope."""
+    payload = getattr(world, "sp1_id_payload", None)
+    scope = examples.get("structural_scope", "")
+    counts = {
+        "responsibilities": len(payload.get("responsibilities", [])),
+        "responsibility constraints": len(
+            payload["responsibilities"][1].get("responsibility_constraints", [])
+        ),
+        "process model parts": len(
+            payload["responsibilities"][0].get("process_model_parts", [])
+        ),
+        "control actions": len(
+            payload["responsibilities"][1].get("control_actions", [])
+        ),
+        "feedback channels": len(
+            payload["responsibilities"][0].get("feedback_channels", [])
+        ),
+        "controlled processes": len(payload.get("controlled_processes", [])),
+        "coordination links": len(payload.get("coordination_links", [])),
+        "coordination mechanisms": len(payload.get("coordination_links", [])),
+    }
+    if not isinstance(payload, dict) or counts.get(scope, 0) < 2:
+        return False, f"Expected at least two elements at {scope}"
+    return True, ""
+
+
+def _h_sp1_id_normalize(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the payload IDs are normalized."""
+    normalizer = _sp1_id_normalizer()
+    payload = getattr(world, "sp1_id_payload", None)
+    world.sp1_id_normalization = normalizer(payload)
+    return True, ""
+
+
+def _h_sp1_id_position_has_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the element at a structural position has a canonical ID."""
+    normalized = getattr(world, "sp1_id_normalization", None)
+    position = examples.get("structural_position", "")
+    expected = examples.get("canonical_id", "")
+    positions = {
+        "responsibility 1": normalized.payload["responsibilities"][0]["resp_id"],
+        "responsibility 2": normalized.payload["responsibilities"][1]["resp_id"],
+        "responsibility 2 child 2 responsibility constraint": normalized.payload[
+            "responsibilities"
+        ][1]["responsibility_constraints"][1]["rc_id"],
+        "responsibility 1 child 2 process model part": normalized.payload[
+            "responsibilities"
+        ][0]["process_model_parts"][1]["pm_id"],
+        "responsibility 2 child 1 control action": normalized.payload[
+            "responsibilities"
+        ][1]["control_actions"][0]["ca_id"],
+        "responsibility 1 child 2 feedback channel": normalized.payload[
+            "responsibilities"
+        ][0]["feedback_channels"][1]["fb_id"],
+        "controlled process 2": normalized.payload["controlled_processes"][1]["cp_id"],
+        "coordination link 2": normalized.payload["coordination_links"][1]["link_id"],
+        "coordination link 2 coordination mechanism": normalized.payload[
+            "coordination_links"
+        ][1]["coordination_mechanism"]["cm_id"],
+    }
+    actual = positions.get(position)
+    if actual != expected:
+        return False, f"Expected {position} to have {expected}, got {actual}"
+    return True, ""
+
+
+def _h_sp1_id_two_payloads(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: two identical ordered payloads have different source IDs."""
+    first = _sp1_id_payload()
+    second = json.loads(json.dumps(first))
+    second["responsibilities"][0]["resp_id"] = "different-controller"
+    second["responsibilities"][0]["process_model_parts"][0]["pm_id"] = "different-state"
+    first_result = _sp1_id_normalizer()(first)
+    second_result = _sp1_id_normalizer()(second)
+    world.sp1_id_normalization = first_result
+    world.sp1_id_second_normalization = second_result
+    world.sp1_id_original_payload = first
+    return True, ""
+
+
+def _h_sp1_id_unique_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the payload contains a unique source ID at a position."""
+    return True, ""
+
+
+def _h_sp1_id_same_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: both normalized payloads have the same element IDs."""
+    first = getattr(world, "sp1_id_normalization").payload
+    second = getattr(world, "sp1_id_second_normalization").payload
+    first_ids = [(key, value) for key, value in _sp1_id_values(first)]
+    second_ids = [(key, value) for key, value in _sp1_id_values(second)]
+    if first_ids != second_ids:
+        return False, "Normalized payloads did not receive the same IDs"
+    return True, ""
+
+
+def _sp1_id_values(payload: dict):
+    """Yield all namespace labels and IDs in structural order."""
+    for resp in payload.get("responsibilities", []):
+        yield "resp", resp.get("resp_id")
+        for key, id_key in (
+            ("responsibility_constraints", "rc_id"),
+            ("process_model_parts", "pm_id"),
+            ("control_actions", "ca_id"),
+            ("feedback_channels", "fb_id"),
+        ):
+            for child in resp.get(key, []):
+                yield id_key, child.get(id_key)
+    for process in payload.get("controlled_processes", []):
+        yield "cp_id", process.get("cp_id")
+    for link in payload.get("coordination_links", []):
+        yield "link_id", link.get("link_id")
+        yield "cm_id", link.get("coordination_mechanism", {}).get("cm_id")
+
+
+def _h_sp1_id_preserves_order(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: normalization preserves list order."""
+    original = getattr(world, "sp1_id_original_payload")
+    normalized = getattr(world, "sp1_id_normalization").payload
+    for key in ("responsibilities", "controlled_processes", "coordination_links"):
+        if [
+            item.get("description")
+            for item in original.get(key, [])
+        ] != [item.get("description") for item in normalized.get(key, [])]:
+            return False, f"Normalization changed {key} order"
+    return True, ""
+
+
+def _h_sp1_id_preserves_non_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: normalization preserves every non-ID field."""
+    original = getattr(world, "sp1_id_original_payload")
+    normalized = getattr(world, "sp1_id_normalization").payload
+    original_copy = json.loads(json.dumps(original))
+    normalized_copy = json.loads(json.dumps(normalized))
+    # Compare known non-ID fields independently of the canonical IDs.
+    def without_ids(value):
+        if isinstance(value, dict):
+            return {
+                key: without_ids(item)
+                for key, item in value.items()
+                if key
+                not in {
+                    "resp_id",
+                    "rc_id",
+                    "pm_id",
+                    "ca_id",
+                    "fb_id",
+                    "cp_id",
+                    "link_id",
+                    "cm_id",
+                    "id",
+                    "updates",
+                    "source",
+                    "target",
+                    "shared_pm",
+                }
+            }
+        if isinstance(value, list):
+            return [without_ids(item) for item in value]
+        return value
+    if without_ids(original_copy) != without_ids(normalized_copy):
+        return False, "Normalization changed a non-ID field"
+    return True, ""
+
+
+def _h_sp1_id_mapping(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the normalization mapping resolves a unique source ID."""
+    old_id = examples.get("old_id", "")
+    expected = examples.get("new_id", "")
+    actual = getattr(world, "sp1_id_normalization").mapping.get(old_id)
+    if actual != expected:
+        return False, f"Expected mapping {old_id} -> {expected}, got {actual}"
+    return True, ""
+
+
+def _h_sp1_id_prepare_duplicate(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: two elements in a scope use the same source ID."""
+    payload = getattr(world, "sp1_id_payload")
+    scope = examples.get("element_scope", "")
+    if "responsibility constraints" in scope:
+        children = payload["responsibilities"][0]["responsibility_constraints"]
+        children[0]["rc_id"] = children[1]["rc_id"] = examples["duplicate_id"]
+    elif "process model parts" in scope:
+        children = payload["responsibilities"][0]["process_model_parts"]
+        children[0]["pm_id"] = children[1]["pm_id"] = examples["duplicate_id"]
+    elif "control actions" in scope:
+        children = payload["responsibilities"][0]["control_actions"]
+        children[0]["ca_id"] = children[1]["ca_id"] = examples["duplicate_id"]
+    elif "feedback channels" in scope:
+        children = payload["responsibilities"][0]["feedback_channels"]
+        children[0]["fb_id"] = children[1]["fb_id"] = examples["duplicate_id"]
+    else:
+        for link in payload["coordination_links"]:
+            link["coordination_mechanism"]["cm_id"] = examples["duplicate_id"]
+    return True, ""
+
+
+def _h_sp1_id_duplicate_has_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a duplicate-ID scope has position-derived IDs."""
+    payload = getattr(world, "sp1_id_normalization").payload
+    scope = examples.get("element_scope", "")
+    expected = [examples.get("first_id"), examples.get("second_id")]
+    if "responsibility constraints" in scope:
+        actual = [item["rc_id"] for item in payload["responsibilities"][0]["responsibility_constraints"][:2]]
+    elif "process model parts" in scope:
+        actual = [item["pm_id"] for item in payload["responsibilities"][0]["process_model_parts"][:2]]
+    elif "control actions" in scope:
+        actual = [item["ca_id"] for item in payload["responsibilities"][0]["control_actions"][:2]]
+    elif "feedback channels" in scope:
+        actual = [item["fb_id"] for item in payload["responsibilities"][0]["feedback_channels"][:2]]
+    else:
+        actual = [
+            link["coordination_mechanism"]["cm_id"]
+            for link in payload["coordination_links"][:2]
+        ]
+    if actual != expected:
+        return False, f"Expected IDs {expected}, got {actual}"
+    return True, ""
+
+
+def _h_sp1_id_local_pm_setup(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: each responsibility has a shared-state PM and local update."""
+    payload = getattr(world, "sp1_id_payload")
+    for responsibility in payload["responsibilities"]:
+        responsibility["process_model_parts"] = [
+            {"pm_id": "shared-state", "description": "Shared state"}
+        ]
+        responsibility["feedback_channels"] = [
+            {
+                "fb_id": "repeated-feedback",
+                "description": "Local feedback",
+                "updates": "shared-state",
+            }
+        ]
+    return True, ""
+
+
+def _h_sp1_id_local_pm_update(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a local feedback update resolves to its responsibility PM."""
+    index = int(examples.get("responsibility", "1")) - 1
+    expected = examples.get("local_pm", "")
+    actual = getattr(world, "sp1_id_normalization").payload["responsibilities"][index][
+        "feedback_channels"
+    ][0]["updates"]
+    if actual != expected:
+        return False, f"Expected local PM {expected}, got {actual}"
+    return True, ""
+
+
+def _h_sp1_id_typed_ref_setup(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a typed reference is configured from the example values."""
+    payload = getattr(world, "sp1_id_payload")
+    old_id = examples.get("old_reference", "")
+    ref_type = examples.get("reference_type", "")
+    ref = {"type": ref_type, "id": old_id}
+    field = examples.get("reference_field", "")
+    if field == "feedback_source":
+        payload["responsibilities"][0]["process_model_parts"][0][field] = ref
+    elif field == "target":
+        payload["responsibilities"][0]["control_actions"][0][field] = ref
+    else:
+        payload["responsibilities"][1]["feedback_channels"][0][field] = ref
+    return True, ""
+
+
+def _h_sp1_id_typed_ref_assert(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a typed reference has its canonical ID and original type."""
+    payload = getattr(world, "sp1_id_normalization").payload
+    field = examples.get("reference_field", "")
+    if field == "feedback_source":
+        ref = payload["responsibilities"][0]["process_model_parts"][0][field]
+    elif field == "target":
+        ref = payload["responsibilities"][0]["control_actions"][0][field]
+    else:
+        ref = payload["responsibilities"][1]["feedback_channels"][0][field]
+    if ref.get("id") != examples.get("new_reference"):
+        return False, f"Expected {examples.get('new_reference')}, got {ref.get('id')}"
+    if ref.get("type") != examples.get("reference_type"):
+        return False, f"Reference type changed to {ref.get('type')}"
+    return True, ""
+
+
+def _h_sp1_id_coord_setup(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a coordination link uses source IDs from the payload."""
+    payload = getattr(world, "sp1_id_payload")
+    link = payload["coordination_links"][0]
+    link["source"] = "controller-alpha"
+    link["target"] = "controller-beta"
+    link["shared_pm"] = "state-alpha"
+    return True, ""
+
+
+def _h_sp1_id_coord_assert(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a coordination reference has its canonical ID."""
+    field = examples.get("reference_field", "")
+    actual = getattr(world, "sp1_id_normalization").payload["coordination_links"][0][field]
+    if actual != examples.get("new_reference"):
+        return False, f"Expected {field} {examples.get('new_reference')}, got {actual}"
+    return True, ""
+
+
+def _h_sp1_id_malformed_setup(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: malformed and colliding IDs are introduced into the payload."""
+    payload = getattr(world, "sp1_id_payload")
+    payload["responsibilities"][0]["responsibility_constraints"][0]["rc_id"] = "RC-9-9"
+    payload["responsibilities"][0]["process_model_parts"][0]["pm_id"] = "RC-9-9"
+    payload["responsibilities"][0]["control_actions"][0]["ca_id"] = "repeated"
+    payload["responsibilities"][0]["control_actions"][1]["ca_id"] = "repeated"
+    payload["responsibilities"][0]["feedback_channels"][0]["fb_id"] = "FB-1"
+    payload["responsibilities"][0]["feedback_channels"][1]["fb_id"] = "FB-1"
+    payload["controlled_processes"][0]["cp_id"] = "CP-99-1"
+    payload["coordination_links"][0]["link_id"] = "CL-20"
+    payload["coordination_links"][0]["coordination_mechanism"]["cm_id"] = "CM-7-7"
+    return True, ""
+
+
+def _h_sp1_id_post_process(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the parsed payload enters control-structure post-processing."""
+    return _h_sp1_id_normalize(world, text, examples)
+
+
+def _h_sp1_id_normalization_complete(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: ID normalization completes before model validation."""
+    if not getattr(world, "sp1_id_normalization", None):
+        return False, "ID normalization did not complete"
+    return True, ""
+
+
+def _h_sp1_id_formats(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: every normalized element ID matches its namespace format."""
+    patterns = {
+        "resp": r"^RESP-\d+$",
+        "rc_id": r"^RC-\d+-\d+$",
+        "pm_id": r"^PM-\d+-\d+$",
+        "ca_id": r"^CA-\d+-\d+$",
+        "fb_id": r"^FB-\d+-\d+$",
+        "cp_id": r"^CP-\d+$",
+        "link_id": r"^CL-\d+$",
+        "cm_id": r"^CM-\d+$",
+    }
+    for namespace, value in _sp1_id_values(
+        getattr(world, "sp1_id_normalization").payload
+    ):
+        if not re.match(patterns[namespace], value):
+            return False, f"Invalid {namespace} format: {value}"
+    return True, ""
+
+
+def _h_sp1_id_no_duplicates(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: no normalized namespace contains duplicate IDs."""
+    seen: dict[str, set] = {}
+    for namespace, value in _sp1_id_values(
+        getattr(world, "sp1_id_normalization").payload
+    ):
+        seen.setdefault(namespace, set())
+        if value in seen[namespace]:
+            return False, f"Duplicate {namespace}: {value}"
+        seen[namespace].add(value)
+    return True, ""
+
+
+def _h_sp1_id_no_collisions(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: normalized IDs do not cross namespaces."""
+    namespaces: dict[str, set] = {}
+    for namespace, value in _sp1_id_values(
+        getattr(world, "sp1_id_normalization").payload
+    ):
+        namespaces.setdefault(namespace, set()).add(value)
+    values = list(namespaces.items())
+    for index, (_left_name, left) in enumerate(values):
+        for right_name, right in values[index + 1 :]:
+            if left & right:
+                return False, f"Cross-namespace collision with {right_name}"
+    return True, ""
+
+
+def _h_sp1_id_validate(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the normalized payload is validated as a ControlStructure."""
+    from scenario_forge.stpa.models.control_structure import ControlStructure
+
+    world.control_structure = ControlStructure.model_validate(
+        getattr(world, "sp1_id_normalization").payload
+    )
+    return True, ""
+
+
+def _h_sp1_id_unresolved_setup(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: an unresolved reference is introduced."""
+    payload = getattr(world, "sp1_id_payload")
+    field = examples.get("reference_field", "")
+    missing = examples.get("missing_id", "")
+    if field == "feedback updates":
+        payload["responsibilities"][0]["feedback_channels"][0]["updates"] = missing
+    elif field == "process feedback_source":
+        payload["responsibilities"][0]["process_model_parts"][0]["feedback_source"] = {
+            "type": "responsibility",
+            "id": missing,
+        }
+    elif field == "control action target":
+        payload["responsibilities"][0]["control_actions"][0]["target"] = {
+            "type": "controlled_process",
+            "id": missing,
+        }
+    elif field == "feedback source":
+        payload["responsibilities"][1]["feedback_channels"][0]["source"] = {
+            "type": "controlled_process",
+            "id": missing,
+        }
+    else:
+        link = payload["coordination_links"][0]
+        if field == "coordination source":
+            link["source"] = missing
+        elif field == "coordination target":
+            link["target"] = missing
+        else:
+            link["shared_pm"] = missing
+    return True, ""
+
+
+def _h_sp1_id_validate_unresolved(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the normalized payload is validated and expected to fail."""
+    return _h_sp1_id_validate(world, text, examples)
+
+
+def _h_sp1_id_validation_error(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: validation fails with an error naming the reference field."""
+    error = getattr(world, "validation_error", None)
+    if error is None:
+        return False, "Expected ControlStructure validation to fail"
+    field = examples.get("reference_field", "")
+    fragments = {
+        "feedback updates": "updates",
+        "process feedback_source": "feedback_source",
+        "control action target": "target",
+        "feedback source": "source",
+        "coordination source": "source",
+        "coordination target": "target",
+        "coordination shared_pm": "shared_pm",
+    }
+    fragment = fragments.get(field, field)
+    if fragment not in str(error):
+        return False, f"Expected {fragment} in validation error: {error}"
+    return True, ""
+
+
 FEATURE_ID = 'sp1'
 
 def register(api: object) -> None:
@@ -2020,6 +2608,42 @@ def register(api: object) -> None:
     api.register('a warning is produced for CA-1-1 containing', _h_sp1_neut_warning_ca, source_order=6969)
     api.register('the solution-neutrality check is run on the assembled', _h_sp1_neut_checked_on_assembled, source_order=6970)
     api.register('the results are available as warnings', _h_sp1_neut_results_available, source_order=6971)
+    api.register('a syntactically parsed SP1 control-structure payload$', _h_sp1_id_payload_parsed, source_order=7001)
+    api.register('the payload preserves responsibility, child, controlled-process, and coordination-link list order$', _h_sp1_id_payload_ordered, source_order=7002)
+    api.register('the payload contains at least two elements at', _h_sp1_id_at_least_two, source_order=7003)
+    api.register('two payloads have identical ordered structures but different element IDs$', _h_sp1_id_two_payloads, source_order=7004)
+    api.register('the payload IDs are normalized$', _h_sp1_id_normalize, source_order=7005)
+    api.register('both payloads are normalized$', _h_sp1_id_two_payloads, source_order=7006)
+    api.register('the element at .* has ID', _h_sp1_id_position_has_id, source_order=7007)
+    api.register('both normalized payloads have the same element IDs$', _h_sp1_id_same_ids, source_order=7008)
+    api.register('normalization preserves list order$', _h_sp1_id_preserves_order, source_order=7009)
+    api.register('normalization preserves every non-ID field$', _h_sp1_id_preserves_non_ids, source_order=7010)
+    api.register('the payload contains a unique source ID .* at', _h_sp1_id_unique_source, source_order=7011)
+    api.register('the normalization mapping resolves', _h_sp1_id_mapping, source_order=7012)
+    api.register('two elements in .* both use source ID', _h_sp1_id_prepare_duplicate, source_order=7013)
+    api.register('the first element in .* has ID', _h_sp1_id_duplicate_has_ids, source_order=7014)
+    api.register('the second element in .* has ID', _h_sp1_id_duplicate_has_ids, source_order=7015)
+    api.register('responsibility 1 and responsibility 2 each contain a process model part with source ID shared-state$', _h_sp1_id_local_pm_setup, source_order=7016)
+    api.register('each responsibility contains a feedback channel whose updates value is shared-state$', _h_sp1_id_local_pm_setup, source_order=7017)
+    api.register('responsibility .* feedback channel 1 updates', _h_sp1_id_local_pm_update, source_order=7018)
+    api.register('the referenced element at .* has source ID', _h_sp1_id_typed_ref_setup, source_order=7019)
+    api.register('.* has .* ID .* with type', _h_sp1_id_typed_ref_setup, source_order=7020)
+    api.register('normalization changes .* from .* to', _h_sp1_id_typed_ref_assert, source_order=7021)
+    api.register('the reference type remains', _h_sp1_id_typed_ref_assert, source_order=7022)
+    api.register('responsibility 1 has source ID controller-alpha and process model part source ID shared-state$', _h_sp1_id_coord_setup, source_order=7023)
+    api.register('responsibility 2 has source ID controller-beta$', _h_sp1_id_coord_setup, source_order=7024)
+    api.register('coordination link 1 has source controller-alpha, target controller-beta, and shared_pm shared-state$', _h_sp1_id_coord_setup, source_order=7025)
+    api.register('coordination link 1 has', _h_sp1_id_coord_assert, source_order=7026)
+    api.register('the payload has duplicate nested IDs, nonconforming ID formats, and an RC value used as a PM ID$', _h_sp1_id_malformed_setup, source_order=7027)
+    api.register('the parsed payload enters control-structure post-processing$', _h_sp1_id_post_process, source_order=7028)
+    api.register('ID normalization completes before ControlStructure validation$', _h_sp1_id_normalization_complete, source_order=7029)
+    api.register('every element ID matches the format for its element type$', _h_sp1_id_formats, source_order=7030)
+    api.register('no element type contains duplicate IDs$', _h_sp1_id_no_duplicates, source_order=7031)
+    api.register('no ID occurs in more than one element-type namespace$', _h_sp1_id_no_collisions, source_order=7032)
+    api.register('ControlStructure validation succeeds$', _h_sp1_id_validate, source_order=7033)
+    api.register('the payload contains an unresolved .* value', _h_sp1_id_unresolved_setup, source_order=7034)
+    api.register('the normalized payload is validated$', _h_sp1_id_validate_unresolved, source_order=7035)
+    api.register('validation fails with an error identifying', _h_sp1_id_validation_error, source_order=7036)
     api.set_feature(None)
 
 __all__ = ["FEATURE_ID", "register"]

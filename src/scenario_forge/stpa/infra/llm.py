@@ -168,6 +168,7 @@ class LLMClient:
         response_format: type[BaseModel] | None = None,
         max_completion_tokens: int | None = None,
         temperature: float | None = None,
+        allow_unvalidated: bool = False,
     ) -> LLMResult:
         effective_max = max_completion_tokens or self.max_completion_tokens
         effective_temp = temperature if temperature is not None else self.temperature
@@ -178,10 +179,12 @@ class LLMClient:
         ]
 
         extra_kwargs = self._build_extra_kwargs(effective_max, effective_temp)
+        if allow_unvalidated and response_format is not None:
+            extra_kwargs["response_format"] = {"type": "json_object"}
 
         t0 = time.perf_counter_ns()
 
-        if response_format is not None:
+        if response_format is not None and not allow_unvalidated:
             response = self._client.beta.chat.completions.parse(
                 model=self.model,
                 messages=messages,
