@@ -363,16 +363,13 @@ def run_revision(
     if revision_delta is None:
         return control_structure, ["Revision failed: unexpected None response"]
 
-    dismissal_warnings = [
+    revision_warnings = [
         f"Revision dismissed finding: {justification}"
         for justification in revision_delta.dismissed_gaps
     ]
-    # all_findings_dismissed is empty when not applicable; extend is a
-    # no-op so no conditional branch is needed here.
-    all_findings_dismissed = _all_dismissed_no_change_warning(
-        critic_findings, revision_delta
+    revision_warnings.extend(
+        _all_dismissed_no_change_warning(critic_findings, revision_delta)
     )
-    dismissal_warnings.extend(all_findings_dismissed)
 
     # Merge the delta into the existing ControlStructure
     try:
@@ -387,18 +384,18 @@ def run_revision(
 
     # Warnings are accumulated in chronological order: dismissal → merge →
     # strip → heuristics, so consumers see the earliest root-cause first.
-    post_warnings = dismissal_warnings + list(merge_warnings)
+    revision_warnings.extend(merge_warnings)
 
     # Strip empty responsibilities as a safety net
     revised_cs, strip_warnings = strip_empty_responsibilities(revised_cs)
-    post_warnings.extend(strip_warnings)
+    revision_warnings.extend(strip_warnings)
 
     # Re-run structural heuristics after revision
     post_revision = run_heuristics(revised_cs, loss_analysis)
-    post_warnings.extend(post_revision.errors)
-    post_warnings.extend(post_revision.warnings)
+    revision_warnings.extend(post_revision.errors)
+    revision_warnings.extend(post_revision.warnings)
 
-    return revised_cs, post_warnings
+    return revised_cs, revision_warnings
 
 
 def _delta_has_changes(delta: RevisionDelta) -> bool:
@@ -747,5 +744,5 @@ def _build_taxonomy_probes(profile: CapabilityProfile) -> list[str]:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-12T22:16:00Z","module_hash":"24b00d320911be224320cea44fb112b87de5bc70b1c81f1c6155a766d8b7efae","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":87,"end_line":150,"hash":"a9843125bce2a4eb201dcf76b8ebdcc035ec4b02da5191833c41050c6729db87"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":153,"end_line":168,"hash":"9f7d5b8b57765939e8ef6aca53c1ef391a661c7204704ed3ed3110c3396cc0c7"},{"id":"func/_count_unjustified","name":"_count_unjustified","line":171,"end_line":175,"hash":"27bfaee3b1521d6699eadf91bec7f89c0be6cbceaf8edaaa233e0fba7c5d1323"},{"id":"func/count_findings","name":"count_findings","line":178,"end_line":189,"hash":"82b737e1120dfa1d5e651cb12844b2502de5809685b41b5aabb7154194eb5454"},{"id":"func/_is_conforming_id","name":"_is_conforming_id","line":226,"end_line":228,"hash":"1ad03e656f0626dc204c14cd04cc350212dc439d0e7bc8631bc80fb98661429f"},{"id":"func/_replace_non_conforming_ids","name":"_replace_non_conforming_ids","line":231,"end_line":247,"hash":"3c97a30df2ec4c066d4ccf69f9c7c582bc226fba6fa638ed7c624440a29116fe"},{"id":"func/sanitize_critic_ids","name":"sanitize_critic_ids","line":250,"end_line":286,"hash":"ee00b50b683dc682db74997ec31b54f41aa39e0beb9a89283d5db6115b5b6f82"},{"id":"func/run_revision","name":"run_revision","line":294,"end_line":397,"hash":"27968a212d3f0a77d04b31326e357e70a046e0f7d1dce17836fb2e83c6c59b90"},{"id":"func/_delta_has_changes","name":"_delta_has_changes","line":400,"end_line":407,"hash":"879ad2739eda0785d1edf1d48c907a8723f53c9bfe4723ae01592cb6063edb0d"},{"id":"func/_all_dismissed_no_change_warning","name":"_all_dismissed_no_change_warning","line":410,"end_line":432,"hash":"42f37603020d6d55c6449c13f47c6f24e8514bc98a7e5318d1ed64471cd588d2"},{"id":"func/_compute_next_ids","name":"_compute_next_ids","line":435,"end_line":451,"hash":"7a64a657860a9cd9dbabb4d41f77be53161291334937dba713f5775d07811c54"},{"id":"func/_next_num_from","name":"_next_num_from","line":454,"end_line":462,"hash":"7604f4ce687e1ec1d459143ec2b37c8b317573cbfd7b3eee0aaf78075c5cbe2a"},{"id":"func/_extract_num","name":"_extract_num","line":465,"end_line":471,"hash":"5762f14fc8d7f27355617700b71ae9cc6dfed5ee691c3315c44ca384557315d3"},{"id":"func/_add_new_items","name":"_add_new_items","line":474,"end_line":492,"hash":"7b74c64c23b3e02748224a960fc7e5475a3d38781676e87d6e5785e242fb7004"},{"id":"func/_replace_modified_resps","name":"_replace_modified_resps","line":495,"end_line":507,"hash":"a7c3f7893c5e003f2a8bbcff960066069363b6a1ef59e4837a93adccf815f728"},{"id":"func/_next_free_cm_id","name":"_next_free_cm_id","line":510,"end_line":513,"hash":"ac1bf1f8d51b4e906d3b92ff5e2dfe0aa039db848e63dcf4898497cdb6826e3c"},{"id":"func/_renumber_colliding_cm_ids","name":"_renumber_colliding_cm_ids","line":516,"end_line":553,"hash":"cf924fa525bb6168c869bf46d2ddf6ea9dc02928e2a8878dfe7d2d0a56ef3874"},{"id":"func/_merge_revision_delta","name":"_merge_revision_delta","line":556,"end_line":601,"hash":"b8ce19f8aaac756084016206dfba72a8e6b4be2cd4b10ca13eb9092dd741a0c1"},{"id":"func/_is_responsibility_empty","name":"_is_responsibility_empty","line":609,"end_line":613,"hash":"f0e3af6c54ff18f8eb0421cb7c1166cfc694589549bba28429d7791561eb4551"},{"id":"func/strip_empty_responsibilities","name":"strip_empty_responsibilities","line":616,"end_line":659,"hash":"0d28f4118b8fe01b7675c720794f49fb3d9425b3bf0afcb045e96e6521c7f336"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":690,"end_line":695,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":698,"end_line":701,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":704,"end_line":723,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
+# {"version":1,"tested_at":"2026-08-13T17:01:59Z","module_hash":"60b49ed5329105912baf667e4802b7f4362d4fde060d1122246cdd3bd13df719","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":90,"end_line":153,"hash":"a9843125bce2a4eb201dcf76b8ebdcc035ec4b02da5191833c41050c6729db87"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":156,"end_line":171,"hash":"9f7d5b8b57765939e8ef6aca53c1ef391a661c7204704ed3ed3110c3396cc0c7"},{"id":"func/_count_unjustified","name":"_count_unjustified","line":174,"end_line":178,"hash":"27bfaee3b1521d6699eadf91bec7f89c0be6cbceaf8edaaa233e0fba7c5d1323"},{"id":"func/count_findings","name":"count_findings","line":181,"end_line":192,"hash":"82b737e1120dfa1d5e651cb12844b2502de5809685b41b5aabb7154194eb5454"},{"id":"func/_is_conforming_id","name":"_is_conforming_id","line":229,"end_line":231,"hash":"1ad03e656f0626dc204c14cd04cc350212dc439d0e7bc8631bc80fb98661429f"},{"id":"func/_replace_non_conforming_ids","name":"_replace_non_conforming_ids","line":234,"end_line":250,"hash":"3c97a30df2ec4c066d4ccf69f9c7c582bc226fba6fa638ed7c624440a29116fe"},{"id":"func/sanitize_critic_ids","name":"sanitize_critic_ids","line":253,"end_line":289,"hash":"ee00b50b683dc682db74997ec31b54f41aa39e0beb9a89283d5db6115b5b6f82"},{"id":"func/run_revision","name":"run_revision","line":297,"end_line":398,"hash":"b3dcb5d8e73463852d6790ae77291688ac615d19025364095766b0eda371f390"},{"id":"func/_delta_has_changes","name":"_delta_has_changes","line":401,"end_line":408,"hash":"879ad2739eda0785d1edf1d48c907a8723f53c9bfe4723ae01592cb6063edb0d"},{"id":"func/_all_dismissed_no_change_warning","name":"_all_dismissed_no_change_warning","line":411,"end_line":433,"hash":"42f37603020d6d55c6449c13f47c6f24e8514bc98a7e5318d1ed64471cd588d2"},{"id":"func/_compute_next_ids","name":"_compute_next_ids","line":436,"end_line":452,"hash":"7a64a657860a9cd9dbabb4d41f77be53161291334937dba713f5775d07811c54"},{"id":"func/_next_num_from","name":"_next_num_from","line":455,"end_line":463,"hash":"7604f4ce687e1ec1d459143ec2b37c8b317573cbfd7b3eee0aaf78075c5cbe2a"},{"id":"func/_extract_num","name":"_extract_num","line":466,"end_line":472,"hash":"5762f14fc8d7f27355617700b71ae9cc6dfed5ee691c3315c44ca384557315d3"},{"id":"func/_add_new_items","name":"_add_new_items","line":475,"end_line":493,"hash":"7b74c64c23b3e02748224a960fc7e5475a3d38781676e87d6e5785e242fb7004"},{"id":"func/_replace_modified_resps","name":"_replace_modified_resps","line":496,"end_line":519,"hash":"d12a54a27840c5a176ff93904507e83a43b94fd4338d4ca9a600fe67aee05bab"},{"id":"func/_next_free_cm_id","name":"_next_free_cm_id","line":522,"end_line":525,"hash":"ac1bf1f8d51b4e906d3b92ff5e2dfe0aa039db848e63dcf4898497cdb6826e3c"},{"id":"func/_renumber_colliding_cm_ids","name":"_renumber_colliding_cm_ids","line":528,"end_line":565,"hash":"cf924fa525bb6168c869bf46d2ddf6ea9dc02928e2a8878dfe7d2d0a56ef3874"},{"id":"func/_merge_revision_delta","name":"_merge_revision_delta","line":568,"end_line":621,"hash":"358e989784d35b053cf8569afe22b75194ba58b0b5f28e96003c30237e221395"},{"id":"func/_is_responsibility_empty","name":"_is_responsibility_empty","line":629,"end_line":633,"hash":"f0e3af6c54ff18f8eb0421cb7c1166cfc694589549bba28429d7791561eb4551"},{"id":"func/strip_empty_responsibilities","name":"strip_empty_responsibilities","line":636,"end_line":679,"hash":"0d28f4118b8fe01b7675c720794f49fb3d9425b3bf0afcb045e96e6521c7f336"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":710,"end_line":715,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":718,"end_line":721,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":724,"end_line":743,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
 # mutate4py-manifest-end

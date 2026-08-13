@@ -406,8 +406,6 @@ def safe_llm_call(
         return None, result, error_msg
 
 
-
-
 def safe_llm_call_raw(
     *,
     llm_client: LLMClient,
