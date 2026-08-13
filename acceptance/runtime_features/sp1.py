@@ -2818,7 +2818,18 @@ def _h_sp1_tolerant_nested_payload_element(
     element_type = examples.get("element_type", "")
     position = examples.get("structural_position", "")
     source_state = examples.get("source_id_state", "")
-    id_field = examples.get("id_field", "")
+    # Enforce the source-state vocabulary so a mutated example value (e.g.
+    # "omittEd") cannot pass through as silently equivalent to "omitted".
+    if source_state not in ("omitted", "blank"):
+        return False, f"Unknown source_id_state: {source_state}"
+    # The ID field is determined by the element type, not by an example
+    # column, so that mutating a redundant column cannot survive mutation
+    # testing while the normalizer assigns canonical IDs by position.
+    id_field = {
+        "control action": "ca_id",
+        "feedback channel": "fb_id",
+        "controlled process": "cp_id",
+    }.get(element_type, "")
     raw_id = "" if source_state == "blank" else None
 
     payload = {
