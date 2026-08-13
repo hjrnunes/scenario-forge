@@ -132,3 +132,48 @@ structural order with valid references.
 **Expected:** IDs and references retain the same canonical values. Non-ID
 fields and list order are unchanged. No renumbering-related SP1 error appears
 in the manifest.
+
+## QA-SP1-ID-09: Ambiguous typed global references are rejected
+
+Run three fixture cases:
+
+1. Two responsibilities use source ID `ambiguous-global`, and a PM
+   `feedback_source` references that ID as a responsibility.
+2. Two controlled processes use source ID `ambiguous-global`, and a CA
+   `target` references that ID as a controlled process.
+3. Two controlled processes use source ID `ambiguous-global`, and an FB
+   `source` references that ID as a controlled process.
+
+All other references in each fixture are resolvable.
+
+**Workflow:**
+1. Configure the fixture endpoint to return the selected ambiguity in every
+   applicable Stage 2 or revision response.
+2. Run the CLI into a fresh output directory.
+3. Inspect stderr, `calls.jsonl`, `run-manifest.yaml`, and any emitted
+   `control-structure.yaml`.
+
+**Expected:** SP1 rejects the ambiguous reference during control-structure
+validation. User-visible diagnostics identify the affected field and
+`ambiguous-global`. The reference is not rewritten to either candidate's
+canonical ID. Any control structure published under the existing
+graceful-degradation policy does not contain the ambiguous reference.
+
+## QA-SP1-ID-10: Ambiguous coordination shared PM is rejected
+
+**Fixture response:** Two responsibilities each contain a PM with source ID
+`shared-state`. A coordination link uses that ID as `shared_pm`. All other
+references are resolvable.
+
+**Workflow:**
+1. Configure the fixture endpoint to return the ambiguity in every applicable
+   Stage 2 or revision response.
+2. Run the CLI into a fresh output directory.
+3. Inspect stderr, `calls.jsonl`, `run-manifest.yaml`, and any emitted
+   `control-structure.yaml`.
+
+**Expected:** SP1 rejects the coordination link during control-structure
+validation. User-visible diagnostics identify `shared_pm` and
+`shared-state`. The reference is not rewritten to either PM's
+canonical ID. Any control structure published under the existing
+graceful-degradation policy does not contain the ambiguous reference.
