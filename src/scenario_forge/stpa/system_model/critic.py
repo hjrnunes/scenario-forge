@@ -33,6 +33,9 @@ from scenario_forge.stpa.models.control_structure import (
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
+from scenario_forge.stpa.system_model.id_normalization import (
+    normalize_control_structure_payload,
+)
 
 STAGE = "stage_2"
 STEP_CRITIC = "critic"
@@ -353,6 +356,7 @@ def run_revision(
         step=STEP_REVISION,
         temperature=temperature,
         max_completion_tokens=REVISION_MAX_COMPLETION_TOKENS,
+        allow_unvalidated=True,
     )
     if error_msg is not None:
         return control_structure, [f"Revision failed: {error_msg}"]
@@ -498,9 +502,20 @@ def _replace_modified_resps(
 ) -> list[Responsibility]:
     """Replace responsibilities whose resp_id appears in *modified*.
 
-    Responsibilities not in the modified set are deep-copied as-is.
+    Responsibilities not in the modified set are deep-copied as-is.  The
+    ``resp_id`` is the pre-normalization stitch key, so every modified
+    responsibility must name an existing responsibility exactly.  A
+    non-canonical or otherwise unknown key cannot be matched safely.
     """
+    existing_ids = {resp.resp_id for resp in resps}
     modified_map = {r.resp_id: r for r in modified}
+    unknown_ids = set(modified_map) - existing_ids
+    if unknown_ids:
+        unknown = ", ".join(sorted(unknown_ids))
+        raise ValueError(
+            "Modified responsibility resp_id must match an existing "
+            f"canonical responsibility ID; unknown ID(s): {unknown}."
+        )
     return [
         copy.deepcopy(modified_map.get(r.resp_id, r))
         for r in resps
@@ -564,7 +579,8 @@ def _merge_revision_delta(
     - Adds ``new_controlled_processes`` (skipping duplicate cp_ids).
     - Adds ``new_coordination_links`` (skipping duplicate link_ids).
     - Renumbers any new link whose ``cm_id`` collides with an existing one.
-    - Validates the merged ControlStructure.
+    - Normalizes IDs and references on the fully merged payload.
+    - Validates the normalized ControlStructure.
 
     Returns a tuple of (merged ControlStructure, renumber warnings).
     """
@@ -594,11 +610,18 @@ def _merge_revision_delta(
         cs.coordination_links, merged_cls
     )
 
-    return ControlStructure(
+    # The revision delta is decoded tolerantly, so constructing a validated
+    # ControlStructure here would reject malformed IDs before the
+    # deterministic normalization pass can repair them.  Keep the stitched
+    # model unvalidated until all final list positions are known, then
+    # normalize the complete payload and validate exactly once.
+    merged_payload = ControlStructure.model_construct(
         responsibilities=merged_resps,
         controlled_processes=merged_cps,
         coordination_links=merged_cls,
-    ), cm_warnings
+    ).model_dump(mode="python", exclude_none=False)
+    normalized_payload = normalize_control_structure_payload(merged_payload)
+    return ControlStructure.model_validate(normalized_payload.payload), cm_warnings
 
 
 # ---------------------------------------------------------------------------

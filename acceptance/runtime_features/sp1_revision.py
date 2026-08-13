@@ -4177,6 +4177,769 @@ def _h_b3_repair_before_call3(world: World, text: str, examples: dict) -> tuple[
         return False, "repair_orphan_pms was not called"
     return True, ""
 
+
+# ---------------------------------------------------------------------------
+# SP1 revision-delta ID normalization
+# ---------------------------------------------------------------------------
+
+
+def _revnorm_responsibility(
+    resp_id: str,
+    *,
+    rc_id: str,
+    pm_id: str,
+    ca_id: str,
+    fb_id: str,
+    updates: str | None = None,
+    feedback_source: dict[str, str] | None = None,
+    target: dict[str, str] | None = None,
+    source: dict[str, str] | None = None,
+    description: str = "Revision addition",
+) -> dict[str, Any]:
+    """Build a complete raw responsibility for revision normalization tests."""
+    return {
+        "resp_id": resp_id,
+        "description": description,
+        "responsibility_constraints": [
+            {"rc_id": rc_id, "description": "Revision constraint"}
+        ],
+        "process_model_parts": [
+            {
+                "pm_id": pm_id,
+                "description": "Revision state",
+                **({"feedback_source": feedback_source} if feedback_source else {}),
+            }
+        ],
+        "control_actions": [
+            {
+                "ca_id": ca_id,
+                "description": "Revision action",
+                **({"target": target} if target else {}),
+            }
+        ],
+        "feedback_channels": [
+            {
+                "fb_id": fb_id,
+                "description": "Revision feedback",
+                "updates": updates or pm_id,
+                **({"source": source} if source else {}),
+            }
+        ],
+    }
+
+
+def _revnorm_coordination_link(
+    link_id: str,
+    *,
+    source: str,
+    target: str,
+    shared_pm: str,
+    cm_id: str,
+) -> dict[str, Any]:
+    """Build a raw coordination link for revision normalization tests."""
+    return {
+        "link_id": link_id,
+        "source": source,
+        "target": target,
+        "shared_pm": shared_pm,
+        "coordination_mechanism": {
+            "cm_id": cm_id,
+            "description": "Revision mechanism",
+            "payload": "revision",
+        },
+        "description": "Revision coordination",
+    }
+
+
+def _revnorm_canonical_control_structure() -> ControlStructure:
+    """Return the canonical two-responsibility revision fixture."""
+    payload = _sp1_valid_cs_dict()
+    payload["coordination_links"] = [
+        _revnorm_coordination_link(
+            "CL-1",
+            source="RESP-1",
+            target="RESP-2",
+            shared_pm="PM-1-1",
+            cm_id="CM-1",
+        )
+    ]
+    return ControlStructure.model_validate(payload)
+
+
+def _revnorm_findings() -> Any:
+    """Return findings that trigger one revision attempt."""
+    return _B3CriticFindings(
+        gaps=[
+            _B3CriticGap(
+                gap_type="missing_responsibility",
+                description="Missing revision coverage",
+                related_attack_path="A revision gap",
+                suggested_remedy="Add revision coverage",
+            )
+        ],
+        checklist_results={"Revision coverage": "absent_unjustified"},
+        taxonomy_probe_results={},
+    )
+
+
+def _revnorm_set_delta(world: World, delta: dict[str, Any]) -> None:
+    """Configure the acceptance mock with a raw RevisionDelta payload."""
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    client.set_response_for(_FCRevisionDelta, delta)
+    world.revision_norm_delta = delta
+
+
+def _h_revnorm_canonical_cs(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle the canonical control-structure revision fixture."""
+    world.revision_norm_active = True
+    world.control_structure = _revnorm_canonical_control_structure()
+    world.revision_norm_pre_revision_cs = world.control_structure
+    return True, ""
+
+
+def _h_revnorm_findings(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle findings that trigger one revision attempt."""
+    world.revision_norm_active = True
+    world.sp1_critic_findings = _revnorm_findings()
+    return True, ""
+
+
+def _h_revnorm_nonconforming_delta(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle a complete delta whose IDs are arbitrary source IDs."""
+    added_resp = _revnorm_responsibility(
+        "source-responsibility",
+        rc_id="source-constraint",
+        pm_id="source-state",
+        ca_id="source-action",
+        fb_id="source-feedback",
+        feedback_source={"type": "responsibility", "id": "source-responsibility"},
+        target={"type": "controlled_process", "id": "source-process"},
+        source={"type": "controlled_process", "id": "source-process"},
+        description="Revision addition responsibility",
+    )
+    _revnorm_set_delta(
+        world,
+        {
+            "new_responsibilities": [added_resp],
+            "new_controlled_processes": [
+                {"cp_id": "source-process", "description": "Revision process"}
+            ],
+            "new_coordination_links": [
+                _revnorm_coordination_link(
+                    "source-link",
+                    source="source-responsibility",
+                    target="RESP-1",
+                    shared_pm="source-state",
+                    cm_id="source-mechanism",
+                )
+            ],
+            "modified_responsibilities": [],
+        },
+    )
+    return True, ""
+
+
+def _h_revnorm_references_resolve(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle the source-ID reference precondition."""
+    if not getattr(world, "revision_norm_delta", None):
+        return False, "No revision delta configured"
+    return True, ""
+
+
+def _h_revnorm_duplicate_nested_delta(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle a replacement and addition sharing nested source IDs."""
+    shared = {
+        "rc_id": "RC-2-1",
+        "pm_id": "PM-2-1",
+        "ca_id": "CA-2-1",
+        "fb_id": "FB-2-1",
+    }
+    modified = _revnorm_responsibility(
+        "RESP-2",
+        **shared,
+        feedback_source={"type": "responsibility", "id": "RESP-2"},
+        source={"type": "responsibility", "id": "RESP-2"},
+        target={"type": "controlled_process", "id": "CP-1"},
+        description="Updated duplicate-source responsibility",
+    )
+    added = _revnorm_responsibility(
+        "RESP-3",
+        **shared,
+        feedback_source={"type": "responsibility", "id": "RESP-3"},
+        source={"type": "responsibility", "id": "RESP-3"},
+        target={"type": "controlled_process", "id": "CP-1"},
+        description="Added duplicate-source responsibility",
+    )
+    _revnorm_set_delta(
+        world,
+        {
+            "new_responsibilities": [added],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [modified],
+        },
+    )
+    return True, ""
+
+
+def _h_revnorm_reference_delta(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle a delta whose references use source IDs before normalization."""
+    modified = _revnorm_responsibility(
+        "RESP-2",
+        rc_id="revised-constraint",
+        pm_id="revised-state",
+        ca_id="revised-action",
+        fb_id="revised-feedback",
+        feedback_source={"type": "responsibility", "id": "revised-controller"},
+        target={"type": "controlled_process", "id": "revised-process"},
+        source={"type": "controlled_process", "id": "revised-process"},
+        description="Updated reference responsibility",
+    )
+    controller = _revnorm_responsibility(
+        "revised-controller",
+        rc_id="controller-constraint",
+        pm_id="controller-state",
+        ca_id="controller-action",
+        fb_id="controller-feedback",
+        feedback_source={"type": "responsibility", "id": "revised-controller"},
+        source={"type": "responsibility", "id": "revised-controller"},
+        description="Added reference controller",
+    )
+    _revnorm_set_delta(
+        world,
+        {
+            "new_responsibilities": [controller],
+            "new_controlled_processes": [
+                {"cp_id": "revised-process", "description": "Revised process"}
+            ],
+            "new_coordination_links": [
+                _revnorm_coordination_link(
+                    "revised-link",
+                    source="revised-controller",
+                    target="RESP-1",
+                    shared_pm="revised-state",
+                    cm_id="revised-mechanism",
+                )
+            ],
+            "modified_responsibilities": [modified],
+        },
+    )
+    return True, ""
+
+
+def _h_revnorm_position_delta(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle a delta with misleading but conforming top-level IDs."""
+    modified = _revnorm_responsibility(
+        "RESP-2",
+        rc_id="RC-42-7",
+        pm_id="PM-42-7",
+        ca_id="CA-42-7",
+        fb_id="FB-42-7",
+        feedback_source={"type": "responsibility", "id": "RESP-2"},
+        source={"type": "responsibility", "id": "RESP-2"},
+        description="Updated position responsibility",
+    )
+    added = _revnorm_responsibility(
+        "RESP-77",
+        rc_id="RC-77-1",
+        pm_id="PM-77-1",
+        ca_id="CA-77-1",
+        fb_id="FB-77-1",
+        feedback_source={"type": "responsibility", "id": "RESP-77"},
+        source={"type": "controlled_process", "id": "CP-77"},
+        target={"type": "controlled_process", "id": "CP-77"},
+        description="Added position responsibility",
+    )
+    _revnorm_set_delta(
+        world,
+        {
+            "new_responsibilities": [added],
+            "new_controlled_processes": [
+                {"cp_id": "CP-77", "description": "Added position process"}
+            ],
+            "new_coordination_links": [
+                _revnorm_coordination_link(
+                    "CL-77",
+                    source="RESP-77",
+                    target="RESP-1",
+                    shared_pm="PM-77-1",
+                    cm_id="CM-77",
+                )
+            ],
+            "modified_responsibilities": [modified],
+        },
+    )
+    return True, ""
+
+
+def _h_revnorm_unresolved_delta(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle one unresolved reference variant from the scenario outline."""
+    field = examples.get("reference_field", "")
+    missing_id = examples.get("missing_id", "")
+    added = _revnorm_responsibility(
+        "RESP-3",
+        rc_id="RC-3-1",
+        pm_id="PM-3-1",
+        ca_id="CA-3-1",
+        fb_id="FB-3-1",
+        feedback_source={"type": "responsibility", "id": "RESP-3"},
+        target={"type": "controlled_process", "id": "CP-1"},
+        source={"type": "responsibility", "id": "RESP-3"},
+        description="Unresolved revision responsibility",
+    )
+    if field == "feedback updates":
+        added["feedback_channels"][0]["updates"] = missing_id
+    elif field == "process feedback_source":
+        added["process_model_parts"][0]["feedback_source"] = {
+            "type": "responsibility",
+            "id": missing_id,
+        }
+    elif field == "control action target":
+        added["control_actions"][0]["target"] = {
+            "type": "controlled_process",
+            "id": missing_id,
+        }
+    elif field == "feedback source":
+        added["feedback_channels"][0]["source"] = {
+            "type": "controlled_process",
+            "id": missing_id,
+        }
+
+    link = _revnorm_coordination_link(
+        "CL-2",
+        source="RESP-3",
+        target="RESP-1",
+        shared_pm="PM-3-1",
+        cm_id="CM-2",
+    )
+    if field == "coordination source":
+        link["source"] = missing_id
+    elif field == "coordination target":
+        link["target"] = missing_id
+    elif field == "coordination shared_pm":
+        link["shared_pm"] = missing_id
+
+    _revnorm_set_delta(
+        world,
+        {
+            "new_responsibilities": [added],
+            "new_controlled_processes": [],
+            "new_coordination_links": [link],
+            "modified_responsibilities": [],
+        },
+    )
+    world.revision_norm_missing_field = field
+    world.revision_norm_missing_id = missing_id
+    return True, ""
+
+
+def _h_revnorm_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Run the revision-delta normalization acceptance fixture."""
+    if not getattr(world, "revision_norm_active", False):
+        return _h_bf2_revision_run_with_log_capture(world, text, examples)
+    client = world.sp1_mock_client or _SP1MockLLM()
+    world.sp1_mock_client = client
+    run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="rev_norm_"))
+    world.sp1_run_dir = run_dir
+    revised, warnings = _sp1_run_revision(
+        llm_client=client,
+        control_structure=world.control_structure,
+        critic_findings=world.sp1_critic_findings,
+        use_case_text=world.sp1_use_case_text,
+        run_dir=run_dir,
+    )
+    world.control_structure = revised
+    world.sp1_post_revision_warnings = warnings
+    world.sp1_revision_call_count = 1
+    return True, ""
+
+
+def _h_revnorm_added_id(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Check the canonical ID assigned to the requested added element."""
+    element = examples.get("element", "")
+    canonical_id = examples.get("canonical_id", "")
+    cs = world.control_structure
+    if cs is None:
+        return False, "No revised control structure"
+    ids_by_element = {
+        "responsibility": [r.resp_id for r in cs.responsibilities],
+        "responsibility constraint": [
+            rc.rc_id
+            for r in cs.responsibilities
+            for rc in r.responsibility_constraints
+        ],
+        "process model part": [
+            pm.pm_id for r in cs.responsibilities for pm in r.process_model_parts
+        ],
+        "control action": [
+            ca.ca_id for r in cs.responsibilities for ca in r.control_actions
+        ],
+        "feedback channel": [
+            fb.fb_id for r in cs.responsibilities for fb in r.feedback_channels
+        ],
+        "controlled process": [cp.cp_id for cp in cs.controlled_processes],
+        "coordination link": [cl.link_id for cl in cs.coordination_links],
+        "coordination mechanism": [
+            cl.coordination_mechanism.cm_id for cl in cs.coordination_links
+        ],
+    }
+    if canonical_id not in ids_by_element.get(element, []):
+        return False, f"{element} {canonical_id} not found in revised structure"
+    return True, ""
+
+
+def _h_revnorm_added_content(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Check that the revision added the fixture's content, not just an ID."""
+    if world.control_structure is None:
+        return False, "No revised control structure"
+    rendered = json.dumps(
+        world.control_structure.model_dump(mode="python", exclude_none=False)
+    )
+    if "Revision addition" not in rendered:
+        return False, "Revision addition content was not published"
+    return True, ""
+
+
+def _h_revnorm_no_failed_warnings(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check that a successful revision has no failed/degraded warning."""
+    warnings = " ".join(world.sp1_post_revision_warnings or []).lower()
+    if "failed" in warnings or "degrad" in warnings:
+        return False, f"Unexpected failed/degraded warning: {warnings}"
+    return True, ""
+
+
+def _revnorm_nested_ids(cs: ControlStructure, resp_id: str, element: str) -> list[str]:
+    """Return nested IDs for one responsibility and element kind."""
+    resp = next((r for r in cs.responsibilities if r.resp_id == resp_id), None)
+    if resp is None:
+        return []
+    collections = {
+        "responsibility constraint": resp.responsibility_constraints,
+        "process model part": resp.process_model_parts,
+        "control action": resp.control_actions,
+        "feedback channel": resp.feedback_channels,
+    }
+    id_attrs = {
+        "responsibility constraint": "rc_id",
+        "process model part": "pm_id",
+        "control action": "ca_id",
+        "feedback channel": "fb_id",
+    }
+    return [
+        getattr(item, id_attrs[element])
+        for item in collections.get(element, [])
+    ]
+
+
+def _h_revnorm_nested_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Check nested IDs under the modified and added responsibilities."""
+    element = examples.get("element", "")
+    modified_id = examples.get("modified_id", "")
+    added_id = examples.get("added_id", "")
+    cs = world.control_structure
+    if cs is None:
+        return False, "No revised control structure"
+    modified = _revnorm_nested_ids(cs, "RESP-2", element)
+    added = _revnorm_nested_ids(cs, "RESP-3", element)
+    if modified != [modified_id] or added != [added_id]:
+        return False, f"Unexpected nested IDs: RESP-2={modified}, RESP-3={added}"
+    return True, ""
+
+
+def _h_revnorm_no_duplicate_nested(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check that the requested nested namespace has no duplicates."""
+    element = examples.get("element", "")
+    cs = world.control_structure
+    if cs is None:
+        return False, "No revised control structure"
+    values = [
+        value
+        for resp in cs.responsibilities
+        for value in _revnorm_nested_ids(cs, resp.resp_id, element)
+    ]
+    if len(values) != len(set(values)):
+        return False, f"Duplicate {element} IDs remain: {values}"
+    return True, ""
+
+
+def _revnorm_reference_value(
+    cs: ControlStructure, owner: str, field: str
+) -> tuple[str | None, str | None]:
+    """Return a reference value and its namespace for an acceptance owner."""
+    if owner.startswith("coordination link"):
+        link_match = re.search(r"(CL-\d+)", owner)
+        if link_match is None:
+            return None, None
+        link = next(
+            (item for item in cs.coordination_links if item.link_id == link_match.group(1)),
+            None,
+        )
+        if link is None:
+            return None, None
+        return getattr(link, field, None), {
+            "source": "responsibility",
+            "target": "responsibility",
+            "shared_pm": "process_model_part",
+        }.get(field)
+
+    owner_match = re.match(
+        r"(RESP-\d+) (process model part|control action|feedback channel) "
+        r"((?:PM|CA|FB)-\d+-\d+)",
+        owner,
+    )
+    if owner_match is None:
+        return None, None
+    resp_id, element, element_id = owner_match.groups()
+    resp = next((item for item in cs.responsibilities if item.resp_id == resp_id), None)
+    if resp is None:
+        return None, None
+    collections = {
+        "process model part": ("process_model_parts", "pm_id"),
+        "control action": ("control_actions", "ca_id"),
+        "feedback channel": ("feedback_channels", "fb_id"),
+    }
+    collection_name, id_name = collections[element]
+    item = next(
+        (candidate for candidate in getattr(resp, collection_name) if getattr(candidate, id_name) == element_id),
+        None,
+    )
+    if item is None:
+        return None, None
+    reference = getattr(item, field, None)
+    if isinstance(reference, str):
+        namespace = "process_model_part" if field == "updates" else None
+        return reference, namespace
+    if reference is None:
+        return None, None
+    return reference.id, {
+        "feedback_source": (
+            "responsibility"
+            if reference.type.value == "responsibility"
+            else "controlled_process"
+        ),
+        "target": (
+            "responsibility"
+            if reference.type.value == "responsibility"
+            else "controlled_process"
+        ),
+        "source": (
+            "responsibility"
+            if reference.type.value == "responsibility"
+            else "controlled_process"
+        ),
+    }.get(field)
+
+
+def _h_revnorm_reference_value(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check a normalized reference on the requested owner."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No revised control structure"
+    owner = examples.get("reference_owner", "")
+    field = examples.get("reference_field", "")
+    expected = examples.get("canonical_reference", "")
+    if not owner:
+        direct_match = re.search(
+            r"(coordination link CL-\d+) has (source|target|shared_pm) "
+            r"((?:RESP|PM)-\d+(?:-\d+)?)",
+            text,
+        )
+        if direct_match:
+            owner, field, expected = direct_match.groups()
+    actual, namespace = _revnorm_reference_value(cs, owner, field)
+    if actual != expected:
+        return False, f"Expected {owner} {field}={expected}, got {actual}"
+    all_ids = {
+        "responsibility": {r.resp_id for r in cs.responsibilities},
+        "controlled_process": {cp.cp_id for cp in cs.controlled_processes},
+        "process_model_part": {
+            pm.pm_id for r in cs.responsibilities for pm in r.process_model_parts
+        },
+    }
+    if namespace is not None and actual not in all_ids[namespace]:
+        return False, f"{actual} is not a {namespace} in the revised structure"
+    return True, ""
+
+
+def _h_revnorm_canonical_reference(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check that the expected canonical reference is published."""
+    if world.control_structure is None:
+        return False, "No revised control structure"
+    return _h_revnorm_reference_value(world, text, examples)
+
+
+def _h_revnorm_position_summary(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check modification matching and canonical list-position IDs."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No revised control structure"
+    descriptions = [r.description for r in cs.responsibilities]
+    if descriptions[:3] != [
+        "Authorization controller",
+        "Updated position responsibility",
+        "Added position responsibility",
+    ]:
+        return False, f"Unexpected responsibility descriptions: {descriptions}"
+    return True, ""
+
+
+def _h_revnorm_child_roots(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check that child IDs use their final responsibility roots."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No revised control structure"
+    for resp_num in (1, 2, 3):
+        resp = next((r for r in cs.responsibilities if r.resp_id == f"RESP-{resp_num}"), None)
+        if resp is None:
+            return False, f"RESP-{resp_num} missing"
+        for item in (
+            resp.responsibility_constraints
+            + resp.process_model_parts
+            + resp.control_actions
+            + resp.feedback_channels
+        ):
+            if not re.search(rf"-{resp_num}-\d+$", getattr(item, "rc_id", getattr(item, "pm_id", getattr(item, "ca_id", getattr(item, "fb_id", ""))))):
+                return False, f"Child ID is not rooted at {resp_num}: {item}"
+    return True, ""
+
+
+def _h_revnorm_process_order(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check canonical controlled-process order."""
+    if world.control_structure is None:
+        return False, "No revised control structure"
+    actual = [cp.cp_id for cp in world.control_structure.controlled_processes]
+    return (actual == ["CP-1", "CP-2"], f"Unexpected controlled processes: {actual}")
+
+
+def _h_revnorm_link_order(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check canonical coordination-link and mechanism order."""
+    if world.control_structure is None:
+        return False, "No revised control structure"
+    actual = [
+        (link.link_id, link.coordination_mechanism.cm_id)
+        for link in world.control_structure.coordination_links
+    ]
+    return (actual == [("CL-1", "CM-1"), ("CL-2", "CM-2")], f"Unexpected links: {actual}")
+
+
+def _revnorm_reference_keys(cs: ControlStructure) -> set[tuple[str, str, str]]:
+    """Collect references that must remain resolvable after normalization."""
+    references: set[tuple[str, str, str]] = set()
+    for resp in cs.responsibilities:
+        for pm in resp.process_model_parts:
+            if pm.feedback_source is not None:
+                references.add(("typed", pm.feedback_source.type.value, pm.feedback_source.id))
+        for ca in resp.control_actions:
+            if ca.target is not None:
+                references.add(("typed", ca.target.type.value, ca.target.id))
+        for fb in resp.feedback_channels:
+            references.add(("updates", "process_model_part", fb.updates))
+            if fb.source is not None:
+                references.add(("typed", fb.source.type.value, fb.source.id))
+    for link in cs.coordination_links:
+        references.update(
+            {
+                ("coordination", "source", link.source),
+                ("coordination", "target", link.target),
+                ("coordination", "shared_pm", link.shared_pm),
+            }
+        )
+    return references
+
+
+def _h_revnorm_pre_revision_refs(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check that pre-revision references still identify their elements."""
+    before = world.revision_norm_pre_revision_cs
+    after = world.control_structure
+    if before is None or after is None:
+        return False, "Missing pre- or post-revision control structure"
+    missing = _revnorm_reference_keys(before) - _revnorm_reference_keys(after)
+    if missing:
+        return False, f"Pre-revision references no longer present: {sorted(missing)}"
+    return True, ""
+
+
+def _h_revnorm_validation_failed(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check that validation failed with the requested unresolved reference."""
+    missing_id = examples.get("missing_id", "")
+    warnings = " ".join(world.sp1_post_revision_warnings or [])
+    if missing_id not in warnings:
+        return False, f"Unresolved reference {missing_id} not found in warnings: {warnings}"
+    if "ValueError" not in warnings and "ValidationError" not in warnings:
+        return False, f"No validation failure in warnings: {warnings}"
+    return True, ""
+
+
+def _h_revnorm_returned_pre_revision(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check graceful degradation returns the pre-revision structure."""
+    if world.control_structure != world.revision_norm_pre_revision_cs:
+        return False, "Returned structure differs from pre-revision structure"
+    return True, ""
+
+
+def _h_revnorm_degraded_warning(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check graceful degradation names the unresolved reference."""
+    warnings = " ".join(world.sp1_post_revision_warnings or [])
+    missing_id = examples.get("missing_id", "")
+    if "degrad" not in warnings.lower():
+        return False, f"No degraded revision warning: {warnings}"
+    if missing_id not in warnings:
+        return False, f"Warning does not mention {missing_id}: {warnings}"
+    return True, ""
+
+
+def _h_revnorm_no_missing_reference(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Check no unresolved reference was published."""
+    if world.control_structure is None:
+        return False, "No returned control structure"
+    missing_id = examples.get("missing_id", "")
+    rendered = json.dumps(
+        world.control_structure.model_dump(mode="python", exclude_none=False)
+    )
+    if missing_id in rendered:
+        return False, f"Published control structure contains {missing_id}"
+    return True, ""
+
+
 FEATURE_ID = 'sp1_revision'
 
 def register(api: object) -> None:
@@ -4483,7 +5246,7 @@ def register(api: object) -> None:
     api.register_first('safe_llm_call is called without max_completion_tokens', _h_bf2_safe_llm_called_without_tokens, source_order=13862)
     api.register_first('the complete method is called with max_completion_tokens', _h_bf2_complete_called_with_tokens, source_order=13863)
     api.register_first('the LLM complete call is made with max_completion_tokens', _h_bf2_llm_complete_call_with_tokens, source_order=13864)
-    api.register_first('the revision is run', _h_bf2_revision_run_with_log_capture, source_order=13865)
+    api.register_first('the revision is run', _h_revnorm_run, source_order=13865)
     api.register_first('an LLM that returns a RevisionDelta with new_responsibilities containing RESP-\\d+$', _h_bf2_llm_returns_delta_with_existing_resp, source_order=13866)
     api.register_first('the RevisionDelta also has new_responsibilities containing', _h_bf2_delta_also_has_new_resps, source_order=13867)
     api.register_first('the final control structure does not contain a duplicate', _h_bf2_final_cs_no_duplicate, source_order=13868)
@@ -4502,6 +5265,34 @@ def register(api: object) -> None:
     api.register_first('a FileNotFoundError is raised', _h_bf2_filenotfound_raised, source_order=13885)
     api.register_first('the error message references the unresolved path', _h_bf2_error_refs_unresolved_path, source_order=13886)
     api.register_first('a log entry is produced containing the first 100 characters', _h_bf2_log_entry_produced, source_order=13887)
+    api.register_first('a canonical control structure with two responsibilities, one controlled process, and one coordination link', _h_revnorm_canonical_cs, source_order=15000)
+    api.register_first('critic findings trigger one revision attempt', _h_revnorm_findings, source_order=15001)
+    api.register_first('a decodable revision response adds complete elements whose IDs are nonconforming strings', _h_revnorm_nonconforming_delta, source_order=15002)
+    api.register_first('every revision reference resolves by a source ID in the combined structure', _h_revnorm_references_resolve, source_order=15003)
+    api.register_first('the revision replaces responsibility RESP-2 and adds one responsibility', _h_revnorm_duplicate_nested_delta, source_order=15004)
+    api.register_first('both revision responsibilities use the same source ID for each corresponding nested element', _h_revnorm_duplicate_nested_delta, source_order=15005)
+    api.register_first('the revision replaces RESP-2 and adds elements with source IDs revised-state, revised-process, and revised-controller', _h_revnorm_reference_delta, source_order=15006)
+    api.register_first('revision references use those source IDs before normalization', _h_revnorm_references_resolve, source_order=15007)
+    api.register_first('the revision replaces RESP-2 by its canonical ID with an updated description', _h_revnorm_position_delta, source_order=15008)
+    api.register_first('the revision adds a responsibility, controlled process, and coordination link with misleading conforming IDs', _h_revnorm_position_delta, source_order=15009)
+    api.register_first('the revision contains an unresolved', _h_revnorm_unresolved_delta, source_order=15010)
+    api.register_first('the added .+ has ID .+', _h_revnorm_added_id, source_order=15011)
+    api.register_first('the revised control structure contains the added content', _h_revnorm_added_content, source_order=15012)
+    api.register_first('the revision warnings do not report a failed or degraded revision', _h_revnorm_no_failed_warnings, source_order=15013)
+    api.register_first('the nested .+ IDs under RESP-2 and RESP-3 are', _h_revnorm_nested_ids, source_order=15014)
+    api.register_first('the revised control structure has no duplicate .+ IDs', _h_revnorm_no_duplicate_nested, source_order=15015)
+    api.register_first('(?:RESP-\\d+ .*|coordination link CL-\\d+) has (?:feedback_source|target|source|updates|shared_pm)', _h_revnorm_reference_value, source_order=15016)
+    api.register_first('<reference_owner> has <reference_field> <canonical_reference>', _h_revnorm_reference_value, source_order=15017)
+    api.register_first('identifies an element in the revised control structure', _h_revnorm_canonical_reference, source_order=15018)
+    api.register_first('RESP-1 retains its original description, RESP-2 has the updated description, and RESP-3 contains the addition', _h_revnorm_position_summary, source_order=15019)
+    api.register_first('child IDs of RESP-1, RESP-2, and RESP-3 are rooted at 1, 2, and 3 respectively', _h_revnorm_child_roots, source_order=15020)
+    api.register_first('the controlled processes are CP-1 and CP-2 in final list order', _h_revnorm_process_order, source_order=15021)
+    api.register_first('the coordination links are CL-1 and CL-2 with mechanisms CM-1 and CM-2 in final list order', _h_revnorm_link_order, source_order=15022)
+    api.register_first('all pre-revision references still identify the same elements', _h_revnorm_pre_revision_refs, source_order=15023)
+    api.register_first('merged control-structure validation fails for', _h_revnorm_validation_failed, source_order=15024)
+    api.register_first('the returned control structure equals the pre-revision control structure', _h_revnorm_returned_pre_revision, source_order=15025)
+    api.register_first('the revision warnings report a degraded revision with the unresolved reference', _h_revnorm_degraded_warning, source_order=15026)
+    api.register_first('no published control-structure reference contains', _h_revnorm_no_missing_reference, source_order=15027)
     api.set_feature(None)
 
 __all__ = ["FEATURE_ID", "register"]

@@ -340,6 +340,38 @@ class TestRevisionDelta04ModifiedReplace:
         assert resp2.description == "Controller 2"
 
 
+class TestRevisionDeltaModifiedMatchKey:
+    """Modified responsibilities must retain their canonical match key."""
+
+    def test_noncanonical_modified_resp_id_degrades_revision(self, tmp_path):
+        client = MockLLMClient()
+        delta = _make_revision_delta_dict(
+            modified_responsibilities=[
+                {
+                    "resp_id": "renamed-controller",
+                    "description": "Updated controller description",
+                    "process_model_parts": [],
+                    "control_actions": [],
+                    "feedback_channels": [],
+                }
+            ]
+        )
+        client.set_response_for(RevisionDelta, delta)
+        original = _make_control_structure()
+
+        revised, warnings = run_revision(
+            llm_client=client,
+            control_structure=original,
+            critic_findings=_make_critic_findings(),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+
+        assert revised == original
+        assert any("degrad" in warning.lower() for warning in warnings)
+        assert any("renamed-controller" in warning for warning in warnings)
+
+
 # ---------------------------------------------------------------------------
 # RevisionDelta-05: new_controlled_processes are merged
 # ---------------------------------------------------------------------------
@@ -364,7 +396,9 @@ class TestRevisionDelta05MergeNewCps:
             run_dir=tmp_path,
         )
         cp_ids = {cp.cp_id for cp in cs.controlled_processes}
-        assert "CP-2" in cp_ids
+        # The final payload is normalized by list position.  This fixture
+        # starts without controlled processes, so the added process is CP-1.
+        assert "CP-1" in cp_ids
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +575,102 @@ class TestRevisionDelta10ValidatesFinal:
         # If CS was constructed, it passed validation
         assert isinstance(cs, ControlStructure)
         assert len(cs.responsibilities) == 3
+
+
+class TestRevisionDeltaIdNormalization:
+    """Revision deltas are normalized after they are stitched."""
+
+    def test_malformed_delta_ids_are_normalized_after_merge(self, tmp_path):
+        client = MockLLMClient()
+        delta = _make_revision_delta_dict(
+            new_responsibilities=[
+                {
+                    "resp_id": "new-controller",
+                    "description": "Added input validation controller",
+                    "responsibility_constraints": [
+                        {
+                            "rc_id": "new-constraint",
+                            "description": "Validate input",
+                        }
+                    ],
+                    "process_model_parts": [
+                        {
+                            "pm_id": "new-state",
+                            "description": "Input state",
+                            "feedback_source": {
+                                "type": "responsibility",
+                                "id": "new-controller",
+                            },
+                        }
+                    ],
+                    "control_actions": [
+                        {
+                            "ca_id": "new-action",
+                            "description": "Validate input",
+                            "target": {
+                                "type": "controlled_process",
+                                "id": "new-process",
+                            },
+                        }
+                    ],
+                    "feedback_channels": [
+                        {
+                            "fb_id": "new-feedback",
+                            "description": "Validation result",
+                            "updates": "new-state",
+                            "source": {
+                                "type": "controlled_process",
+                                "id": "new-process",
+                            },
+                        }
+                    ],
+                }
+            ],
+            new_controlled_processes=[
+                {"cp_id": "new-process", "description": "Input boundary"}
+            ],
+            new_coordination_links=[
+                {
+                    "link_id": "new-link",
+                    "source": "new-controller",
+                    "target": "RESP-1",
+                    "shared_pm": "new-state",
+                    "coordination_mechanism": {
+                        "cm_id": "new-mechanism",
+                        "description": "Synchronize input state",
+                        "payload": "input",
+                    },
+                    "description": "Input coordination",
+                }
+            ],
+        )
+        client.set_response_for(RevisionDelta, delta)
+
+        cs, warnings = run_revision(
+            llm_client=client,
+            control_structure=_make_control_structure(),
+            critic_findings=_make_critic_findings(),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+
+        added_resp = cs.responsibilities[-1]
+        assert added_resp.resp_id == "RESP-3"
+        assert added_resp.responsibility_constraints[0].rc_id == "RC-3-1"
+        assert added_resp.process_model_parts[0].pm_id == "PM-3-1"
+        assert added_resp.control_actions[0].ca_id == "CA-3-1"
+        assert added_resp.feedback_channels[0].fb_id == "FB-3-1"
+        assert added_resp.process_model_parts[0].feedback_source.id == "RESP-3"
+        assert added_resp.control_actions[0].target.id == "CP-1"
+        assert added_resp.feedback_channels[0].updates == "PM-3-1"
+        assert added_resp.feedback_channels[0].source.id == "CP-1"
+        assert cs.controlled_processes[0].cp_id == "CP-1"
+        assert cs.coordination_links[-1].link_id == "CL-2"
+        assert cs.coordination_links[-1].source == "RESP-3"
+        assert cs.coordination_links[-1].shared_pm == "PM-3-1"
+        assert cs.coordination_links[-1].coordination_mechanism.cm_id == "CM-2"
+        assert not any("failed" in warning.lower() for warning in warnings)
+        assert not any("degrad" in warning.lower() for warning in warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -998,10 +1128,11 @@ def _run_rev(tmp_path, delta_dict):
 
 
 def _make_degradation_delta() -> dict:
-    """Build a delta whose new responsibility reuses an existing PM id.
+    """Build a delta whose new responsibility has an unresolved reference.
 
-    Triggers a ``ValidationError`` inside ``_merge_revision_delta``,
-    exercising the degradation guard in ``run_revision``.
+    The revision normalizer deliberately repairs duplicate source IDs, so
+    an unresolved reference is used here to exercise the degradation guard
+    after normalization.
     """
     return _make_revision_delta_dict(
         new_responsibilities=[
@@ -1009,7 +1140,7 @@ def _make_degradation_delta() -> dict:
                 "resp_id": "RESP-3",
                 "description": "Dup PM",
                 "process_model_parts": [
-                    {"pm_id": "PM-1-1", "description": "Dup"}
+                    {"pm_id": "PM-3-1", "description": "State"}
                 ],
                 "control_actions": [
                     {"ca_id": "CA-3-1", "description": "Act"}
@@ -1018,7 +1149,7 @@ def _make_degradation_delta() -> dict:
                     {
                         "fb_id": "FB-3-1",
                         "description": "FB",
-                        "updates": "PM-1-1",
+                        "updates": "missing-pm",
                         "source": {"type": "responsibility", "id": "RESP-3"},
                     }
                 ],

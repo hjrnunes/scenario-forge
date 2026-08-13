@@ -126,7 +126,7 @@ def _h_cmidup_llm_delta_validation_error(world: World, text: str, examples: dict
             "resp_id": "RESP-3", "description": "Dup PM",
             "process_model_parts": [{"pm_id": "PM-1-1", "description": "Dup"}],
             "control_actions": [{"ca_id": "CA-3-1", "description": "Act"}],
-            "feedback_channels": [{"fb_id": "FB-3-1", "description": "FB", "updates": "PM-1-1",
+            "feedback_channels": [{"fb_id": "FB-3-1", "description": "FB", "updates": "missing-state",
                                    "source": {"type": "responsibility", "id": "RESP-3"}}],
         }]
     }
@@ -142,7 +142,7 @@ def _h_cmidup_llm_delta_dup_pm(world: World, text: str, examples: dict) -> tuple
             "resp_id": "RESP-3", "description": "Dup PM",
             "process_model_parts": [{"pm_id": "PM-1-1", "description": "Dup"}],
             "control_actions": [{"ca_id": "CA-3-1", "description": "Act"}],
-            "feedback_channels": [{"fb_id": "FB-3-1", "description": "FB", "updates": "PM-1-1",
+            "feedback_channels": [{"fb_id": "FB-3-1", "description": "FB", "updates": "missing-state",
                                    "source": {"type": "responsibility", "id": "RESP-3"}}],
         }]
     }
