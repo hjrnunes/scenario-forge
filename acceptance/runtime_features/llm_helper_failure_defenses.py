@@ -80,9 +80,7 @@ def _h_llm_failure_run_dir(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: a temporary directory is available for LLM call logging."""
-    world.llm_failure_run_dir = Path(
-        tempfile.mkdtemp(prefix="llm_failure_defenses_")
-    )
+    _run_dir(world)
     return True, ""
 
 
@@ -174,8 +172,6 @@ def _h_llm_failure_signature(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: inspect safe_llm_call's tolerant-decoding default."""
-    from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
-
     parameter = inspect.signature(safe_llm_call).parameters.get("allow_unvalidated")
     if parameter is None:
         return False, "safe_llm_call has no allow_unvalidated parameter"
