@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ValidationError, field_validator
 
 from scenario_forge.stpa.infra.llm import LLMResult
 from scenario_forge.stpa.infra.llm_helpers import (
@@ -57,6 +57,32 @@ class _CollectionModel(BaseModel):
     checkpoints: tuple[str, ...]
     mode: _Mode
     note: str | None = None
+
+
+class _MissingRequiredFieldsModel(BaseModel):
+    """Model covering every scalar and collection missing-field sentinel."""
+
+    text: str
+    count: int
+    ratio: float
+    enabled: bool
+    labels: list[str]
+    checkpoints: tuple[str, ...]
+    tags: set[str]
+    metadata: dict[str, int]
+
+
+class _RequiredNestedContainer(BaseModel):
+    """Container whose omitted nested model must not be fabricated."""
+
+    nested: _NestedModel
+
+
+class _RequiredUnionFieldsModel(BaseModel):
+    """Model covering Optional and non-optional Union sentinels."""
+
+    optional_text: str | None
+    text_or_count: str | int
 
 
 class _TolerantClient:
@@ -182,6 +208,19 @@ class TestParseLlmResult:
 
         assert parsed.items[0].item_id == "malformed"
 
+    def test_unvalidated_parser_fills_nested_missing_required_fields(self):
+        """Nested model construction also supplies required-field sentinels."""
+        result = LLMResult(
+            content={"items": [{}]},
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+        parsed = parse_llm_result_unvalidated(result, _ContainerModel)
+
+        assert parsed.items[0].item_id == ""
+
     def test_unvalidated_parser_constructs_collections_and_enums(self):
         """Tolerant decoding preserves supported nested annotation shapes."""
         result = LLMResult(
@@ -202,6 +241,58 @@ class TestParseLlmResult:
         assert parsed.checkpoints == ("first", "second")
         assert parsed.mode is _Mode.READY
         assert parsed.note == "optional"
+
+    def test_unvalidated_parser_fills_missing_required_fields_with_sentinels(self):
+        """Missing required fields remain attribute-safe with typed sentinels."""
+        parsed = parse_llm_result_unvalidated(
+            LLMResult(
+                content={},
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0,
+            ),
+            _MissingRequiredFieldsModel,
+        )
+
+        assert parsed.text == ""
+        assert parsed.count == 0
+        assert parsed.ratio == 0.0
+        assert parsed.enabled is False
+        assert parsed.labels == []
+        assert parsed.checkpoints == ()
+        assert parsed.tags == set()
+        assert parsed.metadata == {}
+
+    def test_unvalidated_parser_does_not_fabricate_missing_nested_models(self):
+        """Missing required nested models become None for later validation."""
+        parsed = parse_llm_result_unvalidated(
+            LLMResult(
+                content={},
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0,
+            ),
+            _RequiredNestedContainer,
+        )
+
+        assert parsed.nested is None
+        with pytest.raises(ValidationError, match="nested"):
+            _RequiredNestedContainer.model_validate(parsed.model_dump())
+
+    def test_unvalidated_parser_uses_union_sentinels(self):
+        """Optional unions use None and other unions use their first member."""
+        parsed = parse_llm_result_unvalidated(
+            LLMResult(
+                content={},
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0,
+            ),
+            _RequiredUnionFieldsModel,
+        )
+
+        assert parsed.optional_text is None
+        assert parsed.text_or_count == ""
 
     def test_unvalidated_parser_accepts_json_and_model_content(self):
         """Tolerant decoding handles JSON strings and Pydantic content."""

@@ -5110,7 +5110,7 @@ def register(api: object) -> None:
     api.register_first('the ResponsibilitySet has a \\w+ \\S+ with \\w+ pointing to', _h_san_resp_set_with_valid_ref, source_order=11496)
     api.register_first('an LLM that returns a ConnectionSet that triggers merge failure', _h_san_llm_merge_failure, source_order=11497)
     api.register_first('the merge with fallback is executed', _h_san_merge_executed, source_order=11498)
-    api.register_first('the \\w+ \\S+ \\w+ is None$', _h_san_ref_is_none, source_order=11499)
+    api.register_first('the (?!required )\\w+ \\S+ \\w+ is None$', _h_san_ref_is_none, source_order=11499)
     api.register_first('the \\w+ \\S+ \\w+ is preserved and not nullified', _h_san_ref_preserved, source_order=11500)
     api.register_first('the ResponsibilitySet has duplicate responsibility', _h_san_duplicate_resp, source_order=11501)
     api.register_first('the warnings list includes a warning about the stripped', _h_san_warnings_includes, source_order=11502)

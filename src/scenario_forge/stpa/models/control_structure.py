@@ -76,7 +76,7 @@ class ResponsibilityConstraint(BaseModel):
     """A constraint on a responsibility."""
 
     rc_id: str  # RC-X-Y
-    description: str
+    description: str = Field(min_length=1)
 
     @field_validator("rc_id")
     @classmethod
@@ -88,7 +88,7 @@ class ProcessModelPart(BaseModel):
     """A part of a controller's process model."""
 
     pm_id: str  # PM-X-Y
-    description: str
+    description: str = Field(min_length=1)
     feedback_source: ElementRef | None = None
 
     @field_validator("pm_id")
@@ -101,7 +101,7 @@ class ControlAction(BaseModel):
     """A control action a controller can execute."""
 
     ca_id: str  # CA-X-Y
-    description: str
+    description: str = Field(min_length=1)
     target: ElementRef | None = None
 
     @field_validator("ca_id")
@@ -114,7 +114,7 @@ class FeedbackChannel(BaseModel):
     """A feedback channel providing information to a controller."""
 
     fb_id: str  # FB-X-Y
-    description: str
+    description: str = Field(min_length=1)
     updates: str  # pm_id ref
     source: ElementRef | None = None
 
@@ -128,7 +128,7 @@ class Responsibility(BaseModel):
     """A controller's responsibility in the control structure."""
 
     resp_id: str  # RESP-1, RESP-2, ...
-    description: str
+    description: str = Field(min_length=1)
     responsibility_constraints: list[ResponsibilityConstraint] = Field(
         default_factory=list
     )
@@ -150,7 +150,7 @@ class ControlledProcess(BaseModel):
     """A controlled process in the control structure."""
 
     cp_id: str  # CP-1, CP-2, ...
-    description: str
+    description: str = Field(min_length=1)
 
     @field_validator("cp_id")
     @classmethod
@@ -162,7 +162,7 @@ class CoordinationMechanism(BaseModel):
     """A mechanism for coordinating between controllers."""
 
     cm_id: str  # CM-X
-    description: str
+    description: str = Field(min_length=1)
     payload: str
 
     @field_validator("cm_id")
@@ -179,7 +179,7 @@ class CoordinationLink(BaseModel):
     target: str  # resp_id
     shared_pm: str  # pm_id ref
     coordination_mechanism: CoordinationMechanism
-    description: str
+    description: str = Field(min_length=1)
 
     @field_validator("link_id")
     @classmethod

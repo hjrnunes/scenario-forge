@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from pydantic import create_model
+
 from runtime_shared import (
     ControlAction,
     ControlStructure,
+    CoordinationLink,
     ElementRef,
     FeedbackChannel,
     Hazard,
+    LLMResult,
     Loss,
     LossAnalysis,
     LossProvenance,
@@ -40,6 +44,7 @@ from runtime_shared import (
     _sp1_make_loss_analysis_with_constraints,
     _sp1_make_risk_cards,
     _sp1_merge_connection_set,
+    _sp1_assemble_with_fallback,
     _sp1_no_unjustified_critic_dict,
     _sp1_read_yaml,
     _sp1_run_heuristics,
@@ -60,6 +65,15 @@ from runtime_shared import (
     check_structural_heuristics,
     json,
     re,
+)
+from scenario_forge.stpa.infra.llm_helpers import (
+    parse_llm_result_unvalidated as _sp1_parse_llm_result_unvalidated,
+)
+from scenario_forge.stpa.system_model.control_structure import (
+    _enrich_responsibilities as _sp1_enrich_responsibilities,
+)
+from scenario_forge.stpa.system_model.id_normalization import (
+    normalize_control_structure_payload as _sp1_normalize_control_structure_payload,
 )
 
 def _h_sp1_module_importable(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -2078,6 +2092,8 @@ def _h_sp1_id_at_least_two(world: World, text: str, examples: dict) -> tuple[boo
 
 def _h_sp1_id_normalize(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the payload IDs are normalized."""
+    if hasattr(world, "sp1_tolerant_nested_payload"):
+        return _h_sp1_tolerant_normalize_payload(world, text, examples)
     normalizer = _sp1_id_normalizer()
     payload = getattr(world, "sp1_id_payload", None)
     world.sp1_id_normalization = normalizer(payload)
@@ -2488,6 +2504,615 @@ def _h_sp1_id_validation_error(world: World, text: str, examples: dict) -> tuple
     return True, ""
 
 
+def _h_tolerant_json_result(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a JSON-shaped LLM result."""
+    world.tolerant_content = {}
+    world.tolerant_result = None
+    world.tolerant_model = None
+    return True, ""
+
+
+def _h_tolerant_decode_without_validation(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: decode the current JSON-shaped result tolerantly."""
+    if not hasattr(world, "tolerant_content"):
+        world.tolerant_content = {}
+    return True, ""
+
+
+def _tolerant_annotation(annotation: str) -> object:
+    """Translate a feature annotation into a Python type annotation."""
+    annotations = {
+        "str": str,
+        "int": int,
+        "float": float,
+        "bool": bool,
+        "list[str]": list[str],
+        "tuple[str]": tuple[str],
+        "set[str]": set[str],
+        "dict[str,int]": dict[str, int],
+    }
+    return annotations[annotation]
+
+
+def _h_tolerant_declares_omitted_field(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a response model declares an omitted required field."""
+    annotation_name = examples.get("annotation", "")
+    annotation = _tolerant_annotation(annotation_name)
+    world.tolerant_model = create_model(
+        "TolerantRequiredFieldModel",
+        value=(annotation, ...),
+    )
+    world.tolerant_content = {}
+    return True, ""
+
+
+def _h_tolerant_declares_default_field(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a model declares an omitted field with a declared default."""
+    model_name = examples.get("model", "")
+    field_name = examples.get("field", "")
+    if model_name == "ControlAction":
+        model = ControlAction
+    elif model_name == "ControlElementSet":
+        model = _SP1ControlElementSet
+    else:
+        return False, f"Unsupported tolerant model {model_name}"
+    if field_name not in model.model_fields:
+        return False, f"{model_name} has no field {field_name}"
+    world.tolerant_model = model
+    world.tolerant_content = {}
+    world.tolerant_field_name = field_name
+    return True, ""
+
+
+def _h_tolerant_declares_coordination_link(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a coordination link omits its required nested model."""
+    world.tolerant_model = CoordinationLink
+    world.tolerant_field_name = "coordination_mechanism"
+    world.tolerant_content = {
+        "link_id": "CL-1",
+        "source": "RESP-1",
+        "target": "RESP-1",
+        "shared_pm": "PM-1-1",
+        "description": "Coordination link",
+    }
+    return True, ""
+
+
+def _h_tolerant_decode_result(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Decode a tolerant feature result using the production helper."""
+    if world.tolerant_model is None:
+        return False, "No tolerant response model declared"
+    world.tolerant_result = _sp1_parse_llm_result_unvalidated(
+        LLMResult(
+            content=world.tolerant_content,
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        ),
+        world.tolerant_model,
+    )
+    return True, ""
+
+
+def _h_tolerant_required_field_accessible(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the tolerant required field can be accessed."""
+    if world.tolerant_result is None:
+        return False, "No tolerant result available"
+    field_name = getattr(world, "tolerant_field_name", "value")
+    try:
+        getattr(world.tolerant_result, field_name)
+    except AttributeError as exc:
+        return False, str(exc)
+    return True, ""
+
+
+def _h_tolerant_required_field_value(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the tolerant required field has the expected sentinel."""
+    if world.tolerant_result is None:
+        return False, "No tolerant result available"
+    expected = examples.get("expected_value", "")
+    expected_values = {
+        '""': "",
+        "0": 0,
+        "0.0": 0.0,
+        "false": False,
+        "[]": [],
+        "()": (),
+        "set()": set(),
+        "{}": {},
+        "None": None,
+    }
+    if expected not in expected_values:
+        return False, f"Unsupported expected value {expected}"
+    field_name = getattr(world, "tolerant_field_name", "value")
+    actual = getattr(world.tolerant_result, field_name, object())
+    if actual != expected_values[expected]:
+        return False, f"Expected {expected!r} but got {actual!r}"
+    return True, ""
+
+
+def _h_tolerant_post_process_and_validate(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: post-process and validate a tolerant result."""
+    if world.tolerant_result is None:
+        return False, "No tolerant result available"
+    try:
+        world.tolerant_model.model_validate(world.tolerant_result.model_dump())
+    except (ValidationError, ValueError) as exc:
+        world.validation_error = exc
+    return True, ""
+
+
+def _h_tolerant_validation_error_field(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: tolerant validation fails naming the omitted nested field."""
+    error = getattr(world, "validation_error", None)
+    if error is None:
+        return False, "Expected tolerant validation to fail"
+    field_name = examples.get("field", "coordination_mechanism")
+    if field_name not in str(error):
+        return False, f"Expected {field_name} in validation error: {error}"
+    return True, ""
+
+
+def _h_sp1_tolerant_call2a_responsibilities(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: Call 2a has ordered responsibilities."""
+    numbers = re.findall(r"RESP-(\d+)", text)
+    if not numbers:
+        world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(
+            _sp1_valid_resp_set_2a_dict()
+        )
+        return True, ""
+    world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(
+        {
+            "responsibilities": [
+                {
+                    "resp_id": f"RESP-{number}",
+                    "description": f"Controller {number}",
+                    "responsibility_constraints": [],
+                    "process_model_parts": [
+                        {
+                            "pm_id": f"PM-{number}-1",
+                            "description": f"State {number}",
+                        }
+                    ],
+                }
+                for number in numbers
+            ]
+        }
+    )
+    return True, ""
+
+
+def _sp1_tolerant_control_element_payload(world: World) -> dict:
+    """Return the mutable Call 2b payload for a tolerant assembly scenario."""
+    return getattr(
+        world,
+        "sp1_tolerant_control_element_payload",
+        {
+            "control_actions": [],
+            "feedback_channels": [],
+            "controlled_processes": [],
+        },
+    )
+
+
+def _h_sp1_tolerant_control_action(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: Call 2b control action N has a source ID in a scenario."""
+    match = re.search(r"control action (\d+) has ca_id (\S+)", text)
+    if not match:
+        return False, f"Could not parse control action step: {text}"
+    position, ca_id = int(match.group(1)), match.group(2)
+    actions = _sp1_tolerant_control_element_payload(world).setdefault(
+        "control_actions", []
+    )
+    while len(actions) < position:
+        actions.append({"description": f"Action {len(actions) + 1}"})
+    actions[position - 1]["ca_id"] = ca_id
+    actions[position - 1].setdefault("description", f"Action {position}")
+    return True, ""
+
+
+def _h_sp1_tolerant_control_action_omitted(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: Call 2b control action N omits its source ID."""
+    match = re.search(r"control action (\d+) has ca_id omitted", text)
+    if not match:
+        return False, f"Could not parse omitted control action step: {text}"
+    position = int(match.group(1))
+    actions = _sp1_tolerant_control_element_payload(world).setdefault(
+        "control_actions", []
+    )
+    while len(actions) < position:
+        actions.append({"description": f"Action {len(actions) + 1}"})
+    actions[position - 1].pop("ca_id", None)
+    return True, ""
+
+
+def _h_sp1_tolerant_control_action_description_omitted(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a control action omits its required description."""
+    actions = _sp1_tolerant_control_element_payload(world).setdefault(
+        "control_actions", []
+    )
+    if not actions:
+        actions.append({"ca_id": "source-action"})
+    else:
+        actions[0].pop("description", None)
+    return True, ""
+
+
+def _h_sp1_tolerant_control_action_target_absent_setup(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a control action targets an absent controlled process."""
+    actions = _sp1_tolerant_control_element_payload(world).setdefault(
+        "control_actions", []
+    )
+    if not actions:
+        actions.append({"description": "Action 1"})
+    actions[0]["target"] = {
+        "type": "controlled_process",
+        "id": "CP-99",
+    }
+    return True, ""
+
+
+def _sp1_tolerant_set_control_element_payload(
+    world: World, payload: dict
+) -> None:
+    """Store a fresh Call 2b payload while preserving explicit scenario edits."""
+    world.sp1_tolerant_control_element_payload = payload
+    world.sp1_control_element_set = None
+
+
+def _h_sp1_tolerant_call2b_decoded(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: Call 2b is decoded in tolerant mode."""
+    world.sp1_tolerant_control_element_payload = {
+        "control_actions": [],
+        "feedback_channels": [],
+        "controlled_processes": [],
+    }
+    return True, ""
+
+
+def _h_sp1_tolerant_normalization_enabled(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: SP1 assembles with deterministic ID normalization."""
+    return True, ""
+
+
+def _h_sp1_tolerant_nested_payload_element(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure a nested payload element for normalization."""
+    element_type = examples.get("element_type", "")
+    position = examples.get("structural_position", "")
+    source_state = examples.get("source_id_state", "")
+    id_field = examples.get("id_field", "")
+    raw_id = "" if source_state == "blank" else None
+
+    payload = {
+        "responsibilities": [
+            {
+                "resp_id": "RESP-1",
+                "description": "Controller 1",
+                "process_model_parts": [
+                    {"pm_id": "PM-1-1", "description": "State 1"}
+                ],
+            },
+            {
+                "resp_id": "RESP-2",
+                "description": "Controller 2",
+                "process_model_parts": [
+                    {"pm_id": "PM-2-1", "description": "State 2"}
+                ],
+            },
+        ],
+        "controlled_processes": [],
+        "coordination_links": [],
+    }
+    match = re.search(r"responsibility (\d+) child (\d+)", position)
+    if element_type == "control action" and match:
+        resp = payload["responsibilities"][int(match.group(1)) - 1]
+        child_index = int(match.group(2)) - 1
+        actions = resp.setdefault("control_actions", [])
+        while len(actions) <= child_index:
+            actions.append(
+                {
+                    "description": f"Action {len(actions) + 1}",
+                    "ca_id": f"CA-{int(match.group(1))}-{len(actions) + 1}",
+                }
+            )
+        if raw_id is None:
+            actions[child_index].pop(id_field, None)
+        else:
+            actions[child_index][id_field] = raw_id
+    elif element_type == "feedback channel" and match:
+        resp = payload["responsibilities"][int(match.group(1)) - 1]
+        child_index = int(match.group(2)) - 1
+        channels = resp.setdefault("feedback_channels", [])
+        while len(channels) <= child_index:
+            channels.append(
+                {
+                    "description": f"Feedback {len(channels) + 1}",
+                    "updates": f"PM-{int(match.group(1))}-1",
+                    "fb_id": f"FB-{int(match.group(1))}-{len(channels) + 1}",
+                }
+            )
+        if raw_id is None:
+            channels[child_index].pop(id_field, None)
+        else:
+            channels[child_index][id_field] = raw_id
+    elif element_type == "controlled process":
+        process_match = re.search(r"controlled process (\d+)", position)
+        if not process_match:
+            return False, f"Could not parse structural position {position}"
+        process_index = int(process_match.group(1)) - 1
+        processes = payload["controlled_processes"]
+        while len(processes) <= process_index:
+            processes.append(
+                {
+                    "description": f"Process {len(processes) + 1}",
+                    "cp_id": f"CP-{len(processes) + 1}",
+                }
+            )
+        if raw_id is None:
+            processes[process_index].pop(id_field, None)
+        else:
+            processes[process_index][id_field] = raw_id
+    else:
+        return False, f"Could not configure payload position {position}"
+
+    world.sp1_tolerant_nested_payload = payload
+    return True, ""
+
+
+def _sp1_tolerant_decoded_assembly_payload(world: World) -> dict:
+    """Build the decoded Call 2a/2b payload used by assembly and validation."""
+    enriched = _sp1_enrich_responsibilities(
+        world.sp1_responsibility_set,
+        world.sp1_control_element_set,
+        normalize_ids=True,
+    )
+    return {
+        "responsibilities": [
+            resp.model_dump(mode="python", exclude_none=False)
+            for resp in enriched
+        ],
+        "controlled_processes": [
+            process.model_dump(mode="python", exclude_none=False)
+            for process in world.sp1_control_element_set.controlled_processes
+        ],
+        "coordination_links": [],
+    }
+
+
+def _h_sp1_tolerant_normalized_action_id(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: ID normalization assigns a canonical control action ID."""
+    if not hasattr(world, "sp1_normalized_payload"):
+        return False, "No normalized payload available"
+    expected_id = re.search(r"control action ID (\S+)", text)
+    expected = expected_id.group(1) if expected_id else ""
+    actions = world.sp1_normalized_payload["responsibilities"][0]["control_actions"]
+    if not actions or actions[0]["ca_id"] != expected:
+        return False, f"Expected {expected}, got {actions}"
+    return True, ""
+
+
+def _h_sp1_tolerant_post_normalization_error(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: post-normalization validation fails with a field name."""
+    error = getattr(world, "validation_error", None)
+    if error is None:
+        return False, "Expected post-normalization validation error"
+    field = "description"
+    if field not in str(error):
+        return False, f"Expected {field} in validation error: {error}"
+    return True, ""
+
+
+def _h_sp1_tolerant_assemble(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: assemble Call 2a and Call 2b in tolerant mode."""
+    if world.sp1_responsibility_set is None:
+        world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(
+            _sp1_valid_resp_set_2a_dict()
+        )
+    payload = _sp1_tolerant_control_element_payload(world)
+    world.sp1_control_element_set = _sp1_parse_llm_result_unvalidated(
+        LLMResult(
+            content=payload,
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        ),
+        _SP1ControlElementSet,
+    )
+    decoded_payload = _sp1_tolerant_decoded_assembly_payload(world)
+    world.sp1_normalized_payload = (
+        _sp1_normalize_control_structure_payload(decoded_payload).payload
+    )
+    try:
+        world.control_structure, world.sp1_tolerant_warnings = (
+            _sp1_assemble_with_fallback(
+                world.sp1_responsibility_set,
+                world.sp1_control_element_set,
+                Path(_tempfile.mkdtemp(prefix="sp1_tolerant_")),
+                "acceptance-model",
+                normalize_ids=True,
+            )
+        )
+    except (ValidationError, ValueError) as exc:
+        world.validation_error = exc
+    return True, ""
+
+
+def _h_sp1_tolerant_normalize_payload(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: normalize a tolerant assembled payload."""
+    if hasattr(world, "sp1_tolerant_nested_payload"):
+        parsed = _sp1_parse_llm_result_unvalidated(
+            LLMResult(
+                content=world.sp1_tolerant_nested_payload,
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0,
+            ),
+            ControlStructure,
+        )
+        world.sp1_normalized_payload = (
+            _sp1_normalize_control_structure_payload(
+                parsed.model_dump(mode="python", exclude_none=False)
+            ).payload
+        )
+        return True, ""
+    payload = _sp1_tolerant_control_element_payload(world)
+    if world.sp1_responsibility_set is None:
+        world.sp1_responsibility_set = _SP1ResponsibilitySet.model_validate(
+            _sp1_valid_resp_set_2a_dict()
+        )
+    world.sp1_control_element_set = _sp1_parse_llm_result_unvalidated(
+        LLMResult(
+            content=payload,
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        ),
+        _SP1ControlElementSet,
+    )
+    enriched = _sp1_enrich_responsibilities(
+        world.sp1_responsibility_set,
+        world.sp1_control_element_set,
+        normalize_ids=True,
+    )
+    raw_payload = {
+        "responsibilities": [
+            resp.model_dump(mode="python", exclude_none=False)
+            for resp in enriched
+        ],
+        "controlled_processes": [
+            process.model_dump(mode="python", exclude_none=False)
+            for process in world.sp1_control_element_set.controlled_processes
+        ],
+        "coordination_links": [],
+    }
+    world.sp1_normalized_payload = (
+        _sp1_normalize_control_structure_payload(raw_payload).payload
+    )
+    return True, ""
+
+
+def _h_sp1_tolerant_assert_responsibility_action(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a responsibility contains a canonical control action."""
+    match = re.search(r"responsibility (\d+) contains control action (\S+)", text)
+    if not match or world.control_structure is None:
+        return False, "No assembled control structure available"
+    resp_index, expected_id = int(match.group(1)) - 1, match.group(2)
+    actions = world.control_structure.responsibilities[resp_index].control_actions
+    if not any(action.ca_id == expected_id for action in actions):
+        return False, f"Expected {expected_id} in responsibility {resp_index + 1}"
+    return True, ""
+
+
+def _h_sp1_tolerant_no_attribute_error(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: no AttributeError is raised."""
+    error = getattr(world, "validation_error", None)
+    if isinstance(error, AttributeError):
+        return False, str(error)
+    return True, ""
+
+
+def _h_sp1_tolerant_payload_element(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a normalized element has the expected canonical ID."""
+    if not hasattr(world, "sp1_normalized_payload"):
+        return False, "No normalized payload available"
+    element_type = examples.get("element_type", "")
+    position = examples.get("structural_position", "")
+    expected_id = examples.get("canonical_id", "")
+    payload = world.sp1_normalized_payload
+    match = re.search(r"responsibility (\d+) child (\d+)", position)
+    if element_type == "control action" and match:
+        item = payload["responsibilities"][int(match.group(1)) - 1][
+            "control_actions"
+        ][int(match.group(2)) - 1]
+    elif element_type == "feedback channel" and match:
+        item = payload["responsibilities"][int(match.group(1)) - 1][
+            "feedback_channels"
+        ][int(match.group(2)) - 1]
+    elif element_type == "controlled process":
+        match = re.search(r"controlled process (\d+)", position)
+        if not match:
+            return False, f"Could not parse structural position {position}"
+        item = payload["controlled_processes"][int(match.group(1)) - 1]
+    else:
+        return False, f"Could not parse element position {position}"
+    actual_id = item.get(
+        {"control action": "ca_id", "feedback channel": "fb_id",
+         "controlled process": "cp_id"}[element_type]
+    )
+    if actual_id != expected_id:
+        return False, f"Expected {expected_id}, got {actual_id}"
+    return True, ""
+
+
+def _h_sp1_tolerant_control_action_target_absent(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the fallback control action has no target."""
+    if world.control_structure is None:
+        return False, "No fallback control structure available"
+    action = world.control_structure.responsibilities[0].control_actions[0]
+    if action.target is not None:
+        return False, f"Expected no target, got {action.target}"
+    return True, ""
+
+
+def _h_sp1_tolerant_warnings_identify_stripped_target(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: fallback warnings identify the stripped target."""
+    warnings = getattr(world, "sp1_tolerant_warnings", [])
+    if not any("CP-99" in warning for warning in warnings):
+        return False, f"Expected CP-99 warning, got {warnings}"
+    return True, ""
+
+
+
 FEATURE_ID = 'sp1'
 
 def register(api: object) -> None:
@@ -2705,6 +3330,36 @@ def register(api: object) -> None:
     api.register('the payload contains an unresolved .* value$', _h_sp1_id_unresolved_setup, source_order=7034)
     api.register('the normalized payload is validated$', _h_sp1_id_validate_unresolved, source_order=7035)
     api.register('validation fails with an error identifying', _h_sp1_id_validation_error, source_order=7036)
+    api.register('a JSON-shaped LLM result$', _h_tolerant_json_result, source_order=7040)
+    api.register('the result is decoded without field validation$', _h_tolerant_decode_without_validation, source_order=7041)
+    api.register('the response model declares an omitted required field with annotation', _h_tolerant_declares_omitted_field, source_order=7042)
+    api.register('declares omitted field .* with declared default', _h_tolerant_declares_default_field, source_order=7043)
+    api.register('a coordination link omits required CoordinationMechanism field coordination_mechanism', _h_tolerant_declares_coordination_link, source_order=7044)
+    api.register('the LLM result is tolerantly decoded$', _h_tolerant_decode_result, source_order=7045)
+    api.register('the required field can be accessed without AttributeError$', _h_tolerant_required_field_accessible, source_order=7046)
+    api.register_first('the required field value is', _h_tolerant_required_field_value, source_order=7047)
+    api.register('the decoded result is post-processed and validated$', _h_tolerant_post_process_and_validate, source_order=7048)
+    api.register_first('validation fails with an error identifying coordination_mechanism$', _h_tolerant_validation_error_field, source_order=7049)
+    api.register('a valid Call 2a response with ordered responsibilities$', _h_sp1_tolerant_call2a_responsibilities, source_order=7050)
+    api.register('Call 2a has ordered responsibilities RESP-8, RESP-4$', _h_sp1_tolerant_call2a_responsibilities, source_order=7051)
+    api.register('Call 2a has ordered responsibilities RESP-\\d+$', _h_sp1_tolerant_call2a_responsibilities, source_order=7052)
+    api.register('Call 2b is decoded in tolerant mode$', _h_sp1_tolerant_call2b_decoded, source_order=7053)
+    api.register('SP1 assembles the responses with deterministic ID normalization$', _h_sp1_tolerant_normalization_enabled, source_order=7054)
+    api.register('Call 2b control action \\d+ has ca_id omitted$', _h_sp1_tolerant_control_action_omitted, source_order=7055)
+    api.register('Call 2b control action \\d+ has ca_id \\S+$', _h_sp1_tolerant_control_action, source_order=7056)
+    api.register('the control action omits required field description$', _h_sp1_tolerant_control_action_description_omitted, source_order=7057)
+    api.register('the control action target references absent controlled process CP-99$', _h_sp1_tolerant_control_action_target_absent_setup, source_order=7058)
+    api.register('the assembled payload has a .* at .* whose .* is .*$', _h_sp1_tolerant_nested_payload_element, source_order=7059)
+    api.register('the control structure is assembled$', _h_sp1_tolerant_assemble, source_order=7060)
+    api.register('control-structure assembly enters the fallback path$', _h_sp1_tolerant_assemble, source_order=7061)
+    api.register('responsibility \\d+ contains control action \\S+$', _h_sp1_tolerant_assert_responsibility_action, source_order=7062)
+    api.register('ID normalization assigns the control action ID \\S+$', _h_sp1_tolerant_normalized_action_id, source_order=7063)
+    api.register_first('post-normalization validation fails with an error identifying description$', _h_sp1_tolerant_post_normalization_error, source_order=7064)
+    api.register('no AttributeError is raised$', _h_sp1_tolerant_no_attribute_error, source_order=7065)
+    api.register_first('the (?:control action|feedback channel|controlled process) at .* has ID .*', _h_sp1_tolerant_payload_element, source_order=7066)
+    api.register('a ControlStructure model is produced$', _h_sp1_s2_cs_produced, source_order=7067)
+    api.register('control action CA-1-1 has no target$', _h_sp1_tolerant_control_action_target_absent, source_order=7068)
+    api.register('the warnings identify the stripped target$', _h_sp1_tolerant_warnings_identify_stripped_target, source_order=7069)
     api.set_feature(None)
 
 __all__ = ["FEATURE_ID", "register"]

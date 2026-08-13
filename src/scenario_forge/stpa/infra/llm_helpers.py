@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Any, TypeVar, Union, get_args, get_origin
+from typing import Annotated, Any, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
 
@@ -134,13 +134,62 @@ def _construct_enum(value: Any, annotation: type[Enum]) -> Any:
         return value
 
 
+def _required_field_sentinel(annotation: Any) -> Any:
+    """Return an attribute-safe sentinel for an omitted required field."""
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+
+    if origin in (_UNION_TYPE, Union):
+        if type(None) in args:
+            return None
+        first_member = next(
+            (member for member in args if member is not type(None)),
+            None,
+        )
+        return _required_field_sentinel(first_member)
+
+    if origin is Annotated:
+        return _required_field_sentinel(args[0]) if args else None
+
+    if origin is list or annotation is list:
+        return []
+    if origin is tuple or annotation is tuple:
+        return ()
+    if origin is set or annotation is set:
+        return set()
+    if origin is dict or annotation is dict:
+        return {}
+
+    if annotation is str:
+        return ""
+    if annotation is int:
+        return 0
+    if annotation is float:
+        return 0.0
+    if annotation is bool:
+        return False
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return None
+    return None
+
+
+def _construct_model_values(
+    value: dict[str, Any],
+    annotation: type[BaseModel],
+) -> dict[str, Any]:
+    """Construct supplied fields and sentinels for required omitted fields."""
+    values: dict[str, Any] = {}
+    for name, field in annotation.model_fields.items():
+        if name in value:
+            values[name] = _construct_unvalidated(value[name], field.annotation)
+        elif field.is_required():
+            values[name] = _required_field_sentinel(field.annotation)
+    return values
+
+
 def _construct_model(value: dict[str, Any], annotation: type[BaseModel]) -> Any:
     """Construct a nested model without running field validators."""
-    values = {
-        name: _construct_unvalidated(value[name], field.annotation)
-        for name, field in annotation.model_fields.items()
-        if name in value
-    }
+    values = _construct_model_values(value, annotation)
     return annotation.model_construct(**values)
 
 
@@ -186,11 +235,7 @@ def parse_llm_result_unvalidated(result: LLMResult, model_class: type[_T]) -> _T
             f"Expected a mapping for {model_class.__name__}, "
             f"got {type(content).__name__}."
         )
-    values = {
-        name: _construct_unvalidated(content[name], field.annotation)
-        for name, field in model_class.model_fields.items()
-        if name in content
-    }
+    values = _construct_model_values(content, model_class)
     return model_class.model_construct(**values)
 
 
