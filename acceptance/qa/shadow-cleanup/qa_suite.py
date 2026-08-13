@@ -69,7 +69,7 @@ PROJECT_ROOT = next(
 )
 ACCEPTANCE_DIR = PROJECT_ROOT / "acceptance"
 ACCEPTANCE_RUNTIME = ACCEPTANCE_DIR / "acceptance_runtime.py"
-IR_DIR = ACCEPTANCE_DIR / "ir"
+IR_DIR = PROJECT_ROOT / "build" / "acceptance" / "ir"
 PROPERTY_TEST = (
     PROJECT_ROOT / "tests" / "stpa" / "test_acceptance_harness_property.py"
 )

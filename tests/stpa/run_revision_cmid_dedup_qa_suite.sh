@@ -401,7 +401,7 @@ check "QA-ACCEPTANCE: Acceptance tests pass (2 pre-existing failures OK)" \
     uv run python -c "
 import subprocess, sys
 result = subprocess.run(
-    [sys.executable, '-m', 'pytest', 'acceptance/generated/', '-q', '--tb=line'],
+    [sys.executable, '-m', 'pytest', 'build/acceptance/generated/', '-q', '--tb=line'],
     capture_output=True, text=True
 )
 output = result.stdout + result.stderr

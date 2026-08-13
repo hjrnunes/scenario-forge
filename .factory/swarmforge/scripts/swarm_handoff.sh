@@ -25,8 +25,14 @@
 # Pure shell. No Babashka, no daemon. Adapted from SwarmForge's handoff protocol.
 set -euo pipefail
 
-SF_HANDOFFS_DIR="${SWARMFORGE_HANDOFFS_DIR:-.swarmforge/handoffs}"
-SF_ROLES_TSV="${SWARMFORGE_ROLES_TSV:-.swarmforge/roles.tsv}"
+# Source project config if available (provides SWARMFORGE_RUNTIME_ROOT and derived paths).
+for _cfg in .factory/swarmforge/config.sh "${FACTORY_PROJECT_DIR:-}/.factory/swarmforge/config.sh"; do
+  [ -f "$_cfg" ] && . "$_cfg" && break
+done
+
+SF_RUNTIME_ROOT="${SWARMFORGE_RUNTIME_ROOT:-.swarmforge}"
+SF_HANDOFFS_DIR="${SWARMFORGE_HANDOFFS_DIR:-$SF_RUNTIME_ROOT/handoffs}"
+SF_ROLES_TSV="${SWARMFORGE_ROLES_TSV:-$SF_RUNTIME_ROOT/roles.tsv}"
 RESERVED='id from role recipient created_at enqueued_at dequeued_at completed_at'
 
 sf_die() { printf '%s\n' "$*" >&2; exit 1; }

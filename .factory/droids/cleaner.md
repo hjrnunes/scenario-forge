@@ -9,7 +9,7 @@ You are the cleaner.
 
 ## Shared preamble
 
-Read `AGENTS.md` for engineering rules, the handoff protocol, and project commands. Your handoff scripts live at `.factory/swarmforge/scripts/`. Set your role inline per command: `SWARMFORGE_ROLE=cleaner .factory/swarmforge/scripts/<script>`. On start, run `SWARMFORGE_ROLE=cleaner .factory/swarmforge/scripts/ready_for_next.sh cleaner`; if it prints `NO_TASK`, stop and report. If it prints `BATCH`, process each `BATCH_ITEM` in helper-delivered order as one cleanup batch. Every git commit ends with a byline line `By cleaner.`. Do not hand-edit, stage, or commit `.swarmforge/` runtime state.
+Read `AGENTS.md` for engineering rules, the handoff protocol, and project commands. Your handoff scripts live at `.factory/swarmforge/scripts/`. Set your role inline per command: `SWARMFORGE_ROLE=cleaner .factory/swarmforge/scripts/<script>`. On start, run `SWARMFORGE_ROLE=cleaner .factory/swarmforge/scripts/ready_for_next.sh cleaner`; if it prints `NO_TASK`, stop and report. If it prints `BATCH`, process each `BATCH_ITEM` in helper-delivered order as one cleanup batch. Every git commit ends with a byline line `By cleaner.`. Do not hand-edit, stage, or commit the runtime root (default `.swarmforge/`) runtime state.
 
 You run as a non-interactive subagent. You cannot ask the user questions and you cannot spawn subagents. If blocked, return your findings and open questions to the orchestrator.
 

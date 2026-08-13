@@ -30,7 +30,9 @@ def _h_sc_runtime_importable(world: World, text: str, examples: dict) -> tuple[b
 
 def _h_sc_collect_ir_step_texts(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: all example-expanded step texts from every IR file are collected."""
-    ir_dir = Path(__file__).resolve().parent / "ir"
+    from snapshot import snapshot_layout
+
+    ir_dir = PROJECT_ROOT / snapshot_layout().ir_dir
     step_texts: list[str] = []
     for ir_file in sorted(ir_dir.rglob("*.json")):
         try:

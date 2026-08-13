@@ -8,16 +8,22 @@
 # Steps:
 #   1. Copy helper scripts to .factory/swarmforge/scripts/ (chmod +x).
 #   2. Detect installed role droids from .factory/droids/*.md.
-#   3. Create .swarmforge/handoffs/<role>/{new,in_process,completed,sent,failed}/
-#      for each installed role, always including specifier/coder/cleaner.
-#   4. Write .swarmforge/roles.tsv (receive mode per role).
+#   3. Create <runtime-root>/handoffs/<role>/{new,in_process,completed,sent,failed}/,
+#      <runtime-root>/reports/, and acceptance-pipeline directories
+#      (features/, build/acceptance/{ir,dry,generated}/, build/acceptance-mutation/).
+#   4. Write <runtime-root>/roles.tsv (receive mode per role).
 #   5. Write .factory/swarmforge/config.sh with defaults (if absent).
 #   6. Copy AGENTS.md.template to AGENTS.md (if absent); if a language argument
 #      is given, uncomment that language section in the fresh copy.
-#   7. Append .swarmforge/ to .gitignore (if not already present).
+#   7. Append <runtime-root>/ and acceptance dirs (by file policy) to .gitignore.
 #   8. Print next steps.
 #
-# Pure shell. Idempotent.
+# The runtime root defaults to .swarmforge but can be set to .swarmforge-droid
+# (or any path) via SWARMFORGE_RUNTIME_ROOT for coexistence with original
+# SwarmForge. Acceptance-pipeline paths default to features/ and build/acceptance/*
+# but are overridable via SWARMFORGE_FEATURES_DIR, SWARMFORGE_ACCEPTANCE_*_DIR.
+# File policy defaults to generated-output (gitignored); set to committed-snapshot
+# to commit generated artifacts. Pure shell. Idempotent.
 set -euo pipefail
 shopt -s nullglob
 
@@ -25,11 +31,31 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEMPLATES_DIR="$PLUGIN_ROOT/templates"
 
+# Source project config if available (preserves runtime root on re-runs).
+# An explicit env var takes precedence over the config value.
+_sf_env_rtr="${SWARMFORGE_RUNTIME_ROOT:-}"
+_sf_env_fp="${SWARMFORGE_FILE_POLICY:-}"
+for _cfg in .factory/swarmforge/config.sh "${FACTORY_PROJECT_DIR:-}/.factory/swarmforge/config.sh"; do
+  [ -f "$_cfg" ] && . "$_cfg" && break
+done
+[ -n "$_sf_env_rtr" ] && SWARMFORGE_RUNTIME_ROOT="$_sf_env_rtr"
+[ -n "$_sf_env_fp" ] && SWARMFORGE_FILE_POLICY="$_sf_env_fp"
+
 LANG_ARG="${1:-}"
-HANDOFFS_DIR="${SWARMFORGE_HANDOFFS_DIR:-.swarmforge/handoffs}"
+RUNTIME_ROOT="${SWARMFORGE_RUNTIME_ROOT:-.swarmforge}"
+HANDOFFS_DIR="${SWARMFORGE_HANDOFFS_DIR:-$RUNTIME_ROOT/handoffs}"
 SCRIPTS_DEST=".factory/swarmforge/scripts"
 CONFIG_DEST=".factory/swarmforge/config.sh"
-ROLES_TSV="${SWARMFORGE_ROLES_TSV:-.swarmforge/roles.tsv}"
+ROLES_TSV="${SWARMFORGE_ROLES_TSV:-$RUNTIME_ROOT/roles.tsv}"
+REPORTS_DIR="${SWARMFORGE_REPORTS_DIR:-$RUNTIME_ROOT/reports}"
+
+# Acceptance-pipeline path defaults (Plan C: explicit, overridable).
+FEATURES_DIR="${SWARMFORGE_FEATURES_DIR:-features}"
+ACCEPTANCE_IR_DIR="${SWARMFORGE_ACCEPTANCE_IR_DIR:-build/acceptance/ir}"
+ACCEPTANCE_DRY_DIR="${SWARMFORGE_ACCEPTANCE_DRY_DIR:-build/acceptance/dry}"
+ACCEPTANCE_GENERATED_DIR="${SWARMFORGE_ACCEPTANCE_GENERATED_DIR:-build/acceptance/generated}"
+ACCEPTANCE_MUTATION_DIR="${SWARMFORGE_ACCEPTANCE_MUTATION_DIR:-build/acceptance-mutation}"
+FILE_POLICY="${SWARMFORGE_FILE_POLICY:-generated-output}"
 
 BATCH_ROLES=" cleaner architect hardender qa "
 ALWAYS_ROLES="specifier coder cleaner"
@@ -135,7 +161,13 @@ for r in "${all_roles[@]}"; do
     mkdir -p "$HANDOFFS_DIR/$r/$sub"
   done
 done
+mkdir -p "$REPORTS_DIR"
 log "created handoff directories for: $(printf '%s ' "${all_roles[@]}")"
+
+# Create acceptance-pipeline default directories.
+mkdir -p "$FEATURES_DIR" "$ACCEPTANCE_IR_DIR" "$ACCEPTANCE_DRY_DIR" \
+         "$ACCEPTANCE_GENERATED_DIR" "$ACCEPTANCE_MUTATION_DIR"
+log "created acceptance-pipeline directories (features, ir, dry, generated, mutation)"
 
 # ---------------------------------------------------------------------------
 # 4. Write roles.tsv (mode per role)
@@ -157,8 +189,21 @@ log "wrote $ROLES_TSV"
 if [ ! -f "$CONFIG_DEST" ]; then
   mkdir -p "$(dirname "$CONFIG_DEST")"
   cat > "$CONFIG_DEST" <<'EOF'
-# swarmforge-droid project config. Sourced by SubagentStop verify hooks.
+# swarmforge-droid project config. Sourced by SubagentStop verify hooks
+# and by the helper scripts (swarm_handoff.sh, ready_for_next.sh, etc.).
 # Fill in your project's commands. Empty commands are skipped with a warning.
+SWARMFORGE_RUNTIME_ROOT=".swarmforge"  # change to .swarmforge-droid to coexist with original SwarmForge
+SWARMFORGE_HANDOFFS_DIR="${SWARMFORGE_HANDOFFS_DIR:-$SWARMFORGE_RUNTIME_ROOT/handoffs}"  # set to a custom path to override
+SWARMFORGE_ROLES_TSV="${SWARMFORGE_ROLES_TSV:-$SWARMFORGE_RUNTIME_ROOT/roles.tsv}"  # set to a custom path to override
+SWARMFORGE_REPORTS_DIR="${SWARMFORGE_REPORTS_DIR:-$SWARMFORGE_RUNTIME_ROOT/reports}"  # set to a custom path to override
+# Acceptance-pipeline paths (Plan C: explicit defaults, overridable).
+SWARMFORGE_FEATURES_DIR="features"                    # Gherkin .feature source directory
+SWARMFORGE_ACCEPTANCE_IR_DIR="build/acceptance/ir"    # gherkin-parser IR output
+SWARMFORGE_ACCEPTANCE_DRY_DIR="build/acceptance/dry"  # gherkin-ir-dry-checker reports
+SWARMFORGE_ACCEPTANCE_GENERATED_DIR="build/acceptance/generated"  # entrypoint generator output
+SWARMFORGE_ACCEPTANCE_MUTATION_DIR="build/acceptance-mutation"    # mutation workspace (ephemeral)
+SWARMFORGE_GENERATION_CMD=""          # set by the scaffolder (e.g., ./scripts/acceptance.sh)
+SWARMFORGE_FILE_POLICY="generated-output"  # committed-snapshot | generated-output
 SWARMFORGE_LANGUAGE=""
 SWARMFORGE_TOOLS_CONSENT=""    # given | declined (set by /swarmforge-setup or orchestrator)
 SWARMFORGE_BEADS=false          # true | false (set by /swarmforge-setup; orchestrator uses Beads when .beads/ is present and this is true)
@@ -177,6 +222,20 @@ EOF
   log "wrote $CONFIG_DEST (defaults — fill in your commands)"
 else
   log "kept existing $CONFIG_DEST"
+fi
+
+# If a non-default runtime root was requested, update the generated config.
+if [ "$RUNTIME_ROOT" != ".swarmforge" ] && [ -f "$CONFIG_DEST" ]; then
+  _tmp_cfg="$(mktemp)"
+  sed "s|^SWARMFORGE_RUNTIME_ROOT=.*|SWARMFORGE_RUNTIME_ROOT=\"$RUNTIME_ROOT\"|" "$CONFIG_DEST" > "$_tmp_cfg" && mv "$_tmp_cfg" "$CONFIG_DEST"
+  log "set runtime root to $RUNTIME_ROOT in $CONFIG_DEST"
+fi
+
+# If a non-default file policy was requested, update the generated config.
+if [ "$FILE_POLICY" != "generated-output" ] && [ -f "$CONFIG_DEST" ]; then
+  _tmp_fp="$(mktemp)"
+  sed "s|^SWARMFORGE_FILE_POLICY=.*|SWARMFORGE_FILE_POLICY=\"$FILE_POLICY\"|" "$CONFIG_DEST" > "$_tmp_fp" && mv "$_tmp_fp" "$CONFIG_DEST"
+  log "set file policy to $FILE_POLICY in $CONFIG_DEST"
 fi
 
 # ---------------------------------------------------------------------------
@@ -206,11 +265,29 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 7. .gitignore
+# 7. .gitignore — runtime root + acceptance dirs by file policy
 # ---------------------------------------------------------------------------
-if ! grep -qx '.swarmforge/' .gitignore 2>/dev/null; then
-  printf '.swarmforge/\n' >> .gitignore
-  log "added .swarmforge/ to .gitignore"
+# Runtime root (always gitignored).
+if ! grep -qx "$RUNTIME_ROOT/" .gitignore 2>/dev/null; then
+  printf '%s/\n' "$RUNTIME_ROOT" >> .gitignore
+  log "added $RUNTIME_ROOT/ to .gitignore"
+fi
+
+# Mutation workspace is always ephemeral.
+if ! grep -qx "$ACCEPTANCE_MUTATION_DIR/" .gitignore 2>/dev/null; then
+  printf '%s/\n' "$ACCEPTANCE_MUTATION_DIR" >> .gitignore
+  log "added $ACCEPTANCE_MUTATION_DIR/ to .gitignore"
+fi
+
+# In generated-output mode, IR/dry/generated are ephemeral too.
+# In committed-snapshot mode, those are committed to git and NOT ignored.
+if [ "$FILE_POLICY" = "generated-output" ]; then
+  for _dir in "$ACCEPTANCE_IR_DIR" "$ACCEPTANCE_DRY_DIR" "$ACCEPTANCE_GENERATED_DIR"; do
+    if ! grep -qx "$_dir/" .gitignore 2>/dev/null; then
+      printf '%s/\n' "$_dir" >> .gitignore
+    fi
+  done
+  log "added acceptance ir/dry/generated to .gitignore (generated-output policy)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -225,6 +302,10 @@ Next steps:
        two-pack  = coder, cleaner
        four-pack = specifier, coder, cleaner, architect
        six-pack  = specifier, coder, cleaner, architect, hardender, qa
+     The scaffolder droid is a conditional bootstrap role — install it
+     alongside any pack to have the acceptance pipeline infrastructure built
+     automatically before the first code phase. It does not affect pack
+     detection and is not part of the per-feature rotation.
      (Copy the matching droids/*.md from the plugin, or run /swarmforge-setup
      again after copying them to refresh roles.tsv and handoff directories.)
   2. Edit .factory/swarmforge/config.sh and fill in your project's test,

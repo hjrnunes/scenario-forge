@@ -770,7 +770,7 @@ _PIPELINE_CHECKS: list[tuple[str, str]] = [
     (
         "SP3-072o-pipeline-04: known baseline preserved — acceptance 9 "
         "expected failures / 68 passed",
-        "Run uv run pytest acceptance/generated/ and verify the known-red "
+        "Run uv run pytest build/acceptance/generated/ and verify the known-red "
         "baseline is unchanged. Regenerate entrypoints if IR changed.",
     ),
     (

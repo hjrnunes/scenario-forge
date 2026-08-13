@@ -95,8 +95,8 @@ REVISION_USER = PROMPTS_DIR / "revision_user.j2"
 
 ACCEPTANCE_DIR = PROJECT_ROOT / "acceptance"
 ACCEPTANCE_RUNTIME = ACCEPTANCE_DIR / "acceptance_runtime.py"
-FEATURE_DIR = ACCEPTANCE_DIR / "features" / "critic-revision-fix"
-IR_DIR = ACCEPTANCE_DIR / "ir" / "critic-revision-fix"
+FEATURE_DIR = PROJECT_ROOT / "features" / "critic-revision-fix"
+IR_DIR = PROJECT_ROOT / "build" / "acceptance" / "ir" / "critic-revision-fix"
 
 FEATURE_STEMS = [
     "critic-gap-detection",

@@ -71,14 +71,13 @@ ACCEPTANCE_RUNTIME = (
 )
 FEATURE_IR = (
     PROJECT_ROOT
+    / "build"
     / "acceptance"
     / "ir"
     / "sp1_merge_fallback_sanitize.json"
 )
 FEATURE_FILE = (
     PROJECT_ROOT
-    / "tests"
-    / "stpa"
     / "features"
     / "sp1_merge_fallback_sanitize.feature"
 )

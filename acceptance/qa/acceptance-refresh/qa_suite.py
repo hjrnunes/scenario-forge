@@ -69,10 +69,10 @@ PROMPTS_DIR = (
 )
 LEGACY_FEATURES_DIR = _PROJECT_ROOT / "tests" / "stpa" / "features"
 REFRESH_FEATURES_DIR = (
-    _PROJECT_ROOT / "acceptance" / "features" / "acceptance-refresh"
+    _PROJECT_ROOT / "features" / "acceptance-refresh"
 )
-IR_DIR = _PROJECT_ROOT / "acceptance" / "ir"
-GENERATED_DIR = _PROJECT_ROOT / "acceptance" / "generated"
+IR_DIR = _PROJECT_ROOT / "build" / "acceptance" / "ir"
+GENERATED_DIR = _PROJECT_ROOT / "build" / "acceptance" / "generated"
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@ def _strip_manifest_comments(text: str) -> str:
 
 FEATURE_ROOTS = [
     LEGACY_FEATURES_DIR,
-    _PROJECT_ROOT / "acceptance" / "features",
+    _PROJECT_ROOT / "features",
 ]
 
 # Negation markers that make an assertion a *negative* one. A retired symbol
@@ -585,7 +585,7 @@ def check_entry_points_cover_ir(runner: QARunner) -> None:
 
 
 def check_entry_points_canonical_ir_location(runner: QARunner) -> None:
-    """Every entry point references IR in the canonical acceptance/ir/ directory.
+    """Every entry point references IR in the canonical build/acceptance/ir/ directory.
 
     Non-canonical IR locations (tmp/, acceptance/) are how IR drift
     stayed hidden in the original staleness incident: the QA suite's

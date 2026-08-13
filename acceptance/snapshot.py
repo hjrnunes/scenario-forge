@@ -44,7 +44,10 @@ def snapshot_layout() -> SnapshotLayout:
         "SWARMFORGE_ACCEPTANCE_GENERATED_DIR", "build/acceptance/generated"
     )
     return SnapshotLayout(
-        features_dir=os.environ.get("SWARMFORGE_ACCEPTANCE_FEATURES_DIR", "features"),
+        features_dir=os.environ.get(
+            "SWARMFORGE_FEATURES_DIR",
+            os.environ.get("SWARMFORGE_ACCEPTANCE_FEATURES_DIR", "features"),
+        ),
         ir_dir=os.environ.get("SWARMFORGE_ACCEPTANCE_IR_DIR", "build/acceptance/ir"),
         generated_dir=generated_dir,
         metadata_dir=f"{generated_dir}/metadata",

@@ -146,8 +146,8 @@ fi
 
 # Acceptance tests for both features
 echo "  [f29s+ulc0] Running acceptance tests..."
-ACCEPTANCE_F29S="acceptance/generated/sp1_critic_id_sanitization_acceptance_test.py"
-ACCEPTANCE_ULC0="acceptance/generated/sp1_orphan_pm_repair_acceptance_test.py"
+ACCEPTANCE_F29S="build/acceptance/generated/sp1_critic_id_sanitization_acceptance_test.py"
+ACCEPTANCE_ULC0="build/acceptance/generated/sp1_orphan_pm_repair_acceptance_test.py"
 
 if [ -f "$ACCEPTANCE_F29S" ]; then
     if uv run pytest "$ACCEPTANCE_F29S" -x -q --tb=short 2>&1 | tail -5; then

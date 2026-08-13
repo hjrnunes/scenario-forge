@@ -1,0 +1,11 @@
+# Written by the scaffolder. Lists acceptance pipeline component paths and commands.
+# The orchestrator checks this file to decide whether to run the scaffold phase.
+# The verify-scaffolder hook reads it to verify the components exist.
+features_dir: features
+ir_dir: build/acceptance/ir
+dry_dir: build/acceptance/dry
+generated_dir: build/acceptance/generated
+mutation_dir: build/acceptance-mutation
+generation_cmd: ./scripts/acceptance.sh
+acceptance_cmd: ./scripts/acceptance.sh --test
+file_policy: generated-output

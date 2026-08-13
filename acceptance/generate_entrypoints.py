@@ -42,11 +42,13 @@ def _feature_path_for(ir_rel: str, feature_path: str | None) -> str:
         return Path(feature_path).as_posix()
     from snapshot import snapshot_layout
 
-    ir_dir = snapshot_layout().ir_dir
+    layout = snapshot_layout()
+    ir_dir = layout.ir_dir
+    features_dir = layout.features_dir
     if ir_rel.startswith(f"{ir_dir}/"):
         rel_inside = Path(ir_rel).relative_to(ir_dir).with_suffix(".feature")
-        return f"features/{rel_inside.as_posix()}"
-    return f"features/{Path(ir_rel).with_suffix('.feature').name}"
+        return f"{features_dir}/{rel_inside.as_posix()}"
+    return f"{features_dir}/{Path(ir_rel).with_suffix('.feature').name}"
 
 
 def generate(ir_path: str, output_dir: str, feature_path: str | None = None) -> int:

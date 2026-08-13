@@ -28,9 +28,9 @@ from typing import Iterable
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
 ACCEPTANCE = ROOT / "acceptance"
 RUNTIME = ACCEPTANCE / "acceptance_runtime.py"
-IR_DIR = ACCEPTANCE / "ir"
-GENERATED = ACCEPTANCE / "generated"
-FEATURE_DIR = ACCEPTANCE / "features" / "runtime-split"
+IR_DIR = ROOT / "build" / "acceptance" / "ir"
+GENERATED = ROOT / "build" / "acceptance" / "generated"
+FEATURE_DIR = ROOT / "features" / "runtime-split"
 FEATURE_MODULE_DIR = ACCEPTANCE / "runtime_features"
 MANIFEST = ACCEPTANCE / "runtime_manifest.py"
 SHARED = ACCEPTANCE / "runtime_shared.py"
@@ -341,8 +341,8 @@ from pathlib import Path
 import acceptance_runtime as runtime
 
 root = Path.cwd()
-ir_dir = root / "acceptance" / "ir"
-generated = root / "acceptance" / "generated"
+ir_dir = root / "build" / "acceptance" / "ir"
+generated = root / "build" / "acceptance" / "generated"
 irs = sorted(p for p in ir_dir.rglob("*.json") if not p.stem.endswith("_dry"))
 errors = []
 

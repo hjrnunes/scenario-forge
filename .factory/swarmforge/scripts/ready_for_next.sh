@@ -15,11 +15,16 @@
 set -euo pipefail
 shopt -s nullglob
 
+# Source project config if available (provides SWARMFORGE_RUNTIME_ROOT and derived paths).
+for _cfg in .factory/swarmforge/config.sh "${FACTORY_PROJECT_DIR:-}/.factory/swarmforge/config.sh"; do
+  [ -f "$_cfg" ] && . "$_cfg" && break
+done
+
 # ---------------------------------------------------------------------------
 # Shared helpers (inlined; also sourced by the done_*.sh and *_batch.sh scripts)
 # ---------------------------------------------------------------------------
 
-sf_handoffs_dir() { printf '%s\n' "${SWARMFORGE_HANDOFFS_DIR:-.swarmforge/handoffs}"; }
+sf_handoffs_dir() { printf '%s\n' "${SWARMFORGE_HANDOFFS_DIR:-${SWARMFORGE_RUNTIME_ROOT:-.swarmforge}/handoffs}"; }
 
 sf_now_ts() { date -u +%Y%m%dT%H%M%SZ; }
 sf_now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -56,7 +61,7 @@ sf_stamp() {
   ' "$file" > "$tmp" && mv "$tmp" "$file"
 }
 
-sf_roles_tsv() { printf '%s\n' "${SWARMFORGE_ROLES_TSV:-.swarmforge/roles.tsv}"; }
+sf_roles_tsv() { printf '%s\n' "${SWARMFORGE_ROLES_TSV:-${SWARMFORGE_RUNTIME_ROOT:-.swarmforge}/roles.tsv}"; }
 
 # Print the receive mode (task|batch) for a role. Defaults to task.
 sf_role_mode() {
