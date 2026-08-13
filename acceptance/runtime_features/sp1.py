@@ -2424,7 +2424,7 @@ def _h_sp1_id_ambiguous_global_assert(
     if field is None:
         return False, f"Unknown typed reference field {reference_field}"
     try:
-        owner_element, _owner_slot = findOwnerEl(
+        owner_element = ownerAt(
             normalized.payload, examples.get("reference_owner", "")
         )
     except (KeyError, IndexError, TypeError) as exc:

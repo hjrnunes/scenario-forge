@@ -572,6 +572,38 @@ class TestSystemModelDependencyDirection:
             "violation):\n" + "\n".join(violations)
         )
 
+    def test_acceptance_uses_public_normalizer_surface(self):
+        """SP1 acceptance handlers may call the public ID policy only."""
+        path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "acceptance"
+            / "runtime_features"
+            / "sp1.py"
+        )
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        private_names = {
+            "_unique_source_map",
+            "_flat_unique_source_map",
+            "_source_id_entries",
+            "_rewrite_typed_reference",
+            "_rewrite_coordination_references",
+        }
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.module != "scenario_forge.stpa.system_model.id_normalization":
+                continue
+            imported.update(alias.name for alias in node.names)
+        leaked = sorted(imported & private_names)
+        assert not leaked, (
+            "acceptance/runtime_features/sp1.py imported private "
+            f"id_normalization names: {leaked}"
+        )
+        assert "_unique_source_map" not in source
+        assert "_flat_unique_source_map" not in source
+
     def test_critic_stitches_then_delegates_published_ids(
         self, system_model_files
     ):
