@@ -133,27 +133,27 @@ Feature: SP1 deterministic control-structure ID renumbering
 
   # SP1-ID-RENUMBERING-10
   Scenario Outline: SP1-ID-RENUMBERING-10 rejects ambiguous typed global references
-    Given an otherwise reference-resolvable payload has two <target_scope> using source ID <ambiguous_source_id> and <reference_owner> <reference_field> references it as <reference_type>
+    Given an otherwise reference-resolvable payload has two <target_scope> using source ID ambiguous-global and <reference_owner> <reference_field> references it as <reference_type>
     When the payload IDs are normalized
-    Then <reference_owner> <reference_field> still references <ambiguous_source_id>
+    Then <reference_owner> <reference_field> still references ambiguous-global
     When the normalized payload is validated
     Then validation fails with an error identifying <reference_field>
 
     Examples:
-      | target_scope         | ambiguous_source_id | reference_owner                        | reference_field         | reference_type     |
-      | responsibilities     | ambiguous-global    | responsibility 1 process model part 1 | process feedback_source | responsibility     |
-      | controlled processes | ambiguous-global    | responsibility 1 control action 1     | control action target   | controlled_process |
-      | controlled processes | ambiguous-global    | responsibility 2 feedback channel 1   | feedback source         | controlled_process |
+      | target_scope         | reference_owner                        | reference_field         | reference_type     |
+      | responsibilities     | responsibility 1 process model part 1 | process feedback_source | responsibility     |
+      | controlled processes | responsibility 1 control action 1     | control action target   | controlled_process |
+      | controlled processes | responsibility 2 feedback channel 1   | feedback source         | controlled_process |
 
   # SP1-ID-RENUMBERING-11
   Scenario Outline: SP1-ID-RENUMBERING-11 rejects an ambiguous coordination shared_pm reference
-    Given an otherwise reference-resolvable payload has responsibility 1 and responsibility 2 each containing a process model part with source ID <ambiguous_pm_id>
-    And coordination link 1 selects <ambiguous_pm_id> as <coordination_field>
+    Given an otherwise reference-resolvable payload has responsibility 1 and responsibility 2 each containing a process model part with source ID shared-state
+    And coordination link 1 selects shared-state as <coordination_field>
     When the payload IDs are normalized
-    Then normalization leaves coordination link 1 <coordination_field> as <ambiguous_pm_id>
+    Then normalization leaves coordination link 1 <coordination_field> as shared-state
     When the normalized payload is validated
     Then validation fails with an error identifying <reference_field>
 
     Examples:
-      | ambiguous_pm_id | coordination_field | reference_field        |
-      | shared-state    | shared_pm          | coordination shared_pm |
+      | coordination_field | reference_field        |
+      | shared_pm          | coordination shared_pm |

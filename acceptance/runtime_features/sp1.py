@@ -2359,7 +2359,7 @@ def _h_sp1_id_ambiguous_global_setup(
         return False, "The SP1 ID payload was not initialized"
 
     target_scope = examples.get("target_scope", "")
-    ambiguous_id = examples.get("ambiguous_source_id", "")
+    ambiguous_id = "ambiguous-global"
     reference_owner = examples.get("reference_owner", "")
     reference_field = examples.get("reference_field", "")
     field = _SP1_ID_TYPED_REFERENCE_FIELDS.get(reference_field)
@@ -2404,11 +2404,21 @@ def _h_sp1_id_ambiguous_global_setup(
     else:
         return False, f"Unknown ambiguous target scope {target_scope}"
 
+    expected_type = {
+        "responsibilities": "responsibility",
+        "controlled processes": "controlled_process",
+    }[target_scope]
+    reference_type = examples.get("reference_type", "")
+    if reference_type != expected_type:
+        return False, (
+            f"Expected {target_scope} reference type {expected_type}, got {reference_type}"
+        )
+
     try:
         owner_element = ownerAt(payload, reference_owner)
     except (KeyError, IndexError, TypeError) as exc:
         return False, f"Unknown ambiguous-reference owner: {exc}"
-    owner_element[field] = {"type": examples.get("reference_type", ""), "id": ambiguous_id}
+    owner_element[field] = {"type": reference_type, "id": ambiguous_id}
     return True, ""
 
 
@@ -2431,7 +2441,7 @@ def _h_sp1_id_ambiguous_global_assert(
         return False, f"Unknown ambiguous-reference owner: {exc}"
     reference = owner_element.get(field)
     actual = reference.get("id") if isinstance(reference, dict) else None
-    expected = examples.get("ambiguous_source_id", "")
+    expected = "ambiguous-global"
     if actual != expected:
         return False, f"Expected {reference_field} to remain {expected}, got {actual}"
     return True, ""
@@ -2444,7 +2454,7 @@ def _h_sp1_id_ambiguous_pm_setup(
     payload = getattr(world, "sp1_id_payload", None)
     if not isinstance(payload, dict):
         return False, "The SP1 ID payload was not initialized"
-    ambiguous_id = examples.get("ambiguous_pm_id", "")
+    ambiguous_id = "shared-state"
     responsibilities = payload.get("responsibilities", [])
     if len(responsibilities) < 2:
         return False, "Expected at least two responsibilities"
@@ -2481,7 +2491,7 @@ def _h_sp1_id_ambiguous_coord_setup(
     field = examples.get("coordination_field", "")
     if field not in {"shared_pm"}:
         return False, f"Unknown coordination reference field {field}"
-    links[0][field] = examples.get("ambiguous_pm_id", "")
+    links[0][field] = "shared-state"
     return True, ""
 
 
@@ -2499,7 +2509,7 @@ def _h_sp1_id_ambiguous_coord_assert(
         actual = coordAt(normalized.payload, field)
     except (KeyError, IndexError, TypeError) as exc:
         return False, f"Unknown coordination reference field {field}: {exc}"
-    expected = examples.get("ambiguous_pm_id", "")
+    expected = "shared-state"
     if actual != expected:
         return False, f"Expected coordination link 1 {field} to remain {expected}, got {actual}"
     return True, ""
