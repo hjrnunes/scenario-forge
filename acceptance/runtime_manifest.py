@@ -21,6 +21,7 @@ MODULES = (
     'acceptance_refresh',
     'critic_revision_fix',
     'shadow_cleanup',
+    'llm_helper_failure_defenses',
 )
 
 

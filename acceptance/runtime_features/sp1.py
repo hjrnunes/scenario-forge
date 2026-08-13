@@ -1983,7 +1983,7 @@ def _sp1_id_payload() -> dict:
 
 def _sp1_id_normalizer():
     """Import the product normalizer lazily for acceptance execution."""
-    from scenario_forge.stpa.system_model.control_structure import (
+    from scenario_forge.stpa.system_model.id_normalization import (
         normalize_control_structure_payload,
     )
 
@@ -2320,11 +2320,178 @@ def _h_sp1_id_local_pm_update(world: World, text: str, examples: dict) -> tuple[
     """Handle: a local feedback update resolves to its responsibility PM."""
     index = int(examples.get("responsibility", "1")) - 1
     expected = examples.get("local_pm", "")
+    if not expected:
+        expected = text.rsplit("updates", 1)[-1].strip()
     actual = getattr(world, "sp1_id_normalization").payload["responsibilities"][index][
         "feedback_channels"
     ][0]["updates"]
     if actual != expected:
         return False, f"Expected local PM {expected}, got {actual}"
+    return True, ""
+
+
+def _h_sp1_id_cross_namespace_setup(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a source ID is shared by responsibility and process namespaces."""
+    payload = getattr(world, "sp1_id_payload", None)
+    if not isinstance(payload, dict):
+        return False, "The SP1 ID payload was not initialized"
+    responsibilities = payload.get("responsibilities", [])
+    processes = payload.get("controlled_processes", [])
+    if not responsibilities or not processes:
+        return False, "Expected a responsibility and controlled process"
+    responsibilities[0]["resp_id"] = "shared-element"
+    processes[0]["cp_id"] = "shared-element"
+    return True, ""
+
+
+def _h_sp1_id_flat_mapping_does_not_resolve(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: an ambiguous source ID is absent from the flat mapping."""
+    mapping = getattr(world, "sp1_id_normalization").mapping
+    if mapping.get("shared-element") is not None:
+        return False, "The flat mapping resolved shared-element"
+    return True, ""
+
+
+def _h_sp1_id_namespace_mapping_resolves(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a namespace-specific map keeps an otherwise ambiguous ID."""
+    match = re.search(
+        r"the (responsibility|controlled-process) mapping resolves "
+        r"(\S+) to (\S+)",
+        text,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return False, f"Could not parse namespace mapping from: {text}"
+    namespace = (
+        "responsibility"
+        if match.group(1).lower() == "responsibility"
+        else "controlled_process"
+    )
+    old_id, expected = match.group(2), match.group(3)
+    actual = getattr(world, "sp1_id_normalization").mappings[namespace].get(old_id)
+    if actual != expected:
+        return False, f"Expected {namespace} mapping {old_id} -> {expected}, got {actual}"
+    return True, ""
+
+
+def _h_sp1_id_missing_local_pm_setup(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a responsibility has an update with no local PM source."""
+    world.sp1_id_payload = {
+        "responsibilities": [
+            {
+                "resp_id": "controller-alpha",
+                "description": "Controller",
+                "feedback_channels": [
+                    {
+                        "fb_id": "feedback-a",
+                        "description": "Feedback",
+                        "updates": "missing-state",
+                    }
+                ],
+            }
+        ],
+        "controlled_processes": [],
+        "coordination_links": [],
+    }
+    return True, ""
+
+
+def _h_sp1_id_no_local_pm_mapping(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: no local process-model map is available."""
+    payload = getattr(world, "sp1_id_payload", None)
+    if not isinstance(payload, dict):
+        return False, "The SP1 ID payload was not initialized"
+    responsibilities = payload.get("responsibilities", [])
+    if len(responsibilities) != 1:
+        return False, "Expected exactly one responsibility"
+    if responsibilities[0].get("process_model_parts"):
+        return False, "Expected no local process-model entries"
+    return True, ""
+
+
+def _h_sp1_id_rewrite_responsibilities(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: responsibility references are rewritten through the public pass."""
+    try:
+        world.sp1_id_normalization = _sp1_id_normalizer()(world.sp1_id_payload)
+    except Exception as exc:  # pragma: no cover - acceptance diagnostic
+        return False, f"Reference rewriting raised {type(exc).__name__}: {exc}"
+    return True, ""
+
+
+def _h_sp1_id_rewrite_completed(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: responsibility reference rewriting completed."""
+    if not hasattr(world, "sp1_id_normalization"):
+        return False, "Reference rewriting did not produce a result"
+    return True, ""
+
+
+def _h_sp1_id_acceptance_normalizer_resolved(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the acceptance normalizer is resolved."""
+    world.sp1_acceptance_normalizer = _sp1_id_normalizer()
+    return True, ""
+
+
+def _h_sp1_id_acceptance_normalizer_module(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the acceptance normalizer comes from the leaf module."""
+    normalizer = getattr(world, "sp1_acceptance_normalizer", None)
+    if normalizer is None:
+        return False, "The acceptance normalizer was not resolved"
+    expected = "scenario_forge.stpa.system_model.id_normalization"
+    if normalizer.__module__ != expected:
+        return False, f"Expected normalizer module {expected}, got {normalizer.__module__}"
+    return True, ""
+
+
+def _h_sp1_id_no_normalizer_reexports(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: package public surfaces do not re-export the normalizer."""
+    import scenario_forge.stpa.system_model as system_model
+    import scenario_forge.stpa.system_model.control_structure as control_structure
+
+    name = "normalize_control_structure_payload"
+    if name in getattr(system_model, "__all__", ()):
+        return False, "system_model.__all__ still re-exports the normalizer"
+    if name in getattr(control_structure, "__all__", ()):
+        return False, "control_structure.__all__ re-exports the normalizer"
+    return True, ""
+
+
+def _h_sp1_id_acceptance_normalizer_normalizes(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the resolved normalizer assigns RESP-1 from source position."""
+    normalizer = getattr(world, "sp1_acceptance_normalizer", None)
+    if normalizer is None:
+        return False, "The acceptance normalizer was not resolved"
+    result = normalizer(
+        {
+            "responsibilities": [{"resp_id": "controller-alpha"}],
+            "controlled_processes": [],
+            "coordination_links": [],
+        }
+    )
+    actual = result.payload["responsibilities"][0]["resp_id"]
+    if actual != "RESP-1":
+        return False, f"Expected RESP-1, got {actual}"
     return True, ""
 
 
@@ -2777,6 +2944,19 @@ def _h_tolerant_declares_coordination_link(
     return True, ""
 
 
+def _h_tolerant_declares_explicit_null_optional(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: an optional field is explicitly present with a null value."""
+    world.tolerant_model = create_model(
+        "TolerantOptionalFieldModel",
+        unused=(str | None, None),
+    )
+    world.tolerant_content = {"unused": None}
+    world.tolerant_field_name = "unused"
+    return True, ""
+
+
 def _h_tolerant_decode_result(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Decode a tolerant feature result using the production helper."""
     if world.tolerant_model is None:
@@ -2826,6 +3006,18 @@ def _h_tolerant_required_field_value(
     actual = getattr(world.tolerant_result, field_name, object())
     if actual != expected_values[expected]:
         return False, f"Expected {expected!r} but got {actual!r}"
+    return True, ""
+
+
+def _h_tolerant_explicit_null_value(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: an explicitly null optional field remains null."""
+    if world.tolerant_result is None:
+        return False, "No tolerant result available"
+    actual = getattr(world.tolerant_result, "unused", object())
+    if actual is not None:
+        return False, f"Expected unused to remain null, got {actual!r}"
     return True, ""
 
 
@@ -3494,6 +3686,17 @@ def register(api: object) -> None:
     api.register('responsibility 1 and responsibility 2 each contain a process model part with source ID shared-state$', _h_sp1_id_local_pm_setup, source_order=7016)
     api.register('each responsibility contains a feedback channel whose updates value is shared-state$', _h_sp1_id_local_pm_setup, source_order=7017)
     api.register('responsibility .* feedback channel 1 updates', _h_sp1_id_local_pm_update, source_order=7018)
+    api.register('responsibility 1 and controlled process 1 both use source ID shared-element$', _h_sp1_id_cross_namespace_setup, source_order=7072)
+    api.register('the flat normalization mapping does not resolve shared-element$', _h_sp1_id_flat_mapping_does_not_resolve, source_order=7073)
+    api.register('the (?:responsibility|controlled-process) mapping resolves shared-element to', _h_sp1_id_namespace_mapping_resolves, source_order=7074)
+    api.register('responsibility reference rewriting receives one responsibility whose feedback updates value is missing-state$', _h_sp1_id_missing_local_pm_setup, source_order=7075)
+    api.register('no local process-model mapping is available for responsibility 1$', _h_sp1_id_no_local_pm_mapping, source_order=7076)
+    api.register('the responsibility references are rewritten$', _h_sp1_id_rewrite_responsibilities, source_order=7077)
+    api.register('reference rewriting completes without an error$', _h_sp1_id_rewrite_completed, source_order=7078)
+    api.register('the SP1 acceptance normalizer is resolved$', _h_sp1_id_acceptance_normalizer_resolved, source_order=7079)
+    api.register('its module is scenario_forge\\.stpa\\.system_model\\.id_normalization$', _h_sp1_id_acceptance_normalizer_module, source_order=7080)
+    api.register('neither the control-structure module nor the system-model package re-exports the normalizer$', _h_sp1_id_no_normalizer_reexports, source_order=7081)
+    api.register('it normalizes responsibility 1 source ID controller-alpha to RESP-1$', _h_sp1_id_acceptance_normalizer_normalizes, source_order=7082)
     api.register('the referenced element at .* has source ID', _h_sp1_id_typed_ref_setup, source_order=7019)
     api.register('.* has .* ID .* with type', _h_sp1_id_typed_ref_setup, source_order=7020)
     api.register('normalization changes .* from .* to', _h_sp1_id_typed_ref_assert, source_order=7021)
@@ -3522,9 +3725,11 @@ def register(api: object) -> None:
     api.register('the response model declares an omitted required field with annotation', _h_tolerant_declares_omitted_field, source_order=7042)
     api.register('declares omitted field .* with declared default', _h_tolerant_declares_default_field, source_order=7043)
     api.register('a coordination link omits required CoordinationMechanism field coordination_mechanism', _h_tolerant_declares_coordination_link, source_order=7044)
+    api.register('a Pydantic LLM result explicitly sets optional field unused to null$', _h_tolerant_declares_explicit_null_optional, source_order=7083)
     api.register('the LLM result is tolerantly decoded$', _h_tolerant_decode_result, source_order=7045)
     api.register('the required field can be accessed without AttributeError$', _h_tolerant_required_field_accessible, source_order=7046)
     api.register_first('the required field value is', _h_tolerant_required_field_value, source_order=7047)
+    api.register('field unused remains null$', _h_tolerant_explicit_null_value, source_order=7084)
     api.register('the decoded result is post-processed and validated$', _h_tolerant_post_process_and_validate, source_order=7048)
     api.register_first('validation fails with an error identifying coordination_mechanism$', _h_tolerant_validation_error_field, source_order=7049)
     api.register('a valid Call 2a response with ordered responsibilities$', _h_sp1_tolerant_call2a_responsibilities, source_order=7050)
