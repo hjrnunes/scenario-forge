@@ -11,8 +11,10 @@ from scenario_forge.stpa.system_model.control_structure import (  # noqa: E402
     Requirement,
     RequirementSet,
     ResponsibilitySet,
-    ControlStructureNormalization,
     derive_control_structure,
+)
+from scenario_forge.stpa.system_model.id_normalization import (  # noqa: E402
+    ControlStructureNormalization,
     normalize_control_structure_payload,
 )
 from scenario_forge.stpa.system_model.critic import (  # noqa: E402

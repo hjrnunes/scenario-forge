@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from scenario_forge.stpa.system_model.control_structure import (
-    normalize_control_structure_payload,
-)
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.system_model.control_structure import (
     ControlElementSet,
@@ -12,6 +9,9 @@ from scenario_forge.stpa.system_model.control_structure import (
     RequirementSet,
     ResponsibilitySet,
     derive_control_structure,
+)
+from scenario_forge.stpa.system_model.id_normalization import (
+    normalize_control_structure_payload,
 )
 from tests.stpa.sp1_helpers import MockLLMClient
 from tests.stpa.test_sp1_control_structure import _make_loss_analysis
