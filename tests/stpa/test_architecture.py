@@ -571,6 +571,23 @@ class TestSystemModelDependencyDirection:
             "violation):\n" + "\n".join(violations)
         )
 
+    def test_critic_stitches_then_delegates_published_ids(
+        self, system_model_files
+    ):
+        """Revision merge stitches by source ID, then applies leaf ID policy.
+
+        Published IDs are not assigned by the IO-near revision merge.
+        The critic may keep stitch-time collision bookkeeping, but the
+        complete stitched payload must go through
+        ``validate_normalized_control_structure``.
+        """
+        source = system_model_files["critic"].read_text(encoding="utf-8")
+        imports = set(_system_model_internal_imports(system_model_files["critic"]))
+        assert "id_normalization" in imports
+        assert "def _stitch_revision_delta" in source
+        assert "validate_normalized_control_structure" in source
+        assert "ControlStructure.model_validate(normalized_payload.payload)" not in source
+
 
 # ---------------------------------------------------------------------------
 # Graceful degradation architecture guards

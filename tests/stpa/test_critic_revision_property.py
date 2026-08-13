@@ -12,8 +12,9 @@ Covers five invariant families:
 4. **Dismissal visibility**: every ``dismissed_gaps`` entry surfaces in
    the returned warnings from ``run_revision``.
 5. **Merge conservation**: when the RevisionDelta contains no
-   modifications to existing elements, all existing resp_ids, cp_ids,
-   and link_ids survive the merge.
+   modifications to existing elements, existing responsibilities,
+   processes, and links survive in list order. Published IDs are
+   assigned from those final positions, not from source IDs.
 6. **All-dismissed warning**: ``run_revision`` emits exactly one
    all-dismissed warning iff the findings are non-empty, every finding
    is dismissed, and the delta carries no additions or modifications.
@@ -41,8 +42,13 @@ from scenario_forge.stpa.system_model.critic import (
     CriticGap,
     RevisionDelta,
     _compute_next_ids,
+    _merge_revision_delta,
+    _stitch_revision_delta,
     has_unjustified_gaps,
     run_revision,
+)
+from scenario_forge.stpa.system_model.id_normalization import (
+    normalize_control_structure_payload,
 )
 from tests.stpa.sp1_helpers import MockLLMClient
 
@@ -667,8 +673,18 @@ def st_cs_with_links(draw) -> ControlStructure:
     )
 
 
+def _canonical_link_ids(n_links: int) -> list[str]:
+    """Return the published link IDs implied by final list positions."""
+    return [f"CL-{index}" for index in range(1, n_links + 1)]
+
+
+def _canonical_cm_ids(n_links: int) -> list[str]:
+    """Return the published mechanism IDs implied by final list positions."""
+    return [f"CM-{index}" for index in range(1, n_links + 1)]
+
+
 class TestMergeConservation:
-    """When the delta has no modifications, all existing elements survive."""
+    """When the delta has no modifications, existing elements survive in order."""
 
     @given(cs=st_cs_with_links())
     @settings(
@@ -707,7 +723,13 @@ class TestMergeConservation:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_all_link_ids_survive(self, tmp_path, cs):
-        """Every original link_id is present after an empty-delta revision."""
+        """Empty-delta revision keeps every link and publishes position IDs.
+
+        Source ``link_id`` values are stitch keys only.  After the
+        merged lists are known, published IDs are ``CL-1..N`` /
+        ``CM-1..N`` from final position.  Non-ID content is conserved
+        in list order.
+        """
         client = MockLLMClient()
         client.set_response_for(
             RevisionDelta,
@@ -719,6 +741,12 @@ class TestMergeConservation:
                 "dismissed_gaps": [],
             },
         )
+        original_descriptions = [
+            cl.description for cl in cs.coordination_links
+        ]
+        original_payloads = [
+            cl.coordination_mechanism.payload for cl in cs.coordination_links
+        ]
         revised, _ = run_revision(
             llm_client=client,
             control_structure=cs,
@@ -726,9 +754,20 @@ class TestMergeConservation:
             use_case_text="Test",
             run_dir=tmp_path,
         )
-        original_link_ids = {cl.link_id for cl in cs.coordination_links}
-        revised_link_ids = {cl.link_id for cl in revised.coordination_links}
-        assert original_link_ids <= revised_link_ids
+        n_links = len(cs.coordination_links)
+        assert len(revised.coordination_links) == n_links
+        assert [
+            cl.link_id for cl in revised.coordination_links
+        ] == _canonical_link_ids(n_links)
+        assert [
+            cl.coordination_mechanism.cm_id for cl in revised.coordination_links
+        ] == _canonical_cm_ids(n_links)
+        assert [
+            cl.description for cl in revised.coordination_links
+        ] == original_descriptions
+        assert [
+            cl.coordination_mechanism.payload for cl in revised.coordination_links
+        ] == original_payloads
 
     @given(cs=st_cs_with_links())
     @settings(
@@ -1006,10 +1045,16 @@ class TestMergeGuardCorrectness:
         )
 
     def test_non_colliding_new_cm_id_preserved(self, tmp_path):
-        """A new link with a non-colliding cm_id keeps that cm_id (no
-        spurious renumbering)."""
+        """A non-colliding source cm_id still publishes from final position.
+
+        The LLM-chosen ``CM-5`` is a stitch-time source ID.  After the
+        new link is appended, it occupies list position 2, so the
+        published mechanism ID is ``CM-2``.  Non-ID content is
+        conserved and the stitch helper must not emit a collision
+        warning for a unique source cm_id.
+        """
         cs = _make_base_cs()  # CL-1 with CM-1
-        new_cl = _make_cl(2, 5, 1, 2)  # CL-2 with CM-5 (no collision)
+        new_cl = _make_cl(2, 5, 1, 2)  # source CL-2 / CM-5 (no collision)
         client = MockLLMClient()
         client.set_response_for(
             RevisionDelta,
@@ -1022,13 +1067,150 @@ class TestMergeGuardCorrectness:
             use_case_text="Test",
             run_dir=tmp_path,
         )
+        assert [
+            cl.link_id for cl in revised.coordination_links
+        ] == ["CL-1", "CL-2"]
         cl2 = next(
             cl for cl in revised.coordination_links if cl.link_id == "CL-2"
         )
-        assert cl2.coordination_mechanism.cm_id == "CM-5", (
-            f"Non-colliding new link CL-2 should keep CM-5 but got "
-            f"{cl2.coordination_mechanism.cm_id}"
+        assert cl2.coordination_mechanism.cm_id == "CM-2", (
+            "New link in final position 2 must publish CM-2, not the "
+            f"source cm_id CM-5; got {cl2.coordination_mechanism.cm_id}"
+        )
+        assert cl2.source == new_cl.source
+        assert cl2.target == new_cl.target
+        assert cl2.shared_pm == new_cl.shared_pm
+        assert cl2.description == new_cl.description
+        assert cl2.coordination_mechanism.payload == (
+            new_cl.coordination_mechanism.payload
         )
         assert not any("Renumber" in w for w in warnings), (
-            f"Expected no renumber warnings but got: {warnings}"
+            f"Expected no stitch-time collision warnings but got: {warnings}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 8. Revision-delta published IDs come from final merged position
+# ---------------------------------------------------------------------------
+
+
+def _unvalidated_new_resp(source_prefix: str, index: int) -> Responsibility:
+    """Build a new responsibility whose source IDs are non-canonical."""
+    source_resp = f"{source_prefix}-resp-{index}"
+    source_pm = f"{source_prefix}-pm-{index}"
+    return Responsibility.model_construct(
+        resp_id=source_resp,
+        description=f"Added controller {index}",
+        process_model_parts=[
+            ProcessModelPart.model_construct(
+                pm_id=source_pm,
+                description=f"Added state {index}",
+            )
+        ],
+        control_actions=[
+            ControlAction.model_construct(
+                ca_id=f"{source_prefix}-ca-{index}",
+                description=f"Added action {index}",
+                target=ElementRef.model_construct(
+                    type=ReferenceType.controlled_process,
+                    id=f"{source_prefix}-cp",
+                ),
+            )
+        ],
+        feedback_channels=[
+            FeedbackChannel.model_construct(
+                fb_id=f"{source_prefix}-fb-{index}",
+                description=f"Added feedback {index}",
+                updates=source_pm,
+                source=ElementRef.model_construct(
+                    type=ReferenceType.controlled_process,
+                    id=f"{source_prefix}-cp",
+                ),
+            )
+        ],
+    )
+
+
+class TestRevisionDeltaPublishedIds:
+    """Stitched source IDs are not published; final position is."""
+
+    @given(
+        n_existing=st.integers(min_value=1, max_value=3),
+        n_new=st.integers(min_value=1, max_value=2),
+        prefix=st.from_regex(r"[a-z]{3,8}", fullmatch=True),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_merged_ids_are_deterministic_from_final_position(
+        self, n_existing, n_new, prefix
+    ):
+        cs = ControlStructure(responsibilities=[_make_resp(i) for i in range(1, n_existing + 1)])
+        delta = RevisionDelta.model_construct(
+            new_responsibilities=[
+                _unvalidated_new_resp(prefix, index)
+                for index in range(1, n_new + 1)
+            ],
+            new_controlled_processes=[
+                ControlledProcess.model_construct(
+                    cp_id=f"{prefix}-cp",
+                    description="Added process",
+                )
+            ],
+        )
+
+        first, _ = _merge_revision_delta(cs, delta)
+        second, _ = _merge_revision_delta(cs, delta)
+
+        expected_resp_ids = [
+            f"RESP-{index}" for index in range(1, n_existing + n_new + 1)
+        ]
+        assert [resp.resp_id for resp in first.responsibilities] == expected_resp_ids
+        assert [resp.resp_id for resp in second.responsibilities] == expected_resp_ids
+        assert first.controlled_processes[0].cp_id == "CP-1"
+        assert second.model_dump() == first.model_dump()
+
+    @given(
+        n_existing=st.integers(min_value=1, max_value=3),
+        prefix=st.from_regex(r"[a-z]{3,8}", fullmatch=True),
+    )
+    @settings(max_examples=25, deadline=None)
+    def test_unique_source_ids_resolve_after_merge(self, n_existing, prefix):
+        cs = ControlStructure(responsibilities=[_make_resp(i) for i in range(1, n_existing + 1)])
+        added = _unvalidated_new_resp(prefix, 1)
+        delta = RevisionDelta.model_construct(
+            new_responsibilities=[added],
+            new_controlled_processes=[
+                ControlledProcess.model_construct(
+                    cp_id=f"{prefix}-cp",
+                    description="Added process",
+                )
+            ],
+        )
+
+        stitched, _ = _stitch_revision_delta(cs, delta)
+        mapping = normalize_control_structure_payload(stitched).mapping
+        merged, _ = _merge_revision_delta(cs, delta)
+
+        added_index = n_existing + 1
+        assert mapping[added.resp_id] == f"RESP-{added_index}"
+        assert mapping[added.process_model_parts[0].pm_id] == f"PM-{added_index}-1"
+        assert mapping[f"{prefix}-cp"] == "CP-1"
+
+        published = merged.responsibilities[-1]
+        assert published.control_actions[0].target == ElementRef(
+            type=ReferenceType.controlled_process, id="CP-1"
+        )
+        assert published.feedback_channels[0].source == ElementRef(
+            type=ReferenceType.controlled_process, id="CP-1"
+        )
+        assert published.feedback_channels[0].updates == f"PM-{added_index}-1"
+
+    @given(n_existing=st.integers(min_value=1, max_value=4))
+    @settings(max_examples=20, deadline=None)
+    def test_canonical_merged_structure_is_idempotent(self, n_existing):
+        cs = ControlStructure(responsibilities=[_make_resp(i) for i in range(1, n_existing + 1)])
+        once, _ = _merge_revision_delta(cs, RevisionDelta())
+        twice, _ = _merge_revision_delta(once, RevisionDelta())
+        assert twice.model_dump() == once.model_dump()
+        assert [resp.resp_id for resp in twice.responsibilities] == [
+            f"RESP-{index}" for index in range(1, n_existing + 1)
+        ]

@@ -34,7 +34,7 @@ from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
 from scenario_forge.stpa.system_model.id_normalization import (
-    normalize_control_structure_payload,
+    validate_normalized_control_structure,
 )
 
 STAGE = "stage_2"
@@ -565,21 +565,28 @@ def _renumber_colliding_cm_ids(
     return merged_links, warnings
 
 
-def _merge_revision_delta(
+def _stitch_revision_delta(
     cs: ControlStructure,
     delta: RevisionDelta,
 ) -> tuple[ControlStructure, list[str]]:
-    """Merge a RevisionDelta into an existing ControlStructure.
+    """Stitch a revision delta onto the current structure by source ID.
 
-    - Replaces ``modified_responsibilities`` by resp_id.
-    - Adds ``new_responsibilities`` (skipping duplicate resp_ids).
-    - Adds ``new_controlled_processes`` (skipping duplicate cp_ids).
-    - Adds ``new_coordination_links`` (skipping duplicate link_ids).
-    - Renumbers any new link whose ``cm_id`` collides with an existing one.
-    - Normalizes IDs and references on the fully merged payload.
-    - Validates the normalized ControlStructure.
+    This is list surgery only.  Matching uses the pre-normalization
+    source IDs so a modification can name an existing element even when
+    that source ID is later rewritten.  Published IDs are assigned later
+    from the stitched list positions.
 
-    Returns a tuple of (merged ControlStructure, renumber warnings).
+    - Replaces ``modified_responsibilities`` by source ``resp_id``.
+    - Appends new responsibilities, processes, and links whose source
+      IDs are not already present.
+    - Records ``cm_id`` collisions among newly added links so the
+      operator can see the LLM chose a colliding mechanism ID.  Those
+      IDs are not the published IDs; the subsequent normalization pass
+      assigns ``CM-N`` from final list position.
+
+    The returned structure is unvalidated: the revision delta is decoded
+    tolerantly, so malformed source IDs must survive until the
+    high-level normalizer sees the complete stitched lists.
     """
     existing_resp_ids = {r.resp_id for r in cs.responsibilities}
     existing_cp_ids = {cp.cp_id for cp in cs.controlled_processes}
@@ -606,19 +613,31 @@ def _merge_revision_delta(
     merged_cls, cm_warnings = _renumber_colliding_cm_ids(
         cs.coordination_links, merged_cls
     )
+    return (
+        ControlStructure.model_construct(
+            responsibilities=merged_resps,
+            controlled_processes=merged_cps,
+            coordination_links=merged_cls,
+        ),
+        cm_warnings,
+    )
 
-    # The revision delta is decoded tolerantly, so constructing a validated
-    # ControlStructure here would reject malformed IDs before the
-    # deterministic normalization pass can repair them.  Keep the stitched
-    # model unvalidated until all final list positions are known, then
-    # normalize the complete payload and validate exactly once.
-    merged_payload = ControlStructure.model_construct(
-        responsibilities=merged_resps,
-        controlled_processes=merged_cps,
-        coordination_links=merged_cls,
-    ).model_dump(mode="python", exclude_none=False)
-    normalized_payload = normalize_control_structure_payload(merged_payload)
-    return ControlStructure.model_validate(normalized_payload.payload), cm_warnings
+
+def _merge_revision_delta(
+    cs: ControlStructure,
+    delta: RevisionDelta,
+) -> tuple[ControlStructure, list[str]]:
+    """Merge a RevisionDelta into an existing ControlStructure.
+
+    Stitch by source ID first, then hand the complete structure to the
+    high-level ID policy.  Published IDs come from final list position;
+    resolvable references are rewritten; unresolved references fail
+    validation and degrade the revision.
+
+    Returns a tuple of (merged ControlStructure, stitch warnings).
+    """
+    stitched, stitch_warnings = _stitch_revision_delta(cs, delta)
+    return validate_normalized_control_structure(stitched), stitch_warnings
 
 
 # ---------------------------------------------------------------------------
