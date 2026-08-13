@@ -1965,6 +1965,74 @@ def _sp1_id_normalizer():
     return normalize_control_structure_payload
 
 
+_SP1_ID_CHILD_ALIASES = {
+    "responsibility constraint": ("responsibility_constraints", "rc_id"),
+    "process model part": ("process_model_parts", "pm_id"),
+    "control action": ("control_actions", "ca_id"),
+    "feedback channel": ("feedback_channels", "fb_id"),
+}
+_SP1_ID_DUPLICATE_SCOPES = {
+    "responsibility 1 responsibility constraints": (
+        "responsibility_constraints",
+        "rc_id",
+    ),
+    "responsibility 1 process model parts": ("process_model_parts", "pm_id"),
+    "responsibility 1 control actions": ("control_actions", "ca_id"),
+    "responsibility 1 feedback channels": ("feedback_channels", "fb_id"),
+    "coordination-link coordination mechanisms": None,
+}
+_SP1_ID_UNRESOLVED_FIELDS = {
+    "feedback updates",
+    "process feedback_source",
+    "control action target",
+    "feedback source",
+    "coordination source",
+    "coordination target",
+    "coordination shared_pm",
+}
+
+
+def _sp1_id_lookup(payload: dict, position: str) -> tuple[dict, str]:
+    """Return the element and ID key named by a structural-position phrase."""
+    text = position.strip()
+    match = re.fullmatch(r"responsibility (\d+)", text)
+    if match:
+        return payload["responsibilities"][int(match.group(1)) - 1], "resp_id"
+    match = re.fullmatch(r"controlled process (\d+)", text)
+    if match:
+        return payload["controlled_processes"][int(match.group(1)) - 1], "cp_id"
+    match = re.fullmatch(r"coordination link (\d+)", text)
+    if match:
+        return payload["coordination_links"][int(match.group(1)) - 1], "link_id"
+    match = re.fullmatch(r"coordination link (\d+) coordination mechanism", text)
+    if match:
+        return (
+            payload["coordination_links"][int(match.group(1)) - 1][
+                "coordination_mechanism"
+            ],
+            "cm_id",
+        )
+    match = re.fullmatch(r"responsibility (\d+) child (\d+) (.+)", text)
+    if match:
+        collection, id_key = _SP1_ID_CHILD_ALIASES[match.group(3)]
+        return (
+            payload["responsibilities"][int(match.group(1)) - 1][collection][
+                int(match.group(2)) - 1
+            ],
+            id_key,
+        )
+    match = re.fullmatch(r"responsibility (\d+) (.+) (\d+)", text)
+    if match:
+        collection, id_key = _SP1_ID_CHILD_ALIASES[match.group(2)]
+        return (
+            payload["responsibilities"][int(match.group(1)) - 1][collection][
+                int(match.group(3)) - 1
+            ],
+            id_key,
+        )
+    raise KeyError(position)
+
+
 def _h_sp1_id_payload_parsed(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a syntactically parsed SP1 control-structure payload."""
     world.sp1_id_payload = _sp1_id_payload()
@@ -2021,28 +2089,11 @@ def _h_sp1_id_position_has_id(world: World, text: str, examples: dict) -> tuple[
     normalized = getattr(world, "sp1_id_normalization", None)
     position = examples.get("structural_position", "")
     expected = examples.get("canonical_id", "")
-    positions = {
-        "responsibility 1": normalized.payload["responsibilities"][0]["resp_id"],
-        "responsibility 2": normalized.payload["responsibilities"][1]["resp_id"],
-        "responsibility 2 child 2 responsibility constraint": normalized.payload[
-            "responsibilities"
-        ][1]["responsibility_constraints"][1]["rc_id"],
-        "responsibility 1 child 2 process model part": normalized.payload[
-            "responsibilities"
-        ][0]["process_model_parts"][1]["pm_id"],
-        "responsibility 2 child 1 control action": normalized.payload[
-            "responsibilities"
-        ][1]["control_actions"][0]["ca_id"],
-        "responsibility 1 child 2 feedback channel": normalized.payload[
-            "responsibilities"
-        ][0]["feedback_channels"][1]["fb_id"],
-        "controlled process 2": normalized.payload["controlled_processes"][1]["cp_id"],
-        "coordination link 2": normalized.payload["coordination_links"][1]["link_id"],
-        "coordination link 2 coordination mechanism": normalized.payload[
-            "coordination_links"
-        ][1]["coordination_mechanism"]["cm_id"],
-    }
-    actual = positions.get(position)
+    try:
+        element, id_key = _sp1_id_lookup(normalized.payload, position)
+    except (KeyError, IndexError, TypeError):
+        return False, f"Unknown structural position {position}"
+    actual = element.get(id_key)
     if actual != expected:
         return False, f"Expected {position} to have {expected}, got {actual}"
     return True, ""
@@ -2064,6 +2115,16 @@ def _h_sp1_id_two_payloads(world: World, text: str, examples: dict) -> tuple[boo
 
 def _h_sp1_id_unique_source(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: the payload contains a unique source ID at a position."""
+    payload = getattr(world, "sp1_id_payload")
+    old_id = examples.get("old_id", "")
+    position = examples.get("structural_position", "")
+    try:
+        element, id_key = _sp1_id_lookup(payload, position)
+    except (KeyError, IndexError, TypeError):
+        return False, f"Unknown structural position {position}"
+    actual = element.get(id_key)
+    if actual != old_id:
+        return False, f"Expected {position} to have source ID {old_id}, got {actual}"
     return True, ""
 
 
@@ -2161,21 +2222,17 @@ def _h_sp1_id_prepare_duplicate(world: World, text: str, examples: dict) -> tupl
     """Handle: two elements in a scope use the same source ID."""
     payload = getattr(world, "sp1_id_payload")
     scope = examples.get("element_scope", "")
-    if "responsibility constraints" in scope:
-        children = payload["responsibilities"][0]["responsibility_constraints"]
-        children[0]["rc_id"] = children[1]["rc_id"] = examples["duplicate_id"]
-    elif "process model parts" in scope:
-        children = payload["responsibilities"][0]["process_model_parts"]
-        children[0]["pm_id"] = children[1]["pm_id"] = examples["duplicate_id"]
-    elif "control actions" in scope:
-        children = payload["responsibilities"][0]["control_actions"]
-        children[0]["ca_id"] = children[1]["ca_id"] = examples["duplicate_id"]
-    elif "feedback channels" in scope:
-        children = payload["responsibilities"][0]["feedback_channels"]
-        children[0]["fb_id"] = children[1]["fb_id"] = examples["duplicate_id"]
-    else:
+    if scope not in _SP1_ID_DUPLICATE_SCOPES:
+        return False, f"Unknown duplicate-ID scope {scope}"
+    spec = _SP1_ID_DUPLICATE_SCOPES[scope]
+    duplicate_id = "repeated"
+    if spec is None:
         for link in payload["coordination_links"]:
-            link["coordination_mechanism"]["cm_id"] = examples["duplicate_id"]
+            link["coordination_mechanism"]["cm_id"] = duplicate_id
+        return True, ""
+    collection, id_key = spec
+    children = payload["responsibilities"][0][collection]
+    children[0][id_key] = children[1][id_key] = duplicate_id
     return True, ""
 
 
@@ -2184,19 +2241,17 @@ def _h_sp1_id_duplicate_has_ids(world: World, text: str, examples: dict) -> tupl
     payload = getattr(world, "sp1_id_normalization").payload
     scope = examples.get("element_scope", "")
     expected = [examples.get("first_id"), examples.get("second_id")]
-    if "responsibility constraints" in scope:
-        actual = [item["rc_id"] for item in payload["responsibilities"][0]["responsibility_constraints"][:2]]
-    elif "process model parts" in scope:
-        actual = [item["pm_id"] for item in payload["responsibilities"][0]["process_model_parts"][:2]]
-    elif "control actions" in scope:
-        actual = [item["ca_id"] for item in payload["responsibilities"][0]["control_actions"][:2]]
-    elif "feedback channels" in scope:
-        actual = [item["fb_id"] for item in payload["responsibilities"][0]["feedback_channels"][:2]]
-    else:
+    if scope not in _SP1_ID_DUPLICATE_SCOPES:
+        return False, f"Unknown duplicate-ID scope {scope}"
+    spec = _SP1_ID_DUPLICATE_SCOPES[scope]
+    if spec is None:
         actual = [
             link["coordination_mechanism"]["cm_id"]
             for link in payload["coordination_links"][:2]
         ]
+    else:
+        collection, id_key = spec
+        actual = [item[id_key] for item in payload["responsibilities"][0][collection][:2]]
     if actual != expected:
         return False, f"Expected IDs {expected}, got {actual}"
     return True, ""
@@ -2236,14 +2291,20 @@ def _h_sp1_id_typed_ref_setup(world: World, text: str, examples: dict) -> tuple[
     payload = getattr(world, "sp1_id_payload")
     old_id = examples.get("old_reference", "")
     ref_type = examples.get("reference_type", "")
-    ref = {"type": ref_type, "id": old_id}
     field = examples.get("reference_field", "")
-    if field == "feedback_source":
-        payload["responsibilities"][0]["process_model_parts"][0][field] = ref
-    elif field == "target":
-        payload["responsibilities"][0]["control_actions"][0][field] = ref
-    else:
-        payload["responsibilities"][1]["feedback_channels"][0][field] = ref
+    referenced_position = examples.get("referenced_position", "")
+    owner = examples.get("reference_owner", "")
+    try:
+        referenced, referenced_key = _sp1_id_lookup(payload, referenced_position)
+        owner_element, _owner_key = _sp1_id_lookup(payload, owner)
+    except (KeyError, IndexError, TypeError) as exc:
+        return False, f"Unknown typed-reference location: {exc}"
+    if referenced.get(referenced_key) != old_id:
+        return False, (
+            f"Expected {referenced_position} to have source ID {old_id}, "
+            f"got {referenced.get(referenced_key)}"
+        )
+    owner_element[field] = {"type": ref_type, "id": old_id}
     return True, ""
 
 
@@ -2251,12 +2312,12 @@ def _h_sp1_id_typed_ref_assert(world: World, text: str, examples: dict) -> tuple
     """Handle: a typed reference has its canonical ID and original type."""
     payload = getattr(world, "sp1_id_normalization").payload
     field = examples.get("reference_field", "")
-    if field == "feedback_source":
-        ref = payload["responsibilities"][0]["process_model_parts"][0][field]
-    elif field == "target":
-        ref = payload["responsibilities"][0]["control_actions"][0][field]
-    else:
-        ref = payload["responsibilities"][1]["feedback_channels"][0][field]
+    owner = examples.get("reference_owner", "")
+    try:
+        owner_element, _owner_key = _sp1_id_lookup(payload, owner)
+    except (KeyError, IndexError, TypeError):
+        return False, f"Unknown reference owner {owner}"
+    ref = owner_element.get(field, {})
     if ref.get("id") != examples.get("new_reference"):
         return False, f"Expected {examples.get('new_reference')}, got {ref.get('id')}"
     if ref.get("type") != examples.get("reference_type"):
@@ -2372,7 +2433,9 @@ def _h_sp1_id_unresolved_setup(world: World, text: str, examples: dict) -> tuple
     """Handle: an unresolved reference is introduced."""
     payload = getattr(world, "sp1_id_payload")
     field = examples.get("reference_field", "")
-    missing = examples.get("missing_id", "")
+    missing = "absent-reference"
+    if field not in _SP1_ID_UNRESOLVED_FIELDS:
+        return False, f"Unknown unresolved reference field {field}"
     if field == "feedback updates":
         payload["responsibilities"][0]["feedback_channels"][0]["updates"] = missing
     elif field == "process feedback_source":
@@ -2390,14 +2453,12 @@ def _h_sp1_id_unresolved_setup(world: World, text: str, examples: dict) -> tuple
             "type": "controlled_process",
             "id": missing,
         }
+    elif field == "coordination source":
+        payload["coordination_links"][0]["source"] = missing
+    elif field == "coordination target":
+        payload["coordination_links"][0]["target"] = missing
     else:
-        link = payload["coordination_links"][0]
-        if field == "coordination source":
-            link["source"] = missing
-        elif field == "coordination target":
-            link["target"] = missing
-        else:
-            link["shared_pm"] = missing
+        payload["coordination_links"][0]["shared_pm"] = missing
     return True, ""
 
 
@@ -2620,7 +2681,7 @@ def register(api: object) -> None:
     api.register('normalization preserves every non-ID field$', _h_sp1_id_preserves_non_ids, source_order=7010)
     api.register('the payload contains a unique source ID .* at', _h_sp1_id_unique_source, source_order=7011)
     api.register('the normalization mapping resolves', _h_sp1_id_mapping, source_order=7012)
-    api.register('two elements in .* both use source ID', _h_sp1_id_prepare_duplicate, source_order=7013)
+    api.register('two elements in .* both use the same source ID$', _h_sp1_id_prepare_duplicate, source_order=7013)
     api.register('the first element in .* has ID', _h_sp1_id_duplicate_has_ids, source_order=7014)
     api.register('the second element in .* has ID', _h_sp1_id_duplicate_has_ids, source_order=7015)
     api.register('responsibility 1 and responsibility 2 each contain a process model part with source ID shared-state$', _h_sp1_id_local_pm_setup, source_order=7016)
@@ -2641,7 +2702,7 @@ def register(api: object) -> None:
     api.register('no element type contains duplicate IDs$', _h_sp1_id_no_duplicates, source_order=7031)
     api.register('no ID occurs in more than one element-type namespace$', _h_sp1_id_no_collisions, source_order=7032)
     api.register('ControlStructure validation succeeds$', _h_sp1_id_validate, source_order=7033)
-    api.register('the payload contains an unresolved .* value', _h_sp1_id_unresolved_setup, source_order=7034)
+    api.register('the payload contains an unresolved .* value$', _h_sp1_id_unresolved_setup, source_order=7034)
     api.register('the normalized payload is validated$', _h_sp1_id_validate_unresolved, source_order=7035)
     api.register('validation fails with an error identifying', _h_sp1_id_validation_error, source_order=7036)
     api.set_feature(None)

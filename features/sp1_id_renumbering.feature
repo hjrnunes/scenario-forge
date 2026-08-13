@@ -51,18 +51,18 @@ Feature: SP1 deterministic control-structure ID renumbering
 
   # SP1-ID-RENUMBERING-04
   Scenario Outline: SP1-ID-RENUMBERING-04 separates duplicate IDs by position
-    Given two elements in <element_scope> both use source ID <duplicate_id>
+    Given two elements in <element_scope> both use the same source ID
     When the payload IDs are normalized
     Then the first element in <element_scope> has ID <first_id>
     And the second element in <element_scope> has ID <second_id>
 
     Examples:
-      | element_scope                                        | duplicate_id | first_id | second_id |
-      | responsibility 1 responsibility constraints          | PM-9-9       | RC-1-1  | RC-1-2   |
-      | responsibility 1 process model parts                 | repeated     | PM-1-1  | PM-1-2   |
-      | responsibility 1 control actions                     | repeated     | CA-1-1  | CA-1-2   |
-      | responsibility 1 feedback channels                   | repeated     | FB-1-1  | FB-1-2   |
-      | coordination-link coordination mechanisms            | CM-1         | CM-1    | CM-2     |
+      | element_scope                                        | first_id | second_id |
+      | responsibility 1 responsibility constraints          | RC-1-1  | RC-1-2   |
+      | responsibility 1 process model parts                 | PM-1-1  | PM-1-2   |
+      | responsibility 1 control actions                     | CA-1-1  | CA-1-2   |
+      | responsibility 1 feedback channels                   | FB-1-1  | FB-1-2   |
+      | coordination-link coordination mechanisms            | CM-1    | CM-2     |
 
   # SP1-ID-RENUMBERING-05
   Scenario Outline: SP1-ID-RENUMBERING-05 resolves feedback updates within its responsibility
@@ -116,17 +116,17 @@ Feature: SP1 deterministic control-structure ID renumbering
 
   # SP1-ID-RENUMBERING-09
   Scenario Outline: SP1-ID-RENUMBERING-09 validates unresolved references after renumbering
-    Given the payload contains an unresolved <reference_field> value <missing_id>
+    Given the payload contains an unresolved <reference_field> value
     When the payload IDs are normalized
     And the normalized payload is validated
     Then validation fails with an error identifying <reference_field>
 
     Examples:
-      | reference_field         | missing_id          |
-      | feedback updates        | absent-pm           |
-      | process feedback_source | absent-controller   |
-      | control action target   | absent-process      |
-      | feedback source         | absent-process      |
-      | coordination source     | absent-controller   |
-      | coordination target     | absent-controller   |
-      | coordination shared_pm  | absent-pm           |
+      | reference_field         |
+      | feedback updates        |
+      | process feedback_source |
+      | control action target   |
+      | feedback source         |
+      | coordination source     |
+      | coordination target     |
+      | coordination shared_pm  |
