@@ -142,6 +142,8 @@ def run_sp1(
         risk_cards=risk_cards,
         loader=loader,
         critic_findings=stage2_result.critic_findings,
+        revised=stage2_result.revised,
+        post_revision_warnings=stage2_result.post_revision_warnings,
         temperature=temperature,
         profile_skipped=_profile_skipped,
         stage_errors=stage_errors,
@@ -338,6 +340,8 @@ def _write_manifest(
     risk_cards: list[RiskCard],
     loader: TemplateLoader,
     critic_findings: CriticFindings | None,
+    revised: bool = False,
+    post_revision_warnings: list[str] | None = None,
     temperature: float,
     profile_skipped: bool,
     stage_errors: list[str] | None = None,
@@ -376,6 +380,8 @@ def _write_manifest(
             "stage_2": {"call_count": _stage_2_call_count},
         },
         critic_findings=critic_summary,
+        revised=revised,
+        post_revision_warnings=post_revision_warnings or [],
     )
     if stage_errors:
         manifest.stage_errors = stage_errors

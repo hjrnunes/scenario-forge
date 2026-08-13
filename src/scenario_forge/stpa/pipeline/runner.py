@@ -10,6 +10,8 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+
 from scenario_forge.data.loaders import load_risk_extraction
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.calls_html import render_calls_html
@@ -186,6 +188,10 @@ def run_stpa_pipeline(
         stage_errors=stage_errors,
     )
 
+    # Later stages share the same manifest path, so restore SP1's revision
+    # diagnostics after their manifests have been written.
+    _persist_sp1_revision_diagnostics(output_dir, sp1_result)
+
     # --- Step 4: Report (always) ---
     report_path = _generate_report(output_dir)
 
@@ -205,6 +211,25 @@ def run_stpa_pipeline(
         sp3_result=sp3_result,
         report_path=report_path,
         stage_errors=stage_errors,
+    )
+
+
+def _persist_sp1_revision_diagnostics(
+    output_dir: Path,
+    sp1_result: SP1RunResult | None,
+) -> None:
+    """Preserve SP1 revision diagnostics in the combined run manifest."""
+    if sp1_result is None:
+        return
+    manifest_path = output_dir / "run-manifest.yaml"
+    if not manifest_path.exists():
+        return
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    manifest["revised"] = sp1_result.revised
+    manifest["post_revision_warnings"] = sp1_result.post_revision_warnings
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
     )
 
 

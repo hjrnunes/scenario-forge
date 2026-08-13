@@ -241,6 +241,9 @@ class TestRunOrchestration:
         manifest = yaml.safe_load(manifest_file.read_text())
         assert "critic_findings" in manifest
         assert len(manifest["critic_findings"]) == 2
+        assert manifest["revised"] is True
+        assert len(manifest["post_revision_warnings"]) == 1
+        assert manifest["post_revision_warnings"][0].startswith("Revision failed:")
 
     def test_run_06_manifest_records_input_hashes(self, tmp_path):
         """SP1-RUN-06: run manifest records input hashes."""
