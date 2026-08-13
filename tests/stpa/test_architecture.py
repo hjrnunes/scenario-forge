@@ -179,6 +179,7 @@ class TestNoImportCycles:
             "scenario_forge.stpa.infra",
             "scenario_forge.stpa.infra.llm",
             "scenario_forge.stpa.infra.llm_helpers",
+            "scenario_forge.stpa.infra.unvalidated_decode",
             "scenario_forge.stpa.infra.call_log",
             "scenario_forge.stpa.infra.calls_html",
             "scenario_forge.stpa.infra.model_profiles",
