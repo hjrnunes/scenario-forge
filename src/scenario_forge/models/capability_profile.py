@@ -598,6 +598,31 @@ def _canonical_entry_point_name(name: str) -> str:
     return s
 
 
+def _kept_zone(direction: str, zone: str | None) -> str | None:
+    """Return the stored ingress zone after the output-direction rule.
+
+    Output-only entries are not ingress paths, so any assigned zone is
+    discarded. Other directions keep the declared zone.
+    """
+    if direction == "output":
+        return None
+    return zone
+
+
+def _effective_zone(direction: str, zone: str | None) -> str | None:
+    """Return the ingress zone used by identity and admission.
+
+    Applies :func:`_kept_zone`, then the direction default: input and
+    bidirectional default to ``input``; output has no ingress zone.
+    """
+    stored = _kept_zone(direction, zone)
+    if stored is not None:
+        return stored
+    if direction in ("input", "bidirectional"):
+        return "input"
+    return None
+
+
 def _entry_point_identity_tuple(
     name: str,
     direction: str,
@@ -611,15 +636,13 @@ def _entry_point_identity_tuple(
     representation — no drift between the two.
     """
     effective_ctrl = classify_entry_point(name, direction, controllability)
-    effective_ingress_zone = (
-        ingress_zone
-        if ingress_zone is not None
-        else "input"
-        if direction != "output"
-        else None
-    )
     canonical = _canonical_entry_point_name(name)
-    return (canonical, direction, effective_ctrl, effective_ingress_zone)
+    return (
+        canonical,
+        direction,
+        effective_ctrl,
+        _effective_zone(direction, ingress_zone),
+    )
 
 
 def compute_entry_point_id(
@@ -1116,29 +1139,27 @@ class EntryPoint(BaseModel):
     @property
     def effective_ingress_zone(self) -> str | None:
         """The explicit ingress zone, or the direction-derived default."""
-        if self.ingress_zone is not None:
-            return self.ingress_zone
-        if self.direction in ("input", "bidirectional"):
-            return "input"
-        return None
+        return _effective_zone(self.direction, self.ingress_zone)
 
     @model_validator(mode="before")
     @classmethod
     def fix_zone(cls, data: object) -> object:
-        """Clear valid ingress zones from output-only entries before construction.
+        """Clear ingress zones from output-only entries before construction.
 
         A before validator is used because Pydantic does not apply a replacement
         returned by a top-level after validator when a model is constructed
         through ``__init__``. This keeps normalization consistent for direct
         construction and dictionary validation.
         """
-        if (
-            isinstance(data, dict)
-            and data.get("direction") == "output"
-            and data.get("ingress_zone") in ZONE_NAMES
-        ):
-            return {**data, "ingress_zone": None}
-        return data
+        if not isinstance(data, dict):
+            return data
+        zone = _kept_zone(
+            data.get("direction", "bidirectional"), data.get("ingress_zone")
+        )
+        if zone is data.get("ingress_zone"):
+            return data
+        return {**data, "ingress_zone": zone}
+
 
 def is_attacker_accessible_ingress(
     ep: EntryPoint,
