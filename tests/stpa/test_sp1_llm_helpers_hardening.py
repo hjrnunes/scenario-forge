@@ -355,6 +355,12 @@ class TestSafeCallKwargsAndFailureUsage:
                 1,
                 False,
             ),
+            (
+                "unexpected keyword argument 'response_format'",
+                True,
+                1,
+                False,
+            ),
             ("response_format is the wrong type", True, 1, False),
         ],
     )
@@ -497,6 +503,13 @@ class TestCompatGateAndStageError:
         assert _is_unsupported_unvalidated_error(unexpected, True) is True
         assert _is_unsupported_unvalidated_error(unexpected, False) is False
         assert _is_unsupported_unvalidated_error(other, True) is False
+        assert (
+            _is_unsupported_unvalidated_error(
+                TypeError("unexpected keyword argument 'response_format'"),
+                True,
+            )
+            is False
+        )
 
     def test_stage_error_keeps_stage_and_step(self) -> None:
         error = StageError(stage="stage_2", step="call_1", message="offline")
