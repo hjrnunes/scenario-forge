@@ -22,7 +22,7 @@ from scenario_forge.stpa.infra.parallel_llm import (
 )
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.models.control_structure import ControlStructure
-from scenario_forge.stpa.models.ica_enumeration import ICASlot
+from scenario_forge.stpa.models.ica_enumeration import ICA, ICASlot
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 
 from ._constants import PROMPTS_DIR
@@ -301,6 +301,18 @@ def _is_expected_slot(
     )
 
 
+def _repair_icas(slot_id: str, icas: list[ICA]) -> list[ICA]:
+    """Give each ICA its deterministic slot-relative identifier."""
+    repaired: list[ICA] = []
+    for index, ica in enumerate(icas, start=1):
+        expected_id = f"{slot_id}:{index}"
+        if ica.ica_id == expected_id:
+            repaired.append(ica)
+        else:
+            repaired.append(ica.model_copy(update={"ica_id": expected_id}))
+    return repaired
+
+
 def _merge_filled_slots(
     slots: list[SlotPlaceholder],
     filled_by_id: dict[str, ICASlot],
@@ -314,16 +326,11 @@ def _merge_filled_slots(
     for slot in slots:
         filled_slot = filled_by_id.get(slot.slot_id)
         if filled_slot is not None and _is_expected_slot(filled_slot, slot):
-            repaired_icas = []
-            for index, ica in enumerate(filled_slot.icas, start=1):
-                expected_id = f"{slot.slot_id}:{index}"
-                if ica.ica_id == expected_id:
-                    repaired_icas.append(ica)
-                else:
-                    repaired_icas.append(
-                        ica.model_copy(update={"ica_id": expected_id})
-                    )
-            merged.append(filled_slot.model_copy(update={"icas": repaired_icas}))
+            merged.append(
+                filled_slot.model_copy(
+                    update={"icas": _repair_icas(slot.slot_id, filled_slot.icas)}
+                )
+            )
         else:
             merged.append(
                 ICASlot(
