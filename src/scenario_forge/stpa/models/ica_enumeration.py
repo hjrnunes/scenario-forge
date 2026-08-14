@@ -45,6 +45,23 @@ class ICA(BaseModel):
     )
 
 
+def ica_id_for(slot_id: str, index: int) -> str:
+    """Return the deterministic ICA identifier for a 1-based slot position."""
+    return f"{slot_id}:{index}"
+
+
+def align_icas(slot_id: str, icas: list[ICA]) -> list[ICA]:
+    """Give each ICA its deterministic slot-relative identifier."""
+    aligned: list[ICA] = []
+    for index, ica in enumerate(icas, start=1):
+        wanted = ica_id_for(slot_id, index)
+        if ica.ica_id == wanted:
+            aligned.append(ica)
+        else:
+            aligned.append(ica.model_copy(update={"ica_id": wanted}))
+    return aligned
+
+
 class ICASlot(BaseModel):
     """A slot for enumerating ICAs for a control action and UCA type."""
 
@@ -56,6 +73,10 @@ class ICASlot(BaseModel):
     is_na: bool
     icas: list[ICA] = Field(default_factory=list)  # empty if is_na
     na_justification: str | None = None  # required if is_na
+
+    def aligned(self) -> ICASlot:
+        """Return a copy whose ICA identifiers match this slot's positions."""
+        return self.model_copy(update={"icas": align_icas(self.slot_id, self.icas)})
 
     @model_validator(mode="after")
     def validate_na_exclusivity(self) -> ICASlot:
