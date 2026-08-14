@@ -14,19 +14,21 @@ Feature: SP1 ID normalization repairs
   Scenario Outline: SP1-ID-NORMALIZATION-REPAIRS-01 infers malformed ElementRef types and preserves valid types
     Given the element at <referenced_position> has source ID <source_id>
     And <reference_owner> has <reference_field> type <supplied_type> and ID <source_id>
+    And <reference_owner> <reference_field> was supplied with type <expected_input>
     When the payload is normalized
     Then <reference_owner> <reference_field> has type <reference_type>
     And <reference_owner> <reference_field> has ID <canonical_id>
+    And source ID <expected_source> maps to <canonical_id>
     And the normalized payload validates as a ControlStructure
 
     Examples:
-      | referenced_position  | source_id | reference_owner                        | reference_field | supplied_type      | reference_type     | canonical_id |
-      | responsibility 2     | RESP-9    | responsibility 1 process model part 1 | feedback_source | RESP-9             | responsibility     | RESP-2       |
-      | controlled process 2 | CP-9      | responsibility 1 control action 1     | target          | CP-9               | controlled_process | CP-2         |
-      | controlled process 2 | CP-9      | responsibility 1 feedback channel 1   | source          | CP-9               | controlled_process | CP-2         |
-      | controlled process 2 | CP-9      | responsibility 1 control action 1     | target          | RESP-77             | controlled_process | CP-2         |
-      | responsibility 2     | RESP-9    | responsibility 1 process model part 1 | feedback_source | responsibility     | responsibility     | RESP-2       |
-      | controlled process 2 | CP-9      | responsibility 1 control action 1     | target          | controlled_process | controlled_process | CP-2         |
+      | referenced_position  | source_id | expected_source | reference_owner                        | reference_field | supplied_type      | expected_input     | reference_type     | canonical_id |
+      | responsibility 2     | RESP-9    | RESP-9          | responsibility 1 process model part 1 | feedback_source | RESP-9             | RESP-9             | responsibility     | RESP-2       |
+      | controlled process 2 | CP-9      | CP-9            | responsibility 1 control action 1     | target          | CP-9               | CP-9               | controlled_process | CP-2         |
+      | controlled process 2 | CP-9      | CP-9            | responsibility 1 feedback channel 1   | source          | CP-9               | CP-9               | controlled_process | CP-2         |
+      | controlled process 2 | CP-9      | CP-9            | responsibility 1 control action 1     | target          | RESP-77            | RESP-77            | controlled_process | CP-2         |
+      | responsibility 2     | RESP-9    | RESP-9          | responsibility 1 process model part 1 | feedback_source | responsibility     | responsibility     | responsibility     | RESP-2       |
+      | controlled process 2 | CP-9      | CP-9            | responsibility 1 control action 1     | target          | controlled_process | controlled_process | controlled_process | CP-2         |
 
   # SP1-ID-NORMALIZATION-REPAIRS-02 leaves an uninferable ElementRef type for validation
   Scenario: SP1-ID-NORMALIZATION-REPAIRS-02 leaves an uninferable ElementRef type for validation

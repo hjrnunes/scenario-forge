@@ -11,34 +11,34 @@ Feature: SP1 tolerant decode ID alias
 
   # SP1-TOLERANT-DECODE-ID-ALIAS-01 decodes generic element IDs into model-specific fields
   Scenario Outline: SP1-TOLERANT-DECODE-ID-ALIAS-01 decodes generic element IDs into model-specific fields
-    Given a <element> response has id <expected_id>
+    Given a <element> response has id <input_id>
     And the response omits <model_id_field>
     When the response is decoded
     Then the decoded <element> has <model_id_field> <expected_id>
 
     Examples:
-      | element                   | expected_id | model_id_field |
-      | responsibility            | RESP-9      | resp_id        |
-      | responsibility constraint | RC-9-8      | rc_id          |
-      | process model part        | PM-9-7      | pm_id          |
-      | control action            | CA-9-6      | ca_id          |
-      | feedback channel          | FB-9-5      | fb_id          |
-      | controlled process        | CP-4        | cp_id          |
-      | coordination link         | CL-3        | link_id        |
-      | coordination mechanism    | CM-2        | cm_id          |
+      | element                   | input_id | expected_id | model_id_field |
+      | responsibility            | RESP-9   | RESP-9      | resp_id        |
+      | responsibility constraint | RC-9-8   | RC-9-8      | rc_id          |
+      | process model part        | PM-9-7   | PM-9-7      | pm_id          |
+      | control action            | CA-9-6   | CA-9-6      | ca_id          |
+      | feedback channel          | FB-9-5   | FB-9-5      | fb_id          |
+      | controlled process        | CP-4     | CP-4        | cp_id          |
+      | coordination link         | CL-3     | CL-3        | link_id        |
+      | coordination mechanism    | CM-2     | CM-2        | cm_id          |
 
   # SP1-TOLERANT-DECODE-ID-ALIAS-02 gives an explicit model-specific ID precedence
   Scenario Outline: SP1-TOLERANT-DECODE-ID-ALIAS-02 gives an explicit model-specific ID precedence
     Given a <element> response has id ignored-source-id
-    And the response has <model_id_field> <expected_id>
+    And the response has <model_id_field> <input_id>
     When the response is decoded
     Then the decoded <element> has <model_id_field> <expected_id>
 
     Examples:
-      | element            | model_id_field | expected_id |
-      | responsibility     | resp_id        | RESP-7      |
-      | feedback channel   | fb_id          | FB-7-2      |
-      | controlled process | cp_id          | CP-6        |
+      | element            | model_id_field | input_id | expected_id |
+      | responsibility     | resp_id        | RESP-7   | RESP-7      |
+      | feedback channel   | fb_id          | FB-7-2   | FB-7-2      |
+      | controlled process | cp_id          | CP-6     | CP-6        |
 
   # SP1-TOLERANT-DECODE-ID-ALIAS-03 does not use id for unrelated required fields
   Scenario: SP1-TOLERANT-DECODE-ID-ALIAS-03 does not use id for unrelated required fields

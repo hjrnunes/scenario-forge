@@ -3691,6 +3691,20 @@ def _h_sp1_repair_reference(
     return True, ""
 
 
+def _h_in_type(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Check the exact ElementRef type supplied before normalization."""
+    try:
+        owner = ownerAt(world.sp1_repair_payload, examples["reference_owner"])
+    except (KeyError, IndexError, TypeError) as exc:
+        return False, f"Unknown reference owner: {exc}"
+    reference = owner.get(examples["reference_field"])
+    actual = reference.get("type") if isinstance(reference, dict) else None
+    expected = examples["expected_input"]
+    if actual != expected:
+        return False, f"Expected supplied type {expected}, got {actual}"
+    return True, ""
+
+
 def _h_sp1_repair_source_id(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
@@ -3758,6 +3772,16 @@ def _h_sp1_repair_reference_assert(
         expected = examples["canonical_id"]
         if reference.get("id") != expected:
             return False, f"Expected reference ID {expected}, got {reference.get('id')}"
+    return True, ""
+
+
+def _h_src_map(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Check the exact source-to-canonical mapping."""
+    source = examples["expected_source"]
+    expected = examples["canonical_id"]
+    actual = world.sp1_id_normalization.mapping.get(source)
+    if actual != expected:
+        return False, f"Expected source ID {source} to map to {expected}, got {actual}"
     return True, ""
 
 
@@ -4384,10 +4408,7 @@ def _h_sp1_alias_response(
         match = re.search(r"a (.+) response has id", text, re.IGNORECASE)
         element = match.group(1) if match is not None else ""
     match = re.search(r"has id (\S+)", text, re.IGNORECASE)
-    expected = examples.get(
-        "expected_id",
-        match.group(1) if match is not None else "ignored-source-id",
-    )
+    expected = match.group(1) if match is not None else "ignored-source-id"
     world.sp1_alias_element = element
     world.sp1_alias_payload = _sp1_alias_payload(element, expected)
     return True, ""
@@ -4408,9 +4429,11 @@ def _h_sp1_alias_explicit(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: a response provides an explicit model-specific ID."""
-    world.sp1_alias_payload[examples["model_id_field"]] = examples[
-        "expected_id"
-    ]
+    match = re.search(r"the response has (\S+) (\S+)$", text, re.IGNORECASE)
+    if match is None:
+        return False, f"Could not parse explicit ID step: {text}"
+    field, value = match.groups()
+    world.sp1_alias_payload[field] = value
     return True, ""
 
 
@@ -4442,8 +4465,9 @@ def _h_sp1_alias_assert(
 ) -> tuple[bool, str]:
     """Handle: check a decoded model-specific ID field."""
     match = re.search(r"has (\S+) (\S+)$", text, re.IGNORECASE)
-    field = examples.get("model_id_field", match.group(1) if match else "")
-    expected = examples.get("expected_id", match.group(2) if match else "")
+    if match is None:
+        return False, f"Could not parse decoded ID step: {text}"
+    field, expected = match.groups()
     actual = getattr(world.sp1_alias_decoded, field)
     if actual != expected:
         return False, f"Expected {field} {expected}, got {actual}"
@@ -4733,6 +4757,7 @@ def register(api: object) -> None:
     api.register('the element at .* has source ID .*$', _h_sp1_repair_reference_target, source_order=15102)
     api.register('(?:responsibility|controlled process) \\d+ has source ID \\S+$', _h_sp1_repair_source_id, source_order=15103)
     api.register('responsibility \\d+ (?:process model part|control action|feedback channel) \\d+ has (?:feedback_source|target|source) type \\S+ and ID \\S+$', _h_sp1_repair_reference, source_order=15104)
+    api.register('responsibility \\d+ (?:process model part|control action|feedback channel) \\d+ (?:feedback_source|target|source) was supplied with type \\S+$', _h_in_type, source_order=15104)
     api.register_first('responsibility 1 control action 1 target has type process-alpha and ID process-alpha$', _h_sp1_repair_uninferable_target, source_order=15105)
     api.register('the payload is normalized$', _h_sp1_repair_normalize, source_order=15106)
     api.register('^(?:responsibility|responsibility constraint|process model part|control action|feedback channel|controlled process|coordination link|coordination mechanism) (?:RESP-\\d+|RC-\\d+-\\d+|PM-\\d+-\\d+|CA-\\d+-\\d+|FB-\\d+-\\d+|CP-\\d+|CL-\\d+|CM-\\d+) has an empty description$', _h_sp1_repair_empty_description, source_order=15108)
@@ -4744,6 +4769,7 @@ def register(api: object) -> None:
     api.register('^responsibility \\d+ process model part \\d+ has source ID \\S+$', _h_sp1_repair_pm_source, source_order=15113)
     api.register('^(?:responsibility|responsibility constraint|process model part|control action|feedback channel|controlled process|coordination link|coordination mechanism) (?:RESP-\\d+|RC-\\d+-\\d+|PM-\\d+-\\d+|CA-\\d+-\\d+|FB-\\d+-\\d+|CP-\\d+|CL-\\d+|CM-\\d+) has description .+$', _h_sp1_repair_description_assert, source_order=15114)
     api.register('^responsibility \\d+ (?:process model part|control action|feedback channel) \\d+ (?:feedback_source|target|source) has (?:type \\S+|ID \\S+)$', _h_sp1_repair_reference_assert, source_order=15115)
+    api.register('source ID \\S+ maps to \\S+$', _h_src_map, source_order=15115)
     api.register('the normalized payload validates as a ControlStructure$', _h_sp1_repair_validate, source_order=15116)
     api.register_first('the target type remains process-alpha$', _h_sp1_repair_target_type, source_order=15117)
     api.register_first('validation fails with an error identifying target type$', _h_sp1_repair_validation_error, source_order=15118)
