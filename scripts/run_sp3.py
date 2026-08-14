@@ -18,6 +18,7 @@ import logging
 import sys
 from pathlib import Path
 
+from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.infra.yaml_io import read_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
@@ -57,6 +58,11 @@ def main() -> int:
         help="Path to loss-analysis.yaml (SP1 output)",
     )
     parser.add_argument(
+        "--capability-profile",
+        default=None,
+        help="Optional path to capability-profile.yaml (SP1 output)",
+    )
+    parser.add_argument(
         "--output-dir",
         required=True,
         help="Output directory for artifacts",
@@ -89,6 +95,11 @@ def main() -> int:
         enriched_threat_set = read_yaml(ets_path, EnrichedThreatSet)
         control_structure = read_yaml(cs_path, ControlStructure)
         loss_analysis = read_yaml(la_path, LossAnalysis)
+        cap_profile = (
+            read_yaml(Path(args.capability_profile), CapabilityProfile)
+            if args.capability_profile
+            else None
+        )
 
         logger.info("Loaded SP1/SP2 artifacts")
         logger.info("  Control structure: %d responsibilities", len(control_structure.responsibilities))
@@ -110,6 +121,7 @@ def main() -> int:
             control_structure=control_structure,
             loss_analysis=loss_analysis,
             run_dir=output_dir,
+            capability_profile=cap_profile,
             max_workers=args.max_workers,
         )
 

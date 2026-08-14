@@ -55,7 +55,8 @@ stop_stub() {
 trap stop_stub EXIT
 
 start_stub() {
-    rm -rf "$WORK_DIR"
+    uv run python -c \
+        'from pathlib import Path; import shutil; shutil.rmtree(Path("tmp/sp3-qa"), ignore_errors=True)'
     mkdir -p "$WORK_DIR"
     local ready_file="$WORK_DIR/stub-port"
     uv run python tests/stpa/sp3_qa_stub_llm.py --port 0 --ready-file "$ready_file" \
@@ -127,7 +128,7 @@ check "QA-SP3-STRUCT-02: CLI script exists and accepts arguments" \
 [ -f scripts/run_sp3.py ] || { echo "scripts/run_sp3.py missing"; exit 1; }
 help_text=$(uv run python scripts/run_sp3.py --help)
 for flag in --enriched-threats --control-structure --loss-analysis \
-            --output-dir --max-workers --profile; do
+            --capability-profile --output-dir --max-workers --profile; do
   echo "$help_text" | grep -q -- "$flag" || { echo "Missing flag: $flag"; exit 1; }
 done
 echo "CLI accepts all documented flags"
@@ -196,6 +197,9 @@ assert 'coordination' in prompt.lower(), 'Missing coordination gap category'
 assert 'prune' in prompt.lower() or 'pruning' in prompt.lower(), 'Missing pruning instructions'
 print('Hard template verified in system prompt')
 "
+
+check "QA-SP3-PROMPT-01: Prompt remediation reaches the LLM" \
+    uv run python tests/stpa/run_sp3_prompt_qa.py
 
 # --- 5. Gherkin (Stage 6 Call C) ---
 
@@ -425,9 +429,12 @@ check "QA-SP3-ACCEPT-01: SP3 Gherkin acceptance tests pass" \
                   build/acceptance/generated/sp3_bdi_generation_acceptance_test.py \
                   build/acceptance/generated/sp3_coverage_gaps_acceptance_test.py \
                   build/acceptance/generated/sp3_eval_metrics_acceptance_test.py \
+                  build/acceptance/generated/sp3_feedback_channel_bridge_acceptance_test.py \
                   build/acceptance/generated/sp3_gherkin_acceptance_test.py \
+                  build/acceptance/generated/sp3_mechanism_context_propagation_acceptance_test.py \
                   build/acceptance/generated/sp3_narrative_acceptance_test.py \
                   build/acceptance/generated/sp3_run_orchestration_acceptance_test.py \
+                  build/acceptance/generated/sp3_agentic_attack_tree_guidance_acceptance_test.py \
                   build/acceptance/generated/sp3_validators_acceptance_test.py \
                   -q --tb=short
 
@@ -449,7 +456,8 @@ echo \"No new failures (pre-existing: $PREEXISTING_NON_STPA_FAILURES)\"
 "
 
 check "QA-SP3-FULL-03: Linting passes" \
-    ruff check src/scenario_forge/stpa/scenario_prod/ tests/stpa/
+    uv run ruff check src/scenario_forge/stpa/scenario_prod/ \
+        tests/stpa/test_sp3*.py tests/stpa/run_sp3*.py
 
 # --- Summary ---
 

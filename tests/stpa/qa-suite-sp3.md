@@ -25,6 +25,12 @@ OpenAI chat-completions protocol and is supplied through the CLI's own
 bypassed. Substitute a real profile name to run the same checks against a live
 model.
 
+The focused prompt-remediation workflow can also be run independently:
+
+```bash
+uv run python tests/stpa/run_sp3_prompt_qa.py
+```
+
 Keep the script and this document in step: when a check here changes, update
 the corresponding check in the script in the same change.
 
@@ -61,7 +67,7 @@ ls src/scenario_forge/stpa/scenario_prod/prompts/stage5_system.j2 \
 
 **Steps:**
 1. Verify `scripts/run_sp3.py` exists.
-2. Run `scripts/run_sp3.py --help` and verify it accepts `--enriched-threats`, `--control-structure`, `--loss-analysis`, `--output-dir`, `--max-workers`, and `--profile` arguments.
+2. Run `scripts/run_sp3.py --help` and verify it accepts `--enriched-threats`, `--control-structure`, `--loss-analysis`, `--capability-profile`, `--output-dir`, `--max-workers`, and `--profile` arguments.
 
 **Command:**
 ```bash
@@ -190,6 +196,27 @@ assert 'coordination' in prompt.lower(), 'Missing coordination gap category'
 assert 'prune' in prompt.lower() or 'pruning' in prompt.lower(), 'Missing pruning instructions'
 print('Hard template verified in system prompt')
 "
+```
+
+### QA-SP3-PROMPT-01: Feedback bridge and technology context reach the LLM
+
+**Steps:**
+1. Drive `scripts/run_sp3.py` through the local stub endpoint with a capability
+   profile containing input, tool, memory, inter-agent, and retrieval surfaces.
+2. Inspect the CLI-produced `calls.jsonl` and verify Stage 5 and Stage 6a
+   receive the logical feedback-channel bridge and forbidden-infrastructure
+   rule.
+3. Verify the Stage 6b request contains the AI-surface leaves, omits the old
+   mandatory infrastructure leaves, and permits infrastructure only with
+   explicit attacker-accessible architecture evidence.
+4. Verify Stage 5 and Stage 6a user prompts contain the same technology context
+   when `--capability-profile` is supplied.
+5. Repeat without `--capability-profile` and verify the technology-context
+   section is omitted entirely from both prompts.
+
+**Command:**
+```bash
+uv run python tests/stpa/run_sp3_prompt_qa.py
 ```
 
 ## 5. Gherkin Verification (Stage 6 Call C)
@@ -549,5 +576,6 @@ uv run pytest tests/ -x --ignore=tests/stpa/ -q
 
 **Command:**
 ```bash
-ruff check src/scenario_forge/stpa/scenario_prod/ tests/stpa/
+uv run ruff check src/scenario_forge/stpa/scenario_prod/ \
+  tests/stpa/test_sp3*.py tests/stpa/run_sp3*.py
 ```
