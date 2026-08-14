@@ -17,6 +17,11 @@ from scenario_forge.stpa.infra.llm_helpers import (
 )
 from runtime_shared import World
 
+_ERRORS = {
+    "unexpected keyword argument 'allow_unvalidated'",
+    "response_format is the wrong type",
+}
+
 
 class _FailureDefenseResponse(BaseModel):
     """Minimal structured response used by the failure-defense scenarios."""
@@ -116,8 +121,13 @@ def _h_llm_failure_client_type_error(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: configure the first completion attempt's TypeError."""
-    error = examples.get("client_error", "")
-    world.llm_failure_client_error = str(error).strip('"')
+    match = re.search(r'TypeError "([^"]+)" on its first completion attempt$', text)
+    if match is None:
+        return False, f"Could not parse client error from: {text}"
+    error = match.group(1)
+    if error not in _ERRORS:
+        return False, f"Unsupported client error: {error}"
+    world.llm_failure_client_error = error
     return True, ""
 
 
@@ -125,7 +135,10 @@ def _h_llm_failure_safe_call(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: make a safe structured call with requested tolerance."""
-    tolerant = str(examples.get("tolerant_decoding", "")).strip().lower() == "true"
+    match = re.search(r"tolerant decoding (true|false)$", text)
+    if match is None:
+        return False, f"Could not parse tolerant decoding from: {text}"
+    tolerant = match.group(1) == "true"
     client = _FailureDefenseClient(
         first_error=getattr(world, "llm_failure_client_error", None)
     )
@@ -150,7 +163,10 @@ def _h_llm_failure_attempt_count(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: assert the number of completion attempts."""
-    expected = int(examples.get("attempt_count", "0"))
+    match = re.search(r"count is (-?\d+)$", text)
+    if match is None:
+        return False, f"Could not parse attempt count from: {text}"
+    expected = int(match.group(1))
     actual = getattr(getattr(world, "llm_failure_client", None), "attempt_count", 0)
     if actual != expected:
         return False, f"Expected {expected} completion attempts, got {actual}"
@@ -161,7 +177,10 @@ def _h_llm_failure_outcome(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: assert whether compatibility recovery succeeded."""
-    expected = str(examples.get("outcome", "")).strip('"')
+    match = re.search(r"outcome is (\w+)$", text)
+    if match is None:
+        return False, f"Could not parse outcome from: {text}"
+    expected = match.group(1)
     actual = getattr(world, "llm_failure_outcome", None)
     if actual != expected:
         return False, f"Expected outcome {expected}, got {actual}"
@@ -184,11 +203,18 @@ def _h_llm_failure_result_usage(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: configure a result carrying usage telemetry."""
+    match = re.search(
+        r"reports (-?\d+) prompt tokens, (-?\d+) completion tokens, "
+        r"and (-?\d+) milliseconds$",
+        text,
+    )
+    if match is None:
+        return False, f"Could not parse result usage from: {text}"
     world.llm_failure_result = LLMResult(
         content="not valid JSON",
-        prompt_tokens=int(examples.get("prompt_tokens", "0")),
-        completion_tokens=int(examples.get("completion_tokens", "0")),
-        duration_ms=int(examples.get("duration_ms", "0")),
+        prompt_tokens=int(match.group(1)),
+        completion_tokens=int(match.group(2)),
+        duration_ms=int(match.group(3)),
     )
     return True, ""
 
@@ -228,11 +254,18 @@ def _h_llm_failure_usage_retained(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: usage telemetry survives response parsing failure."""
+    match = re.search(
+        r"records prompt_tokens (-?\d+), completion_tokens (-?\d+), "
+        r"and duration_ms (-?\d+)$",
+        text,
+    )
+    if match is None:
+        return False, f"Could not parse expected usage from: {text}"
     entry = _call_log_entry(world)
     expected = {
-        "prompt_tokens": int(examples.get("prompt_tokens", "0")),
-        "completion_tokens": int(examples.get("completion_tokens", "0")),
-        "duration_ms": int(examples.get("duration_ms", "0")),
+        "prompt_tokens": int(match.group(1)),
+        "completion_tokens": int(match.group(2)),
+        "duration_ms": int(match.group(3)),
     }
     actual = {field: entry.get(field) for field in expected}
     if actual != expected:

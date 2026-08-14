@@ -28,7 +28,13 @@ Feature: LLM helper failure defenses
       | client_error                                      | tolerant_decoding | attempt_count | outcome   |
       | "unexpected keyword argument 'allow_unvalidated'" | true              | 2             | recovered |
       | "unexpected keyword argument 'allow_unvalidated'" | false             | 1             | failed    |
-      | "response_format is the wrong type"               | true              | 1             | failed    |
+
+  # LLM-HELPER-FAILURE-DEFENSES-02B
+  Scenario: LLM-HELPER-FAILURE-DEFENSES-02B does not retry an unrelated type error
+    Given an LLM client raises TypeError "response_format is the wrong type" on its first completion attempt
+    When a safe structured LLM call is made with tolerant decoding true
+    Then the completion attempt count is 1
+    And the safe call outcome is failed
 
   # LLM-HELPER-FAILURE-DEFENSES-03
   Scenario: LLM-HELPER-FAILURE-DEFENSES-03 keeps tolerant decoding disabled by default
@@ -40,7 +46,7 @@ Feature: LLM helper failure defenses
     Given an LLM result reports <prompt_tokens> prompt tokens, <completion_tokens> completion tokens, and <duration_ms> milliseconds
     And its content cannot be parsed as the response model
     When the result is processed by a safe structured LLM call
-    Then the failure log entry records prompt_tokens <prompt_tokens>, completion_tokens <completion_tokens>, and duration_ms <duration_ms>
+    Then the failure log entry records prompt_tokens 17, completion_tokens 4, and duration_ms 230
 
     Examples:
       | prompt_tokens | completion_tokens | duration_ms |
