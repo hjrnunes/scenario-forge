@@ -38,13 +38,14 @@ from scenario_forge.stpa.models.loss_analysis import (
     SecurityConstraint,
 )
 from scenario_forge.stpa.threat_enum._constants import PROMPTS_DIR
-from scenario_forge.stpa.threat_enum.slot_creation import create_slots
+from scenario_forge.stpa.threat_enum.slot_creation import SlotPlaceholder, create_slots
 from scenario_forge.stpa.threat_enum.slot_filling import (
     ICASlotFillResult,
     build_slot_filling_prompts,
     fill_all_slots,
     fill_slots_for_responsibility,
     _collect_filled_slots,
+    _merge_filled_slots,
 )
 
 from scenario_forge.stpa.infra.parallel_llm import LLMCallResult, LLMCallSpec
@@ -757,6 +758,91 @@ class TestFillSlotsForResponsibility:
             )
 
         assert result is None
+
+
+class TestFilledICAIdentifiers:
+    """Merged ICAs use their deterministic slot and position identifiers."""
+
+    def _placeholder(self, slot_id: str, uca_type: UCAType) -> SlotPlaceholder:
+        return SlotPlaceholder(
+            slot_id=slot_id,
+            responsibility="RESP-3",
+            control_action="CA-3-1",
+            uca_type=uca_type,
+        )
+
+    def _slot(
+        self,
+        slot_id: str,
+        uca_type: UCAType,
+        ica_ids: list[str],
+    ) -> ICASlot:
+        return ICASlot(
+            slot_id=slot_id,
+            responsibility="RESP-3",
+            control_action="CA-3-1",
+            uca_type=uca_type,
+            is_na=False,
+            icas=[
+                ICA(
+                    ica_id=ica_id,
+                    ica_text=f"ICA {index}",
+                    hazardous_context="Context",
+                    loss_scenario="Scenario",
+                    related_hazards=["H-1"],
+                    related_constraints=["SC-1"],
+                )
+                for index, ica_id in enumerate(ica_ids, start=1)
+            ],
+        )
+
+    def test_repairs_omitted_uca_type(self):
+        slot_id = "RESP-3:CA-3-1:NOT_PROVIDED"
+        placeholder = self._placeholder(slot_id, UCAType.not_provided)
+        filled = self._slot(
+            slot_id,
+            UCAType.not_provided,
+            ["RESP-3:CA-3-1:1"],
+        )
+
+        [merged] = _merge_filled_slots([placeholder], {slot_id: filled})
+
+        assert merged.icas[0].ica_id == f"{slot_id}:1"
+
+    def test_repairs_each_position_and_preserves_ica_fields(self):
+        slot_id = "RESP-3:CA-3-1:WRONG_TIMING"
+        placeholder = self._placeholder(slot_id, UCAType.wrong_timing)
+        filled = self._slot(
+            slot_id,
+            UCAType.wrong_timing,
+            ["duplicate", "wrong-prefix", "wrong-index"],
+        )
+
+        [merged] = _merge_filled_slots([placeholder], {slot_id: filled})
+
+        assert [ica.ica_id for ica in merged.icas] == [
+            f"{slot_id}:1",
+            f"{slot_id}:2",
+            f"{slot_id}:3",
+        ]
+        assert [
+            (ica.ica_text, ica.hazardous_context, ica.loss_scenario,
+             ica.related_hazards, ica.related_constraints)
+            for ica in merged.icas
+        ] == [
+            ("ICA 1", "Context", "Scenario", ["H-1"], ["SC-1"]),
+            ("ICA 2", "Context", "Scenario", ["H-1"], ["SC-1"]),
+            ("ICA 3", "Context", "Scenario", ["H-1"], ["SC-1"]),
+        ]
+
+    def test_preserves_already_correct_identifier(self):
+        slot_id = "RESP-3:CA-3-1:INCORRECT"
+        placeholder = self._placeholder(slot_id, UCAType.incorrect)
+        filled = self._slot(slot_id, UCAType.incorrect, [f"{slot_id}:1"])
+
+        [merged] = _merge_filled_slots([placeholder], {slot_id: filled})
+
+        assert merged.icas[0].ica_id == f"{slot_id}:1"
 
 
 def _make_ica() -> ICA:

@@ -314,7 +314,16 @@ def _merge_filled_slots(
     for slot in slots:
         filled_slot = filled_by_id.get(slot.slot_id)
         if filled_slot is not None and _is_expected_slot(filled_slot, slot):
-            merged.append(filled_slot)
+            repaired_icas = []
+            for index, ica in enumerate(filled_slot.icas, start=1):
+                expected_id = f"{slot.slot_id}:{index}"
+                if ica.ica_id == expected_id:
+                    repaired_icas.append(ica)
+                else:
+                    repaired_icas.append(
+                        ica.model_copy(update={"ica_id": expected_id})
+                    )
+            merged.append(filled_slot.model_copy(update={"icas": repaired_icas}))
         else:
             merged.append(
                 ICASlot(
