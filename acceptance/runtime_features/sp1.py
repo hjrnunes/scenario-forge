@@ -69,6 +69,9 @@ from runtime_shared import (
 from scenario_forge.stpa.infra.llm_helpers import (
     parse_llm_result_unvalidated as _sp1_parse_llm_result_unvalidated,
 )
+from scenario_forge.stpa.infra.unvalidated_decode import (
+    construct_model_unvalidated as _sp1_construct_unvalidated,
+)
 from scenario_forge.stpa.system_model.control_structure import (
     _enrich_responsibilities as _sp1_enrich_responsibilities,
 )
@@ -3486,6 +3489,906 @@ def _h_sp1_tolerant_warnings_identify_stripped_target(
     return True, ""
 
 
+# ---------------------------------------------------------------------------
+# SP1 normalization-repair acceptance steps
+# ---------------------------------------------------------------------------
+
+
+def _findEl(payload: dict, element: str) -> tuple[dict, str]:
+    """Return the first payload element and its ID field for an element kind."""
+    locations = {
+        "responsibility": (payload["responsibilities"][0], "resp_id"),
+        "responsibility constraint": (
+            payload["responsibilities"][0]["responsibility_constraints"][0],
+            "rc_id",
+        ),
+        "process model part": (
+            payload["responsibilities"][0]["process_model_parts"][0],
+            "pm_id",
+        ),
+        "control action": (
+            payload["responsibilities"][0]["control_actions"][0],
+            "ca_id",
+        ),
+        "feedback channel": (
+            payload["responsibilities"][0]["feedback_channels"][0],
+            "fb_id",
+        ),
+        "controlled process": (payload["controlled_processes"][0], "cp_id"),
+        "coordination link": (payload["coordination_links"][0], "link_id"),
+        "coordination mechanism": (
+            payload["coordination_links"][0]["coordination_mechanism"],
+            "cm_id",
+        ),
+    }
+    return locations[element]
+
+
+def _sp1_repair_by_id(payload: dict, element: str, canonical_id: str) -> dict:
+    """Find a normalized element by its canonical ID."""
+    element_value, id_key = _findEl(payload, element)
+    if element_value.get(id_key) == canonical_id:
+        return element_value
+    collections = {
+        "responsibility": [
+            (item, "resp_id") for item in payload.get("responsibilities", [])
+        ],
+        "responsibility constraint": [
+            (item, "rc_id")
+            for resp in payload.get("responsibilities", [])
+            for item in resp.get("responsibility_constraints", [])
+        ],
+        "process model part": [
+            (item, "pm_id")
+            for resp in payload.get("responsibilities", [])
+            for item in resp.get("process_model_parts", [])
+        ],
+        "control action": [
+            (item, "ca_id")
+            for resp in payload.get("responsibilities", [])
+            for item in resp.get("control_actions", [])
+        ],
+        "feedback channel": [
+            (item, "fb_id")
+            for resp in payload.get("responsibilities", [])
+            for item in resp.get("feedback_channels", [])
+        ],
+        "controlled process": [
+            (item, "cp_id") for item in payload.get("controlled_processes", [])
+        ],
+        "coordination link": [
+            (item, "link_id") for item in payload.get("coordination_links", [])
+        ],
+        "coordination mechanism": [
+            (link.get("coordination_mechanism"), "cm_id")
+            for link in payload.get("coordination_links", [])
+        ],
+    }
+    for item, item_id_key in collections.get(element, []):
+        if item.get(item_id_key) == canonical_id:
+            return item
+    raise KeyError(f"{element} {canonical_id}")
+
+
+def _h_sp1_repair_payload(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a tolerantly decoded SP1 control-structure payload."""
+    world.sp1_repair_payload = _sp1_id_payload()
+    return True, ""
+
+
+def _h_sp1_repair_valid_fields(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: every non-varied field in the repair fixture is valid."""
+    return True, ""
+
+
+def _h_sp1_repair_reference_target(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure the referenced source ID in the repair fixture."""
+    payload = getattr(world, "sp1_repair_payload", None)
+    if payload is None:
+        return False, "No tolerant SP1 repair payload"
+    position = examples.get("referenced_position", "")
+    source_id = examples.get("source_id", "")
+    try:
+        element, id_key = findOwnerEl(payload, position)
+    except (KeyError, IndexError, TypeError) as exc:
+        return False, f"Unknown referenced position: {exc}"
+    element[id_key] = source_id
+    return True, ""
+
+
+def _h_sp1_repair_reference(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure one ElementRef with its supplied type and ID."""
+    payload = getattr(world, "sp1_repair_payload", None)
+    if payload is None:
+        return False, "No tolerant SP1 repair payload"
+    owner = examples.get("reference_owner", "")
+    field = examples.get("reference_field", "")
+    try:
+        owner_element = ownerAt(payload, owner)
+    except (KeyError, IndexError, TypeError) as exc:
+        return False, f"Unknown reference owner: {exc}"
+    owner_element[field] = {
+        "type": examples.get("supplied_type", ""),
+        "id": examples.get("source_id", ""),
+    }
+    return True, ""
+
+
+def _h_sp1_repair_source_id(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure a source ID in one repair fixture element."""
+    match = re.search(
+        r"(responsibility|controlled process) (\d+) has source ID (\S+)",
+        text,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return False, f"Could not parse source ID step: {text}"
+    collection = (
+        world.sp1_repair_payload["responsibilities"]
+        if match.group(1).lower() == "responsibility"
+        else world.sp1_repair_payload["controlled_processes"]
+    )
+    index = int(match.group(2)) - 1
+    id_key = "resp_id" if match.group(1).lower() == "responsibility" else "cp_id"
+    collection[index][id_key] = match.group(3)
+    return True, ""
+
+
+def _h_sp1_repair_uninferable_target(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure a target whose type cannot be inferred."""
+    target = world.sp1_repair_payload["responsibilities"][0]["control_actions"][0]
+    target["target"] = {"type": "process-alpha", "id": "process-alpha"}
+    return True, ""
+
+
+def _h_sp1_repair_normalize(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: normalize the tolerant repair fixture."""
+    try:
+        result = _sp1_id_normalizer()(world.sp1_repair_payload)
+    except (ValidationError, ValueError, TypeError) as exc:
+        return False, f"Normalization failed: {exc}"
+    world.sp1_repair_normalized = result
+    world.sp1_id_normalization = result
+    return True, ""
+
+
+def _h_sp1_repair_reference_assert(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: check a normalized ElementRef type or canonical ID."""
+    payload = world.sp1_repair_normalized.payload
+    try:
+        owner_element = ownerAt(payload, examples["reference_owner"])
+    except (KeyError, IndexError, TypeError) as exc:
+        return False, f"Unknown normalized reference owner: {exc}"
+    reference = owner_element.get(examples["reference_field"])
+    if not isinstance(reference, dict):
+        return False, "Normalized reference is not a mapping"
+    if "reference_type" in examples:
+        expected = examples["reference_type"]
+        if reference.get("type") != expected:
+            return False, f"Expected reference type {expected}, got {reference.get('type')}"
+    if "canonical_id" in examples:
+        expected = examples["canonical_id"]
+        if reference.get("id") != expected:
+            return False, f"Expected reference ID {expected}, got {reference.get('id')}"
+    return True, ""
+
+
+def _h_sp1_repair_target_type(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: an uninferable target type remains unchanged."""
+    payload = world.sp1_repair_normalized.payload
+    target = payload["responsibilities"][0]["control_actions"][0]["target"]
+    if target.get("type") != "process-alpha":
+        return False, f"Expected process-alpha, got {target.get('type')}"
+    return True, ""
+
+
+def _h_sp1_repair_validation_error(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: validation reports the uninferable target type."""
+    error = getattr(world, "validation_error", None)
+    if error is None:
+        return False, "Expected ControlStructure validation to fail"
+    message = str(error).lower()
+    if "target" not in message or "type" not in message:
+        return False, f"Expected target type in validation error: {error}"
+    return True, ""
+
+
+def _h_sp1_repair_empty_description(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: make one fixture element's description empty."""
+    payload = world.sp1_repair_payload
+    if "element" not in examples:
+        payload["responsibilities"][0]["feedback_channels"][0][
+            "description"
+        ] = ""
+        return True, ""
+    element, _ = _findEl(payload, examples["element"])
+    element["description"] = ""
+    return True, ""
+
+
+def _h_sp1_repair_feedback_source(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure the feedback source used by a repair description."""
+    payload = world.sp1_repair_payload
+    payload["controlled_processes"][1]["cp_id"] = "CP-9"
+    payload["responsibilities"][0]["feedback_channels"][0]["source"] = {
+        "type": "CP-9",
+        "id": "CP-9",
+    }
+    return True, ""
+
+
+def _h_sp1_repair_feedback_empty(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: mark one feedback channel description as empty."""
+    feedback = world.sp1_repair_payload["responsibilities"][0][
+        "feedback_channels"
+    ][0]
+    feedback["description"] = ""
+    return True, ""
+
+
+def _h_sp1_repair_feedback_updates(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure the local PM source used by feedback."""
+    feedback = world.sp1_repair_payload["responsibilities"][0][
+        "feedback_channels"
+    ][0]
+    feedback["updates"] = "state-alpha"
+    return True, ""
+
+
+def _h_sp1_repair_pm_source(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure the process-model source used by feedback updates."""
+    match = re.search(
+        r"responsibility (\d+) process model part (\d+) has source ID (\S+)",
+        text,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return False, f"Could not parse process-model source step: {text}"
+    responsibility = world.sp1_repair_payload["responsibilities"][
+        int(match.group(1)) - 1
+    ]
+    process_model_part = responsibility["process_model_parts"][
+        int(match.group(2)) - 1
+    ]
+    process_model_part["pm_id"] = match.group(3)
+    return True, ""
+
+
+def _h_sp1_repair_description_assert(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: check a repaired element description."""
+    payload = world.sp1_repair_normalized.payload
+    try:
+        element = _sp1_repair_by_id(
+            payload, examples["element"], examples["canonical_id"]
+        )
+    except KeyError as exc:
+        return False, str(exc)
+    expected = examples["expected_description"]
+    if element.get("description") != expected:
+        return False, f"Expected {expected!r}, got {element.get('description')!r}"
+    return True, ""
+
+
+def _h_sp1_repair_feedback_description_assert(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: check the exact repaired feedback description."""
+    payload = world.sp1_repair_normalized.payload
+    actual = payload["responsibilities"][0]["feedback_channels"][0].get(
+        "description"
+    )
+    expected = (
+        "Feedback from controlled process CP-2 updating process model part PM-1-1"
+    )
+    if actual != expected:
+        return False, f"Expected {expected!r}, got {actual!r}"
+    return True, ""
+
+
+def _h_sp1_repair_supplied_description(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: set a supplied non-empty description."""
+    element, _ = _findEl(
+        world.sp1_repair_payload, examples["element"]
+    )
+    element["description"] = "Operator supplied description"
+    return True, ""
+
+
+def _h_sp1_repair_validate(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: validate a normalized repair payload."""
+    try:
+        world.control_structure = ControlStructure.model_validate(
+            world.sp1_repair_normalized.payload
+        )
+    except (ValidationError, ValueError) as exc:
+        world.validation_error = exc
+    return True, ""
+
+
+def _h_sp1_repair_preserves_description(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: normalization preserves a supplied description."""
+    payload = world.sp1_repair_normalized.payload
+    try:
+        element = _sp1_repair_by_id(
+            payload, examples["element"], examples["canonical_id"]
+        )
+    except KeyError as exc:
+        return False, str(exc)
+    if element.get("description") != "Operator supplied description":
+        return False, f"Description changed: {element.get('description')!r}"
+    return True, ""
+
+
+def _repair_assembly_inputs() -> tuple[dict, dict]:
+    """Return tolerant Call 2a and Call 2b fixtures with generic IDs."""
+    responsibilities = [
+        {
+            "id": "RESP-90",
+            "description": "First controller",
+            "responsibility_constraints": [
+                {"id": "RC-90-1", "description": "Constraint"}
+            ],
+            "process_model_parts": [
+                {
+                    "id": "PM-90-1",
+                    "description": "State",
+                    "feedback_source": {
+                        "type": "RESP-30",
+                        "id": "RESP-30",
+                    },
+                }
+            ],
+        },
+        {
+            "id": "RESP-30",
+            "description": "Second controller",
+            "responsibility_constraints": [
+                {"id": "RC-30-1", "description": "Constraint"}
+            ],
+            "process_model_parts": [
+                {"id": "PM-30-1", "description": "State"}
+            ],
+        },
+    ]
+    elements = {
+        "control_actions": [
+            {
+                "id": "CA-90-1",
+                "description": "Action",
+                "target": {"type": "CP-90", "id": "CP-90"},
+            },
+            {"id": "CA-30-1", "description": "Action"},
+        ],
+        "feedback_channels": [
+            {
+                "id": "FB-90-1",
+                "updates": "PM-90-1",
+                "source": {"type": "CP-90", "id": "CP-90"},
+            },
+            {
+                "id": "FB-30-1",
+                "updates": "PM-30-1",
+                "source": {"type": "RESP-90", "id": "RESP-90"},
+            },
+        ],
+        "controlled_processes": [
+            {"id": "CP-90", "description": "Process"}
+        ],
+    }
+    return {"responsibilities": responsibilities}, elements
+
+
+def _h_sp1_repair_assembly_setup(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure the combined tolerant production response."""
+    world.sp1_repair_assembly_inputs = _repair_assembly_inputs()
+    return True, ""
+
+
+def _h_sp1_repair_assembly_noop(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: record one combined-response precondition."""
+    if not hasattr(world, "sp1_repair_assembly_inputs"):
+        return False, "No combined response fixture"
+    return True, ""
+
+
+def _h_sp1_repair_assemble(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: assemble the tolerant response through the production path."""
+    from scenario_forge.stpa.system_model.control_structure import (
+        ControlElementSet,
+        ResponsibilitySet,
+    )
+
+    raw_resps, raw_elements = world.sp1_repair_assembly_inputs
+    try:
+        responsibility_set = _sp1_parse_llm_result_unvalidated(
+            _tolerant_llm_result(raw_resps), ResponsibilitySet
+        )
+        element_set = _sp1_parse_llm_result_unvalidated(
+            _tolerant_llm_result(raw_elements), ControlElementSet
+        )
+        world.control_structure, world.sp1_repair_assembly_warnings = (
+            _sp1_assemble_with_fallback(
+                responsibility_set,
+                element_set,
+                Path(_tempfile.mkdtemp(prefix="sp1_repair_")),
+                "acceptance",
+                normalize_ids=True,
+            )
+        )
+    except (ValidationError, ValueError, TypeError) as exc:
+        return False, f"Assembly failed: {exc}"
+    return True, ""
+
+
+def _h_sp1_repair_all_ids(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: every assembled element has its position-derived ID."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No assembled control structure"
+    if [item.resp_id for item in cs.responsibilities] != ["RESP-1", "RESP-2"]:
+        return False, "Responsibilities were not normalized by position"
+    for index, resp in enumerate(cs.responsibilities, start=1):
+        if [item.rc_id for item in resp.responsibility_constraints] != [
+            f"RC-{index}-1"
+        ]:
+            return False, "Responsibility constraint IDs were not normalized"
+        if [item.pm_id for item in resp.process_model_parts] != [
+            f"PM-{index}-1"
+        ]:
+            return False, "Process-model IDs were not normalized"
+        if [item.ca_id for item in resp.control_actions] != [f"CA-{index}-1"]:
+            return False, "Control-action IDs were not normalized"
+        if [item.fb_id for item in resp.feedback_channels] != [f"FB-{index}-1"]:
+            return False, "Feedback-channel IDs were not normalized"
+    if [item.cp_id for item in cs.controlled_processes] != ["CP-1"]:
+        return False, "Controlled-process IDs were not normalized"
+    return True, ""
+
+
+def _h_sp1_repair_ref_types(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: every assembled ElementRef type follows its source ID."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No assembled control structure"
+    for resp in cs.responsibilities:
+        refs = [
+            pm.feedback_source
+            for pm in resp.process_model_parts
+            if pm.feedback_source is not None
+        ]
+        refs.extend(
+            ca.target
+            for ca in resp.control_actions
+            if ca.target is not None
+        )
+        refs.extend(
+            fb.source
+            for fb in resp.feedback_channels
+            if fb.source is not None
+        )
+        for ref in refs:
+            expected = (
+                ReferenceType.responsibility
+                if ref.id.startswith("RESP-")
+                else ReferenceType.controlled_process
+                if ref.id.startswith("CP-")
+                else None
+            )
+            if expected is None or ref.type != expected:
+                return False, f"ElementRef does not match ID prefix: {ref}"
+    return True, ""
+
+
+def _h_sp1_repair_ref_ids(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: every assembled ElementRef points to a canonical element."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No assembled control structure"
+    resp_ids = {resp.resp_id for resp in cs.responsibilities}
+    cp_ids = {process.cp_id for process in cs.controlled_processes}
+    for resp in cs.responsibilities:
+        for item in (
+            list(resp.process_model_parts)
+            + list(resp.control_actions)
+            + list(resp.feedback_channels)
+        ):
+            ref = (
+                item.feedback_source
+                if isinstance(item, ProcessModelPart)
+                else item.target
+                if isinstance(item, ControlAction)
+                else item.source
+            )
+            if ref is None:
+                continue
+            valid_ids = resp_ids if ref.type == ReferenceType.responsibility else cp_ids
+            if ref.id not in valid_ids:
+                return False, f"Unresolved canonical ElementRef ID {ref.id}"
+    return True, ""
+
+
+def _h_sp1_repair_nonempty(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: every assembled control-structure element has a description."""
+    cs = world.control_structure
+    if cs is None:
+        return False, "No assembled control structure"
+    descriptions = []
+    for resp in cs.responsibilities:
+        descriptions.extend(
+            [
+                resp.description,
+                *(item.description for item in resp.responsibility_constraints),
+                *(item.description for item in resp.process_model_parts),
+                *(item.description for item in resp.control_actions),
+                *(item.description for item in resp.feedback_channels),
+            ]
+        )
+    descriptions.extend(item.description for item in cs.controlled_processes)
+    if any(not isinstance(value, str) or not value for value in descriptions):
+        return False, "An assembled element has an empty description"
+    return True, ""
+
+
+def _h_sp1_repair_assembly_valid(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: assembly validation succeeds without degradation."""
+    if world.control_structure is None:
+        return False, "No assembled control structure"
+    warnings = getattr(world, "sp1_repair_assembly_warnings", [])
+    if warnings:
+        return False, f"Assembly degraded: {warnings}"
+    return True, ""
+
+
+def _repair_revision_delta() -> object:
+    """Build a tolerant revision delta with generic element IDs."""
+    from scenario_forge.stpa.system_model.critic import RevisionDelta
+
+    payload = {
+        "new_responsibilities": [
+            {
+                "id": "RESP-90",
+                "description": "Added controller",
+                "responsibility_constraints": [
+                    {"id": "RC-90-1", "description": "Added constraint"}
+                ],
+                "process_model_parts": [
+                    {"id": "PM-90-1", "description": "Added state"}
+                ],
+                "control_actions": [
+                    {
+                        "id": "CA-90-1",
+                        "description": "Added action",
+                        "target": {"type": "CP-90", "id": "CP-90"},
+                    }
+                ],
+                "feedback_channels": [
+                    {
+                        "id": "FB-90-1",
+                        "description": "",
+                        "updates": "PM-90-1",
+                        "source": {"type": "CP-90", "id": "CP-90"},
+                    }
+                ],
+            }
+        ],
+        "new_controlled_processes": [
+            {"id": "CP-90", "description": "Added process"}
+        ],
+        "new_coordination_links": [],
+        "modified_responsibilities": [],
+    }
+    return _sp1_construct_unvalidated(payload, RevisionDelta)
+
+
+def _h_sp1_repair_revision_setup(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure a decoded revision delta with generic IDs."""
+    world.control_structure = ControlStructure.model_validate(_sp1_valid_cs_dict())
+    world.sp1_repair_revision_delta = _repair_revision_delta()
+    world.sp1_repair_revision_warnings = []
+    return True, ""
+
+
+def _h_sp1_repair_revision_noop(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: record one revision normalization precondition."""
+    if not hasattr(world, "sp1_repair_revision_delta"):
+        return False, "No revision delta fixture"
+    return True, ""
+
+
+def _h_sp1_repair_revision_merge(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: merge the revision delta through the production normalizer."""
+    from scenario_forge.stpa.system_model.critic import _merge_revision_delta
+
+    try:
+        world.control_structure, world.sp1_repair_revision_warnings = (
+            _merge_revision_delta(
+                world.control_structure,
+                world.sp1_repair_revision_delta,
+            )
+        )
+    except (ValidationError, ValueError, TypeError) as exc:
+        return False, f"Revision merge failed: {exc}"
+    return True, ""
+
+
+def _h_sp1_repair_revision_ids(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: added revision elements receive final position IDs."""
+    cs = world.control_structure
+    if cs is None or len(cs.responsibilities) != 3:
+        return False, "Expected three revised responsibilities"
+    added = cs.responsibilities[-1]
+    expected = {
+        "resp_id": "RESP-3",
+        "rc_id": "RC-3-1",
+        "pm_id": "PM-3-1",
+        "ca_id": "CA-3-1",
+        "fb_id": "FB-3-1",
+    }
+    actual = {
+        "resp_id": added.resp_id,
+        "rc_id": added.responsibility_constraints[0].rc_id,
+        "pm_id": added.process_model_parts[0].pm_id,
+        "ca_id": added.control_actions[0].ca_id,
+        "fb_id": added.feedback_channels[0].fb_id,
+    }
+    if actual != expected:
+        return False, f"Unexpected revised IDs: {actual}"
+    if [process.cp_id for process in cs.controlled_processes] != ["CP-1", "CP-2"]:
+        return False, "Unexpected revised controlled-process IDs"
+    return True, ""
+
+
+def _h_sp1_repair_revision_feedback(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the added revision feedback has a non-empty description."""
+    feedback = world.control_structure.responsibilities[-1].feedback_channels[0]
+    if not feedback.description:
+        return False, "Added feedback description is empty"
+    return True, ""
+
+
+def _h_sp1_repair_revision_ref(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: the added revision ElementRef is canonical and typed."""
+    action = world.control_structure.responsibilities[-1].control_actions[0]
+    feedback = world.control_structure.responsibilities[-1].feedback_channels[0]
+    refs = [action.target, feedback.source]
+    if any(
+        ref is None
+        or ref.type != ReferenceType.controlled_process
+        or ref.id != "CP-2"
+        for ref in refs
+    ):
+        return False, f"Unexpected added ElementRefs: {refs}"
+    return True, ""
+
+
+def _h_sp1_repair_revision_valid(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: revision validation succeeds without degradation."""
+    if world.control_structure is None:
+        return False, "No revised control structure"
+    warnings = getattr(world, "sp1_repair_revision_warnings", [])
+    if any("degrad" in warning.lower() for warning in warnings):
+        return False, f"Revision degraded: {warnings}"
+    try:
+        ControlStructure.model_validate(world.control_structure.model_dump())
+    except (ValidationError, ValueError) as exc:
+        return False, f"Revised structure is invalid: {exc}"
+    return True, ""
+
+
+def _sp1_alias_model(element: str) -> type:
+    """Return the model used by one tolerant ID-alias scenario."""
+    from scenario_forge.stpa.models.control_structure import (
+        ControlAction,
+        ControlledProcess,
+        CoordinationLink,
+        CoordinationMechanism,
+        FeedbackChannel,
+        ProcessModelPart,
+        Responsibility,
+        ResponsibilityConstraint,
+    )
+
+    return {
+        "responsibility": Responsibility,
+        "responsibility constraint": ResponsibilityConstraint,
+        "process model part": ProcessModelPart,
+        "control action": ControlAction,
+        "feedback channel": FeedbackChannel,
+        "controlled process": ControlledProcess,
+        "coordination link": CoordinationLink,
+        "coordination mechanism": CoordinationMechanism,
+    }[element]
+
+
+def _sp1_alias_payload(element: str, value: str) -> dict:
+    """Return valid surrounding fields for one generic-ID response."""
+    payloads = {
+        "responsibility": {"id": value, "description": "Controller"},
+        "responsibility constraint": {"id": value, "description": "Constraint"},
+        "process model part": {"id": value, "description": "State"},
+        "control action": {"id": value, "description": "Action"},
+        "feedback channel": {
+            "id": value,
+            "description": "Feedback",
+            "updates": "PM-1-1",
+        },
+        "controlled process": {"id": value, "description": "Process"},
+        "coordination link": {
+            "id": value,
+            "source": "RESP-1",
+            "target": "RESP-2",
+            "shared_pm": "PM-1-1",
+            "coordination_mechanism": {
+                "id": "CM-1",
+                "description": "Mechanism",
+                "payload": "state",
+            },
+            "description": "Link",
+        },
+        "coordination mechanism": {
+            "id": value,
+            "description": "Mechanism",
+            "payload": "state",
+        },
+    }
+    return payloads[element]
+
+
+def _h_sp1_alias_response(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a tolerant response contains a generic ID."""
+    element = examples.get("element")
+    if element is None:
+        match = re.search(r"a (.+) response has id", text, re.IGNORECASE)
+        element = match.group(1) if match is not None else ""
+    match = re.search(r"has id (\S+)", text, re.IGNORECASE)
+    expected = examples.get(
+        "expected_id",
+        match.group(1) if match is not None else "ignored-source-id",
+    )
+    world.sp1_alias_element = element
+    world.sp1_alias_payload = _sp1_alias_payload(element, expected)
+    return True, ""
+
+
+def _h_sp1_alias_omits(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a tolerant response omits a model-specific ID field."""
+    field = examples.get("model_id_field")
+    if field is None:
+        return _h_sp1_alias_description_omitted(world, text, examples)
+    world.sp1_alias_payload.pop(field, None)
+    return True, ""
+
+
+def _h_sp1_alias_explicit(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a response provides an explicit model-specific ID."""
+    world.sp1_alias_payload[examples["model_id_field"]] = examples[
+        "expected_id"
+    ]
+    return True, ""
+
+
+def _h_sp1_alias_description_omitted(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: a response omits a required description."""
+    world.sp1_alias_element = "control action"
+    world.sp1_alias_payload = {"id": "CA-4-3"}
+    return True, ""
+
+
+def _h_sp1_alias_decode(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: decode the current response without field validation."""
+    try:
+        world.sp1_alias_decoded = _sp1_construct_unvalidated(
+            world.sp1_alias_payload,
+            _sp1_alias_model(world.sp1_alias_element),
+        )
+    except (TypeError, ValueError) as exc:
+        return False, f"Tolerant decode failed: {exc}"
+    return True, ""
+
+
+def _h_sp1_alias_assert(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: check a decoded model-specific ID field."""
+    match = re.search(r"has (\S+) (\S+)$", text, re.IGNORECASE)
+    field = examples.get("model_id_field", match.group(1) if match else "")
+    expected = examples.get("expected_id", match.group(2) if match else "")
+    actual = getattr(world.sp1_alias_decoded, field)
+    if actual != expected:
+        return False, f"Expected {field} {expected}, got {actual}"
+    return True, ""
+
+
+def _h_sp1_alias_empty_description(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: check that generic ID did not fill description."""
+    if world.sp1_alias_decoded.description != "":
+        return False, (
+            "Expected the omitted description sentinel to be empty, got "
+            f"{world.sp1_alias_decoded.description!r}"
+        )
+    return True, ""
+
+
 
 FEATURE_ID = 'sp1'
 
@@ -3752,6 +4655,53 @@ def register(api: object) -> None:
     api.register('a ControlStructure model is produced$', _h_sp1_s2_cs_produced, source_order=7067)
     api.register('control action CA-1-1 has no target$', _h_sp1_tolerant_control_action_target_absent, source_order=7068)
     api.register('the warnings identify the stripped target$', _h_sp1_tolerant_warnings_identify_stripped_target, source_order=7069)
+    api.register('a tolerantly decoded SP1 control-structure payload$', _h_sp1_repair_payload, source_order=15100)
+    api.register('every field not varied by the scenario is valid$', _h_sp1_repair_valid_fields, source_order=15101)
+    api.register('the element at .* has source ID .*$', _h_sp1_repair_reference_target, source_order=15102)
+    api.register('(?:responsibility|controlled process) \\d+ has source ID \\S+$', _h_sp1_repair_source_id, source_order=15103)
+    api.register('responsibility \\d+ (?:process model part|control action|feedback channel) \\d+ has (?:feedback_source|target|source) type \\S+ and ID \\S+$', _h_sp1_repair_reference, source_order=15104)
+    api.register_first('responsibility 1 control action 1 target has type process-alpha and ID process-alpha$', _h_sp1_repair_uninferable_target, source_order=15105)
+    api.register('the payload is normalized$', _h_sp1_repair_normalize, source_order=15106)
+    api.register('^(?:responsibility|responsibility constraint|process model part|control action|feedback channel|controlled process|coordination link|coordination mechanism) (?:RESP-\\d+|RC-\\d+-\\d+|PM-\\d+-\\d+|CA-\\d+-\\d+|FB-\\d+-\\d+|CP-\\d+|CL-\\d+|CM-\\d+) has an empty description$', _h_sp1_repair_empty_description, source_order=15108)
+    api.register('^responsibility \\d+ (?:process model part|control action|feedback channel) \\d+ has an empty description$', _h_sp1_repair_empty_description, source_order=15108)
+    api.register('its source has type CP-9 and ID CP-9$', _h_sp1_repair_feedback_source, source_order=15109)
+    api.register('its updates value is state-alpha$', _h_sp1_repair_feedback_updates, source_order=15110)
+    api.register('^(?:responsibility|responsibility constraint|process model part|control action|feedback channel|controlled process|coordination link|coordination mechanism) (?:RESP-\\d+|RC-\\d+-\\d+|PM-\\d+-\\d+|CA-\\d+-\\d+|FB-\\d+-\\d+|CP-\\d+|CL-\\d+|CM-\\d+) has description Operator supplied description$', _h_sp1_repair_supplied_description, source_order=15111)
+    api.register('normalization preserves the description Operator supplied description on .*$', _h_sp1_repair_preserves_description, source_order=15112)
+    api.register('^responsibility \\d+ process model part \\d+ has source ID \\S+$', _h_sp1_repair_pm_source, source_order=15113)
+    api.register('^(?:responsibility|responsibility constraint|process model part|control action|feedback channel|controlled process|coordination link|coordination mechanism) (?:RESP-\\d+|RC-\\d+-\\d+|PM-\\d+-\\d+|CA-\\d+-\\d+|FB-\\d+-\\d+|CP-\\d+|CL-\\d+|CM-\\d+) has description .+$', _h_sp1_repair_description_assert, source_order=15114)
+    api.register('^responsibility \\d+ (?:process model part|control action|feedback channel) \\d+ (?:feedback_source|target|source) has (?:type \\S+|ID \\S+)$', _h_sp1_repair_reference_assert, source_order=15115)
+    api.register('the normalized payload validates as a ControlStructure$', _h_sp1_repair_validate, source_order=15116)
+    api.register_first('the target type remains process-alpha$', _h_sp1_repair_target_type, source_order=15117)
+    api.register_first('validation fails with an error identifying target type$', _h_sp1_repair_validation_error, source_order=15118)
+    api.register_first('feedback channel FB-1-1 has description Feedback from controlled process CP-2 updating process model part PM-1-1$', _h_sp1_repair_feedback_description_assert, source_order=15120)
+    api.register('Call 2a and Call 2b use id instead of each model-specific ID field$', _h_sp1_repair_assembly_setup, source_order=15120)
+    api.register('Call 2b omits every feedback channel description$', _h_sp1_repair_assembly_noop, source_order=15121)
+    api.register('Call 2b copies each referenced RESP-\\* or CP-\\* ID into its ElementRef type$', _h_sp1_repair_assembly_noop, source_order=15122)
+    api.register('the source IDs differ from the IDs implied by final list position$', _h_sp1_repair_assembly_noop, source_order=15123)
+    api.register('SP1 assembles the control structure with deterministic ID normalization$', _h_sp1_repair_assemble, source_order=15124)
+    api.register('every element has its canonical ID from final list position$', _h_sp1_repair_all_ids, source_order=15125)
+    api.register('every ElementRef has the type implied by its referenced ID prefix$', _h_sp1_repair_ref_types, source_order=15126)
+    api.register('every ElementRef ID identifies the corresponding canonical element$', _h_sp1_repair_ref_ids, source_order=15127)
+    api.register('every element has a non-empty description$', _h_sp1_repair_nonempty, source_order=15128)
+    api.register('ControlStructure validation succeeds without assembly degradation$', _h_sp1_repair_assembly_valid, source_order=15129)
+    api.register('a decoded revision delta adds elements using id instead of model-specific ID fields$', _h_sp1_repair_revision_setup, source_order=15130)
+    api.register('an added feedback channel has an empty description$', _h_sp1_repair_revision_noop, source_order=15131)
+    api.register('an added ElementRef copies its CP-\\* ID into its type$', _h_sp1_repair_revision_noop, source_order=15132)
+    api.register('every revision reference resolves by source ID in the stitched structure$', _h_sp1_repair_revision_noop, source_order=15133)
+    api.register('the revision delta is merged$', _h_sp1_repair_revision_merge, source_order=15134)
+    api.register('the added elements have canonical IDs from final list position$', _h_sp1_repair_revision_ids, source_order=15135)
+    api.register('the added feedback channel has a non-empty human-readable description$', _h_sp1_repair_revision_feedback, source_order=15136)
+    api.register('the added ElementRef has type controlled_process and the canonical controlled-process ID$', _h_sp1_repair_revision_ref, source_order=15137)
+    api.register('the revised ControlStructure validates without a degraded-revision warning$', _h_sp1_repair_revision_valid, source_order=15138)
+    api.register('an SP1 LLM response is decoded in tolerant mode$', _h_sp1_repair_valid_fields, source_order=15139)
+    api.register('a (?:responsibility|responsibility constraint|process model part|control action|feedback channel|controlled process|coordination link|coordination mechanism) response has id \\S+$', _h_sp1_alias_response, source_order=15140)
+    api.register('the response omits \\S+$', _h_sp1_alias_omits, source_order=15141)
+    api.register('the response has \\S+ \\S+$', _h_sp1_alias_explicit, source_order=15142)
+    api.register('the response omits description$', _h_sp1_alias_description_omitted, source_order=15143)
+    api.register('the response is decoded$', _h_sp1_alias_decode, source_order=15144)
+    api.register('the decoded (?:responsibility|responsibility constraint|process model part|control action|feedback channel|controlled process|coordination link|coordination mechanism) has \\S+ \\S+$', _h_sp1_alias_assert, source_order=15145)
+    api.register('the decoded control action has an empty description$', _h_sp1_alias_empty_description, source_order=15146)
     api.set_feature(None)
 
 __all__ = ["FEATURE_ID", "register"]

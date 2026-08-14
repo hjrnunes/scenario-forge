@@ -108,8 +108,8 @@ class TestControlStructureValidation:
         cs = _make_cs()
         assert cs is not None
 
-    def test_missing_control_action_description_fails_after_id_normalization(self):
-        """Missing required descriptions are rejected after ID repair."""
+    def test_empty_control_action_description_is_repaired_after_id_normalization(self):
+        """Empty descriptions receive canonical placeholders after ID repair."""
         payload = {
             "responsibilities": [
                 {
@@ -128,8 +128,12 @@ class TestControlStructureValidation:
             "coordination_links": [],
         }
 
-        with pytest.raises(ValidationError, match="description"):
-            validate_normalized_control_structure(payload)
+        control_structure = validate_normalized_control_structure(payload)
+
+        assert (
+            control_structure.responsibilities[0].control_actions[0].description
+            == "Control action CA-1-1"
+        )
 
     @pytest.mark.parametrize(
         "ref_type,bad_ref",

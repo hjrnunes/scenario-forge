@@ -332,6 +332,36 @@ def _reference_type_value(value: Any) -> str | None:
     return None
 
 
+def _repair_element_ref_types(payload: dict[str, Any]) -> None:
+    """Infer missing ElementRef types from their source ID prefixes."""
+    responsibilities = payload.get("responsibilities", [])
+    if not isinstance(responsibilities, list):
+        return
+    for responsibility in responsibilities:
+        if not isinstance(responsibility, dict):
+            continue
+        for child_key, ref_key in _TYPED_REFERENCE_FIELDS:
+            children = responsibility.get(child_key, [])
+            if not isinstance(children, list):
+                continue
+            for child in children:
+                if not isinstance(child, dict):
+                    continue
+                reference = child.get(ref_key)
+                if not isinstance(reference, dict):
+                    continue
+                reference_type = _reference_type_value(reference.get("type"))
+                if reference_type in _TYPED_REFERENCE_NAMESPACES:
+                    continue
+                source_id = reference.get("id")
+                if not isinstance(source_id, str):
+                    continue
+                if source_id.startswith("RESP-"):
+                    reference["type"] = "responsibility"
+                elif source_id.startswith("CP-"):
+                    reference["type"] = "controlled_process"
+
+
 def _rewrite_typed_reference(
     reference: Any,
     maps: dict[str, dict[str, str]],
@@ -473,12 +503,14 @@ def normalize_control_structure_payload(
     local_pm_maps = _build_local_pm_maps(normalized)
 
     # Capture reference values before IDs are overwritten.
+    _repair_element_ref_types(normalized)
     _rewrite_references_before_id_replacement(
         normalized,
         namespace_maps,
         local_pm_maps,
     )
     _set_canonical_ids(normalized)
+    _repair_empty_descriptions(normalized)
 
     return ControlStructureNormalization(
         payload=normalized,
@@ -524,6 +556,103 @@ def _rewrite_responsibility_references_in_payload(
             namespace_maps,
             local_pm_map,
         )
+
+
+_DESC_TYPES = {
+    "responsibility": ("Responsibility", "resp_id"),
+    "responsibility_constraint": (
+        "Responsibility constraint",
+        "rc_id",
+    ),
+    "process_model_part": ("Process model part", "pm_id"),
+    "control_action": ("Control action", "ca_id"),
+    "controlled_process": ("Controlled process", "cp_id"),
+    "coordination_link": ("Coordination link", "link_id"),
+    "coordination_mechanism": ("Coordination mechanism", "cm_id"),
+}
+
+
+def _set_empty_description(
+    element: Any,
+    element_type: str,
+) -> None:
+    """Set a placeholder description for one canonicalized element."""
+    if not isinstance(element, dict) or element.get("description") != "":
+        return
+    type_name, id_key = _DESC_TYPES[element_type]
+    element["description"] = f"{type_name} {element.get(id_key)}"
+
+
+def _set_feedback_description(feedback_channel: Any) -> None:
+    """Set a context-based placeholder for one empty feedback description."""
+    if (
+        not isinstance(feedback_channel, dict)
+        or feedback_channel.get("description") != ""
+    ):
+        return
+
+    updates = feedback_channel.get("updates")
+    if not updates:
+        feedback_channel["description"] = (
+            f"Feedback channel {feedback_channel.get('fb_id')}"
+        )
+        return
+
+    source = feedback_channel.get("source")
+    if source is None:
+        feedback_channel["description"] = (
+            f"Feedback updating process model part {updates}"
+        )
+        return
+
+    if isinstance(source, dict):
+        source_type = _reference_type_value(source.get("type"))
+        source_id = source.get("id")
+        if source_type and source_id:
+            feedback_channel["description"] = (
+                f"Feedback from {source_type.replace('_', ' ')} {source_id} "
+                f"updating process model part {updates}"
+            )
+            return
+    feedback_channel["description"] = (
+        f"Feedback updating process model part {updates}"
+    )
+
+
+def _repair_empty_descriptions(payload: dict[str, Any]) -> None:
+    """Repair only empty descriptions after IDs and references are canonical."""
+    responsibilities = payload.get("responsibilities", [])
+    if isinstance(responsibilities, list):
+        for responsibility in responsibilities:
+            if not isinstance(responsibility, dict):
+                continue
+            _set_empty_description(responsibility, "responsibility")
+            for child_key, _id_key, _prefix, element_type in (
+                _RESPONSIBILITY_CHILD_SPECS
+            ):
+                children = responsibility.get(child_key, [])
+                if not isinstance(children, list):
+                    continue
+                for child in children:
+                    if element_type == "feedback_channel":
+                        _set_feedback_description(child)
+                    else:
+                        _set_empty_description(child, element_type)
+
+    controlled_processes = payload.get("controlled_processes", [])
+    if isinstance(controlled_processes, list):
+        for process in controlled_processes:
+            _set_empty_description(process, "controlled_process")
+
+    coordination_links = payload.get("coordination_links", [])
+    if isinstance(coordination_links, list):
+        for link in coordination_links:
+            _set_empty_description(link, "coordination_link")
+            if isinstance(link, dict):
+                _set_empty_description(
+                    link.get("coordination_mechanism"),
+                    "coordination_mechanism",
+                )
 
 
 def validate_normalized_control_structure(

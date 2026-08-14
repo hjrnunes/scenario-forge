@@ -2,8 +2,8 @@
 
 Omitted required fields receive type-appropriate sentinels so attribute
 access is safe.  Declared defaults stay authoritative.  Required nested
-models are not fabricated.  Field names are ignored: sentinels depend
-only on annotations.  Content validity belongs to model validators.
+models are not fabricated.  Generic input IDs may fill omitted model ID
+fields; content validity belongs to model validators.
 """
 
 from __future__ import annotations
@@ -117,6 +117,8 @@ def _construct_model_values(
     for name, field in annotation.model_fields.items():
         if name in value:
             values[name] = _construct_unvalidated(value[name], field.annotation)
+        elif field.is_required() and name.endswith("_id") and "id" in value:
+            values[name] = _construct_unvalidated(value["id"], field.annotation)
         elif field.is_required():
             values[name] = _required_field_sentinel(field.annotation)
     return values
