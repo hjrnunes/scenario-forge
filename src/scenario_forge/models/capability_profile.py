@@ -19,10 +19,11 @@ import hashlib
 import logging
 import re
 from enum import Enum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     computed_field,
@@ -1124,13 +1125,12 @@ class EntryPoint(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def fix_zone(cls, data: object) -> object:
-        """Normalize valid output ingress declarations before construction.
+        """Clear valid ingress zones from output-only entries before construction.
 
-        Pydantic does not apply a replacement returned by a top-level
-        ``mode="after"`` validator when a model is constructed through
-        ``__init__``.  Normalize constructor input here as well so the
-        auto-correction applies consistently to profiles assembled from
-        dictionaries.
+        A before validator is used because Pydantic does not apply a replacement
+        returned by a top-level after validator when a model is constructed
+        through ``__init__``. This keeps normalization consistent for direct
+        construction and dictionary validation.
         """
         if (
             isinstance(data, dict)
@@ -1139,21 +1139,6 @@ class EntryPoint(BaseModel):
         ):
             return {**data, "ingress_zone": None}
         return data
-
-    @model_validator(mode="after")
-    def validate_ingress_zone_consistency(self) -> EntryPoint:
-        """Auto-correct output-only entries with an ingress zone (cmps.9 review 5).
-
-        Output-only entry points are not attacker-accessible ingress paths.
-        If the model assigns a Schneider zone to an output-only entry point,
-        nullify it instead of rejecting — the model reflexively fills
-        ingress_zone for every entry point, and this deterministic invariant
-        eliminates a consistent Stage 1b blocker.
-        """
-        if self.direction == "output" and self.ingress_zone is not None:
-            return self.model_copy(update={"ingress_zone": None})
-        return self
-
 
 def is_attacker_accessible_ingress(
     ep: EntryPoint,
@@ -1212,6 +1197,29 @@ def _coerce_entry_points(
     return result
 
 
+def _check_kc(v: list[str]) -> list[str]:
+    """Validate and canonicalize OWASP and project KC sub-codes."""
+    if not v:
+        return v
+    # KCX-prefixed codes are scenario-forge extensions (NOT from OWASP)
+    # and pass through without checking against VALID_KC_SUBCODES.
+    invalid = [
+        code
+        for code in v
+        if not code.startswith(KCX_PREFIX) and code not in VALID_KC_SUBCODES
+    ]
+    if invalid:
+        raise ValueError(
+            f"Invalid KC sub-code(s): {invalid}. "
+            f"Valid codes: {sorted(VALID_KC_SUBCODES)} "
+            f"(codes prefixed with '{KCX_PREFIX}' are also accepted)"
+        )
+    return sorted(set(v))
+
+
+EntryPointList = Annotated[list[EntryPoint], BeforeValidator(_coerce_entry_points)]
+
+
 # ---------------------------------------------------------------------------
 # Stage 1-only model (used for LLM inference to avoid schema bloat)
 # ---------------------------------------------------------------------------
@@ -1231,7 +1239,7 @@ class Stage1Profile(BaseModel):
     CapabilityProfile (per project memory decision-boolean-flags-computed-from-kc).
     """
 
-    entry_points: list[EntryPoint] = Field(
+    entry_points: EntryPointList = Field(
         description=(
             "Attack entry points, each with a name, direction tag, and optional "
             "controllability. Direction is one of: input (attacker can send data in), "
@@ -1260,33 +1268,10 @@ class Stage1Profile(BaseModel):
         ),
     )
 
-    @field_validator("entry_points", mode="before")
-    @classmethod
-    def coerce_entry_points(
-        cls,
-        v: list[str | dict | EntryPoint],
-    ) -> list[EntryPoint]:
-        return _coerce_entry_points(v)
-
     @field_validator("kc_subcodes")
     @classmethod
     def validate_kc_subcodes(cls, v: list[str]) -> list[str]:
-        if not v:
-            return v
-        # KCX-prefixed codes are scenario-forge extensions (NOT from OWASP)
-        # and pass through without checking against VALID_KC_SUBCODES.
-        invalid = [
-            code
-            for code in v
-            if not code.startswith(KCX_PREFIX) and code not in VALID_KC_SUBCODES
-        ]
-        if invalid:
-            raise ValueError(
-                f"Invalid KC sub-code(s): {invalid}. "
-                f"Valid codes: {sorted(VALID_KC_SUBCODES)} "
-                f"(codes prefixed with '{KCX_PREFIX}' are also accepted)"
-            )
-        return sorted(set(v))
+        return _check_kc(v)
 
     def to_capability_profile(self) -> CapabilityProfile:
         """Promote to a full CapabilityProfile (Stage 2 fields left as None).
@@ -1339,7 +1324,7 @@ class CapabilityProfile(BaseModel):
             "Other zones: 'tool_execution', 'memory', 'inter_agent'."
         ),
     )
-    entry_points: list[EntryPoint] = Field(
+    entry_points: EntryPointList = Field(
         description=(
             "Attack entry points, each with a name, direction tag, and optional "
             "controllability. Direction is one of: input (attacker can send data in), "
@@ -1476,33 +1461,10 @@ class CapabilityProfile(BaseModel):
             )
         return data
 
-    @field_validator("entry_points", mode="before")
-    @classmethod
-    def coerce_entry_points(
-        cls,
-        v: list[str | dict | EntryPoint],
-    ) -> list[EntryPoint]:
-        return _coerce_entry_points(v)
-
     @field_validator("kc_subcodes")
     @classmethod
     def validate_kc_subcodes(cls, v: list[str]) -> list[str]:
-        if not v:
-            return v
-        # KCX-prefixed codes are scenario-forge extensions (NOT from OWASP)
-        # and pass through without checking against VALID_KC_SUBCODES.
-        invalid = [
-            code
-            for code in v
-            if not code.startswith(KCX_PREFIX) and code not in VALID_KC_SUBCODES
-        ]
-        if invalid:
-            raise ValueError(
-                f"Invalid KC sub-code(s): {invalid}. "
-                f"Valid codes: {sorted(VALID_KC_SUBCODES)} "
-                f"(codes prefixed with '{KCX_PREFIX}' are also accepted)"
-            )
-        return sorted(set(v))
+        return _check_kc(v)
 
     @model_validator(mode="after")
     def validate_zones_and_flags(self) -> CapabilityProfile:
