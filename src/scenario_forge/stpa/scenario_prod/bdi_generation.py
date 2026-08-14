@@ -171,6 +171,8 @@ def generate_bdi(
         stage: Pipeline stage label.
         step: Sub-step label.
         temperature: LLM temperature.
+        capability_profile: Optional capability profile used to ground
+            technology-specific feedback mechanisms in the prompt.
 
     Returns:
         A tuple of (BDIGenerationResult or None, error_message or None).
@@ -214,7 +216,11 @@ def _build_bdi_prompts(
     loader: TemplateLoader,
     capability_profile: CapabilityProfile | None = None,
 ) -> tuple[str, str]:
-    """Build the system and user prompts for the BDI generation call."""
+    """Build the system and user prompts for the BDI generation call.
+
+    When supplied, ``capability_profile`` is rendered as technology context
+    so attacker intentions stay grounded in declared AI surfaces.
+    """
     defender_bdi_yaml = yaml.dump(
         defender_bdi.model_dump(mode="json"),
         default_flow_style=False,

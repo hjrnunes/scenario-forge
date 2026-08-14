@@ -104,9 +104,10 @@ def run_sp3(
         control_structure: SP1 control structure.
         loss_analysis: SP1 loss analysis.
         run_dir: Directory for output artifacts.
-        capability_profile: Optional SP1 capability profile for envelope
-            enrichment.  When provided, envelopes are enriched with
-            ``system_context`` and ``consumer_hints`` blocks.
+        capability_profile: Optional SP1 capability profile for Stage 5/6
+            prompt grounding and envelope enrichment.  When provided,
+            envelopes are enriched with ``system_context`` and
+            ``consumer_hints`` blocks.
         max_workers: Maximum parallel workers for LLM calls.
         temperature: LLM temperature.
 

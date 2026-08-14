@@ -41,6 +41,8 @@ def generate_narrative(
         stage: Pipeline stage label.
         step: Sub-step label.
         temperature: LLM temperature.
+        capability_profile: Optional capability profile used to ground
+            technology-specific feedback mechanisms in the prompt.
 
     Returns:
         A tuple of (narrative_text or None, error_message or None).
@@ -79,6 +81,8 @@ def build_narrative_prompts(
     Args:
         scenario_spec: The scenario specification.
         loader: Template loader.
+        capability_profile: Optional capability profile used to ground
+            technology-specific feedback mechanisms in the prompt.
 
     Returns:
         A tuple of (system_prompt, user_prompt).
