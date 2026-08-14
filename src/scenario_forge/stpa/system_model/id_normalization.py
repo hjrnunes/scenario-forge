@@ -4,10 +4,10 @@ High-level SP1 policy: after an LLM payload is decoded and before
 ``ControlStructure`` validation, assign canonical IDs from structural
 position and rewrite references to those IDs.
 
-Recoverable LLM defects stay in this same pass.  ElementRef types are
-inferred from source-ID prefixes *before* rewrite, so the correct
-namespace can be chosen.  Empty description sentinels are replaced
-*after* canonical IDs and rewritten references exist.
+Recoverable LLM defects stay in this same pass.  Bare ElementRef IDs are
+wrapped and types are inferred from source-ID prefixes *before* rewrite, so
+the correct namespace can be chosen.  Empty description sentinels are
+replaced *after* canonical IDs and rewritten references exist.
 
 This module is a leaf.  It depends on the boundary schema and the
 standard library only — never on LLM clients, files, or Stage 2
@@ -395,6 +395,30 @@ def _repair_element_ref_types(payload: dict[str, Any]) -> None:
             _fix_type(reference)
 
 
+def _wrap_bare_string_refs(payload: dict[str, Any]) -> None:
+    """Wrap recognized bare ElementRef IDs in typed reference objects."""
+    responsibilities = payload.get("responsibilities", [])
+    if not isinstance(responsibilities, list):
+        return
+    for responsibility in responsibilities:
+        if not isinstance(responsibility, dict):
+            continue
+        for child_key, ref_key in _TYPED_REFERENCE_FIELDS:
+            children = responsibility.get(child_key, [])
+            if not isinstance(children, list):
+                continue
+            for child in children:
+                if not isinstance(child, dict):
+                    continue
+                reference = child.get(ref_key)
+                if not isinstance(reference, str):
+                    continue
+                for prefix, kind in _PREFIXES:
+                    if reference.startswith(prefix):
+                        child[ref_key] = {"type": kind, "id": reference}
+                        break
+
+
 def _rewrite_typed_reference(
     reference: Any,
     maps: dict[str, dict[str, str]],
@@ -531,11 +555,12 @@ def normalize_control_structure_payload(
     local_pm_maps = _build_local_pm_maps(normalized)
 
     # Pass order is load-bearing:
-    # 1. Infer ElementRef types from source-ID prefixes so rewrite can
-    #    select a namespace.
+    # 1. Wrap bare ElementRef IDs and infer types from source-ID prefixes so
+    #    rewrite can select a namespace.
     # 2. Rewrite references while source IDs still match those maps.
     # 3. Replace published IDs with structural IDs.
     # 4. Fill empty descriptions from the now-canonical IDs and refs.
+    _wrap_bare_string_refs(normalized)
     _repair_element_ref_types(normalized)
     _rewrite_references_before_id_replacement(
         normalized,

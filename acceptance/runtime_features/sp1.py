@@ -3771,6 +3771,130 @@ def _h_sp1_repair_normalize(
     return True, ""
 
 
+def _ref_slot(payload: dict, location: str) -> tuple[dict, str]:
+    """Return the owner mapping and field for a reference location."""
+    owner, field = location.rsplit(" ", 1)
+    return ownerAt(payload, owner), field
+
+
+def _h_sp1_repair_bare_ref(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure a recognized bare-string ElementRef."""
+    payload = getattr(world, "sp1_repair_payload", None)
+    if payload is None:
+        return False, "No tolerant SP1 repair payload"
+    location = examples.get("reference_location")
+    source_id = examples.get("source_id")
+    if not location or not source_id:
+        match = re.fullmatch(r"(.+) is the bare string (\S+)", text)
+        if match is None:
+            return False, f"Could not parse bare reference step: {text}"
+        location, source_id = match.groups()
+    try:
+        owner, field = _ref_slot(payload, location)
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        return False, f"Unknown bare reference location: {exc}"
+    owner[field] = source_id
+    return True, ""
+
+
+def _h_sp1_repair_bare_ref_assert(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: check a normalized bare-string ElementRef."""
+    payload = world.sp1_repair_normalized.payload
+    location = examples.get("reference_location")
+    if not location:
+        return False, "No bare reference location"
+    try:
+        owner, field = _ref_slot(payload, location)
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        return False, f"Unknown normalized reference location: {exc}"
+    reference = owner.get(field)
+    expected = {
+        "type": examples.get("reference_type"),
+        "id": examples.get("canonical_id"),
+    }
+    if reference != expected:
+        return False, f"Expected ElementRef {expected}, got {reference}"
+    return True, ""
+
+
+def _h_sp1_repair_bare_ref_remains(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: check that an unrecognized bare-string ElementRef remains."""
+    match = re.fullmatch(r"(.+) remains the bare string (\S+)", text)
+    if match is None:
+        return False, f"Could not parse bare reference assertion: {text}"
+    try:
+        owner, field = _ref_slot(
+            world.sp1_repair_normalized.payload, match.group(1)
+        )
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        return False, f"Unknown normalized reference location: {exc}"
+    actual = owner.get(field)
+    if actual != match.group(2):
+        return False, f"Expected bare string {match.group(2)}, got {actual!r}"
+    return True, ""
+
+
+def _h_sp1_repair_null_ref(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure a null optional ElementRef."""
+    payload = getattr(world, "sp1_repair_payload", None)
+    if payload is None:
+        return False, "No tolerant SP1 repair payload"
+    location = examples.get("reference_location")
+    if not location:
+        match = re.fullmatch(r"(.+) is null", text)
+        if match is None:
+            return False, f"Could not parse null reference step: {text}"
+        location = match.group(1)
+    try:
+        owner, field = _ref_slot(payload, location)
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        return False, f"Unknown null reference location: {exc}"
+    owner[field] = None
+    return True, ""
+
+
+def _h_sp1_repair_null_ref_assert(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: check that a null optional ElementRef remains null."""
+    location = examples.get("reference_location")
+    if not location:
+        match = re.fullmatch(r"(.+) remains null", text)
+        if match is None:
+            return False, f"Could not parse null reference assertion: {text}"
+        location = match.group(1)
+    try:
+        owner, field = _ref_slot(
+            world.sp1_repair_normalized.payload, location
+        )
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        return False, f"Unknown normalized reference location: {exc}"
+    if owner.get(field) is not None:
+        return False, f"Expected null reference, got {owner.get(field)!r}"
+    return True, ""
+
+
+def _h_sp1_repair_bare_ref_validation_error(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: validation reports an unrecognized bare ElementRef."""
+    error = getattr(world, "validation_error", None)
+    if error is None:
+        return False, "Expected ControlStructure validation to fail"
+    message = str(error).lower()
+    if "target" not in message or "elementref" not in message:
+        return False, f"Expected malformed target ElementRef error: {error}"
+    return True, ""
+
+
 def _h_sp1_repair_reference_assert(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
@@ -4032,6 +4156,63 @@ def _repair_assembly_inputs() -> tuple[dict, dict]:
     return {"responsibilities": responsibilities}, elements
 
 
+def _repair_many_assembly_inputs() -> tuple[dict, dict, dict[str, list[str]]]:
+    """Return production-shaped Call 2a/2b fixtures with bare references."""
+    responsibilities = [
+        {
+            "id": "RESP-90",
+            "description": "First controller",
+            "responsibility_constraints": [],
+            "process_model_parts": [
+                {"id": "PM-90-1", "description": "State"}
+            ],
+        },
+        {
+            "id": "RESP-30",
+            "description": "Second controller",
+            "responsibility_constraints": [],
+            "process_model_parts": [
+                {"id": "PM-30-1", "description": "State"}
+            ],
+        },
+    ]
+    target_sources = [
+        ("CP-90", "RESP-30", "RESP-90")[index % 3]
+        for index in range(11)
+    ]
+    source_sources = [
+        ("RESP-90", "CP-90", "RESP-30")[index % 3]
+        for index in range(16)
+    ]
+    elements = {
+        "control_actions": [
+            {
+                "id": f"CA-90-{index + 1}",
+                "description": "Action",
+                "target": target_source,
+            }
+            for index, target_source in enumerate(target_sources)
+        ],
+        "feedback_channels": [
+            {
+                "id": f"FB-90-{index + 1}",
+                "description": "Feedback",
+                "updates": "PM-90-1",
+                "source": source_source,
+            }
+            for index, source_source in enumerate(source_sources)
+        ],
+        "controlled_processes": [
+            {"id": "CP-90", "description": "Process"}
+        ],
+    }
+    expected = {
+        "targets": target_sources,
+        "sources": source_sources,
+    }
+    return {"responsibilities": responsibilities}, elements, expected
+
+
 def _h_sp1_repair_assembly_setup(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
@@ -4044,8 +4225,46 @@ def _h_sp1_repair_assembly_noop(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: record one combined-response precondition."""
-    if not hasattr(world, "sp1_repair_assembly_inputs"):
+    if not (
+        hasattr(world, "sp1_repair_assembly_inputs")
+        or hasattr(world, "sp1_repair_many_assembly_inputs")
+    ):
         return False, "No combined response fixture"
+    return True, ""
+
+
+def _h_sp1_repair_many_setup(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: configure production-shaped bare-string cross-references."""
+    match = re.fullmatch(
+        r"Call 2b returns (\d+) (control actions|feedback channels) "
+        r"with bare-string (targets|sources)",
+        text,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return False, f"Could not parse production-shaped reference step: {text}"
+    expected_count = int(match.group(1))
+    kind = "targets" if match.group(2).lower() == "control actions" else "sources"
+    if kind != match.group(3).lower():
+        return False, f"Reference kind does not match step: {text}"
+    if not hasattr(world, "sp1_repair_many_assembly_inputs"):
+        raw_resps, raw_elements, expected = _repair_many_assembly_inputs()
+        world.sp1_repair_many_assembly_inputs = (raw_resps, raw_elements)
+        world.sp1_repair_many_sources = expected
+    actual_count = len(world.sp1_repair_many_sources[kind])
+    if actual_count != expected_count:
+        return False, f"Expected {expected_count} {kind}, got {actual_count}"
+    return True, ""
+
+
+def _h_sp1_repair_many_noop(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: record a production-shaped normalization precondition."""
+    if not hasattr(world, "sp1_repair_many_assembly_inputs"):
+        return False, "No production-shaped assembly fixture"
     return True, ""
 
 
@@ -4058,7 +4277,10 @@ def _h_sp1_repair_assemble(
         ResponsibilitySet,
     )
 
-    raw_resps, raw_elements = world.sp1_repair_assembly_inputs
+    if hasattr(world, "sp1_repair_many_assembly_inputs"):
+        raw_resps, raw_elements = world.sp1_repair_many_assembly_inputs
+    else:
+        raw_resps, raw_elements = world.sp1_repair_assembly_inputs
     try:
         responsibility_set = _sp1_parse_llm_result_unvalidated(
             _tolerant_llm_result(raw_resps), ResponsibilitySet
@@ -4077,6 +4299,82 @@ def _h_sp1_repair_assemble(
         )
     except (ValidationError, ValueError, TypeError) as exc:
         return False, f"Assembly failed: {exc}"
+    return True, ""
+
+
+def _h_sp1_repair_many_assert(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: check production-shaped canonical ElementRefs."""
+    match = re.fullmatch(
+        r"all (\d+) (control action targets|feedback channel sources) "
+        r"are ElementRef objects with canonical IDs",
+        text,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return False, f"Could not parse production-shaped assertion: {text}"
+    expected_count = int(match.group(1))
+    kind = "targets" if match.group(2).lower().startswith("control") else "sources"
+    refs = []
+    for responsibility in world.control_structure.responsibilities:
+        elements = (
+            responsibility.control_actions
+            if kind == "targets"
+            else responsibility.feedback_channels
+        )
+        refs.extend(
+            element.target if kind == "targets" else element.source
+            for element in elements
+        )
+    if len(refs) != expected_count or any(
+        not isinstance(reference, ElementRef) for reference in refs
+    ):
+        return False, f"Expected {expected_count} ElementRef objects, got {refs}"
+    source_ids = world.sp1_repair_many_sources[kind]
+    canonical = {
+        "RESP-90": "RESP-1",
+        "RESP-30": "RESP-2",
+        "CP-90": "CP-1",
+    }
+    for reference, source_id in zip(refs, source_ids):
+        if reference.id != canonical[source_id]:
+            return False, (
+                f"Expected {source_id} to map to {canonical[source_id]}, "
+                f"got {reference.id}"
+            )
+    return True, ""
+
+
+def _h_sp1_repair_many_cross_refs(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: every production-shaped cross-reference targets its source."""
+    canonical = {
+        "RESP-90": ("responsibility", "RESP-1"),
+        "RESP-30": ("responsibility", "RESP-2"),
+        "CP-90": ("controlled_process", "CP-1"),
+    }
+    refs = []
+    for responsibility in world.control_structure.responsibilities:
+        refs.extend(
+            action.target
+            for action in responsibility.control_actions
+            if action.target is not None
+        )
+        refs.extend(
+            channel.source
+            for channel in responsibility.feedback_channels
+            if channel.source is not None
+        )
+    valid = {
+        (reference.type.value, reference.id)
+        for reference in refs
+        if isinstance(reference, ElementRef)
+    }
+    expected = set(canonical.values())
+    if not expected.issubset(valid):
+        return False, f"Missing intended cross-reference in {valid}"
     return True, ""
 
 
@@ -4821,6 +5119,16 @@ def register(api: object) -> None:
     api.register('the response is decoded$', _h_sp1_alias_decode, source_order=15144)
     api.register('the decoded (?:responsibility|responsibility constraint|process model part|control action|feedback channel|controlled process|coordination link|coordination mechanism) has \\S+ \\S+$', _h_sp1_alias_assert, source_order=15145)
     api.register('the decoded control action has an empty description$', _h_sp1_alias_empty_description, source_order=15146)
+    api.register('.* is the bare string \\S+$', _h_sp1_repair_bare_ref, source_order=15147)
+    api.register('.* is an ElementRef object with type \\S+ and ID \\S+$', _h_sp1_repair_bare_ref_assert, source_order=15148)
+    api.register('.* remains the bare string \\S+$', _h_sp1_repair_bare_ref_remains, source_order=15149)
+    api.register('.* is null$', _h_sp1_repair_null_ref, source_order=15150)
+    api.register('.* remains null$', _h_sp1_repair_null_ref_assert, source_order=15151)
+    api.register('Call 2b returns \\d+ (?:control actions|feedback channels) with bare-string (?:targets|sources)$', _h_sp1_repair_many_setup, source_order=15152)
+    api.register('every bare string identifies an existing responsibility or controlled process by source ID$', _h_sp1_repair_many_noop, source_order=15153)
+    api.register('all \\d+ (?:control action targets|feedback channel sources) are ElementRef objects with canonical IDs$', _h_sp1_repair_many_assert, source_order=15154)
+    api.register('every cross-reference identifies its intended element$', _h_sp1_repair_many_cross_refs, source_order=15155)
+    api.register_first('validation fails with an error identifying target as a malformed ElementRef$', _h_sp1_repair_bare_ref_validation_error, source_order=15156)
     api.set_feature(None)
 
 __all__ = ["FEATURE_ID", "register"]

@@ -148,6 +148,63 @@ def test_normalization_preserves_a_valid_reference_type() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("field", "source_id", "expected"),
+    [
+        (
+            ("process_model_parts", "feedback_source"),
+            "CP-9",
+            {"type": "controlled_process", "id": "CP-2"},
+        ),
+        (
+            ("control_actions", "target"),
+            "RESP-10",
+            {"type": "responsibility", "id": "RESP-2"},
+        ),
+        (
+            ("feedback_channels", "source"),
+            "CP-9",
+            {"type": "controlled_process", "id": "CP-2"},
+        ),
+    ],
+)
+def test_normalization_wraps_bare_element_refs(
+    field: tuple[str, str],
+    source_id: str,
+    expected: dict[str, str],
+) -> None:
+    payload = _payload_with_references()
+    payload["responsibilities"][0][field[0]][0][field[1]] = source_id
+
+    result = normalize_control_structure_payload(payload)
+
+    assert result.payload["responsibilities"][0][field[0]][0][field[1]] == expected
+    ControlStructure.model_validate(result.payload)
+
+
+def test_normalization_leaves_unrecognized_bare_element_ref_for_validation() -> None:
+    payload = _payload_with_references()
+    payload["responsibilities"][0]["control_actions"][0]["target"] = "process-alpha"
+
+    result = normalize_control_structure_payload(payload)
+
+    assert result.payload["responsibilities"][0]["control_actions"][0]["target"] == (
+        "process-alpha"
+    )
+    with pytest.raises(ValueError, match="target"):
+        ControlStructure.model_validate(result.payload)
+
+
+def test_normalization_preserves_null_element_refs() -> None:
+    payload = _payload_with_references()
+    payload["responsibilities"][0]["control_actions"][0]["target"] = None
+
+    result = normalize_control_structure_payload(payload)
+
+    assert result.payload["responsibilities"][0]["control_actions"][0]["target"] is None
+    ControlStructure.model_validate(result.payload)
+
+
 def test_normalization_repairs_empty_descriptions_from_canonical_context() -> None:
     result = normalize_control_structure_payload(_payload_with_references())
     payload = result.payload
