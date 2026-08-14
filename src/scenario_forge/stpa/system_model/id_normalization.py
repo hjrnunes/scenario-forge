@@ -12,7 +12,7 @@ orchestration.
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -332,6 +332,36 @@ def _reference_type_value(value: Any) -> str | None:
     return None
 
 
+def _ref_items(
+    responsibility: dict[str, Any],
+) -> Iterator[dict[str, Any]]:
+    """Yield typed references nested in one responsibility."""
+    for child_key, ref_key in _TYPED_REFERENCE_FIELDS:
+        children = responsibility.get(child_key, [])
+        if not isinstance(children, list):
+            continue
+        for child in children:
+            if not isinstance(child, dict):
+                continue
+            reference = child.get(ref_key)
+            if isinstance(reference, dict):
+                yield reference
+
+
+def _fix_type(reference: dict[str, Any]) -> None:
+    """Infer a missing ElementRef type from its source ID."""
+    reference_type = _reference_type_value(reference.get("type"))
+    if reference_type in _TYPED_REFERENCE_NAMESPACES:
+        return
+    source_id = reference.get("id")
+    if not isinstance(source_id, str):
+        return
+    if source_id.startswith("RESP-"):
+        reference["type"] = "responsibility"
+    elif source_id.startswith("CP-"):
+        reference["type"] = "controlled_process"
+
+
 def _repair_element_ref_types(payload: dict[str, Any]) -> None:
     """Infer missing ElementRef types from their source ID prefixes."""
     responsibilities = payload.get("responsibilities", [])
@@ -340,26 +370,8 @@ def _repair_element_ref_types(payload: dict[str, Any]) -> None:
     for responsibility in responsibilities:
         if not isinstance(responsibility, dict):
             continue
-        for child_key, ref_key in _TYPED_REFERENCE_FIELDS:
-            children = responsibility.get(child_key, [])
-            if not isinstance(children, list):
-                continue
-            for child in children:
-                if not isinstance(child, dict):
-                    continue
-                reference = child.get(ref_key)
-                if not isinstance(reference, dict):
-                    continue
-                reference_type = _reference_type_value(reference.get("type"))
-                if reference_type in _TYPED_REFERENCE_NAMESPACES:
-                    continue
-                source_id = reference.get("id")
-                if not isinstance(source_id, str):
-                    continue
-                if source_id.startswith("RESP-"):
-                    reference["type"] = "responsibility"
-                elif source_id.startswith("CP-"):
-                    reference["type"] = "controlled_process"
+        for reference in _ref_items(responsibility):
+            _fix_type(reference)
 
 
 def _rewrite_typed_reference(
@@ -404,13 +416,8 @@ def _rewrite_typed_responsibility_references(
     namespace_maps: dict[str, dict[str, str]],
 ) -> None:
     """Rewrite ElementRefs nested in a single responsibility."""
-    for child_key, ref_key in _TYPED_REFERENCE_FIELDS:
-        children = responsibility.get(child_key, [])
-        if not isinstance(children, list):
-            continue
-        for child in children:
-            if isinstance(child, dict):
-                _rewrite_typed_reference(child.get(ref_key), namespace_maps)
+    for reference in _ref_items(responsibility):
+        _rewrite_typed_reference(reference, namespace_maps)
 
 
 def _rewrite_feedback_channel_references(
@@ -583,6 +590,24 @@ def _set_empty_description(
     element["description"] = f"{type_name} {element.get(id_key)}"
 
 
+def _fb_text(feedback_channel: dict[str, Any]) -> str:
+    """Build a context-based placeholder for one feedback channel."""
+    updates = feedback_channel.get("updates")
+    if not updates:
+        return f"Feedback channel {feedback_channel.get('fb_id')}"
+
+    source = feedback_channel.get("source")
+    if isinstance(source, dict):
+        source_type = _reference_type_value(source.get("type"))
+        source_id = source.get("id")
+        if source_type and source_id:
+            return (
+                f"Feedback from {source_type.replace('_', ' ')} {source_id} "
+                f"updating process model part {updates}"
+            )
+    return f"Feedback updating process model part {updates}"
+
+
 def _set_feedback_description(feedback_channel: Any) -> None:
     """Set a context-based placeholder for one empty feedback description."""
     if (
@@ -590,69 +615,60 @@ def _set_feedback_description(feedback_channel: Any) -> None:
         or feedback_channel.get("description") != ""
     ):
         return
+    feedback_channel["description"] = _fb_text(feedback_channel)
 
-    updates = feedback_channel.get("updates")
-    if not updates:
-        feedback_channel["description"] = (
-            f"Feedback channel {feedback_channel.get('fb_id')}"
-        )
+
+def _fix_children(children: Any, element_type: str) -> None:
+    """Repair descriptions in one responsibility child collection."""
+    if not isinstance(children, list):
         return
+    for child in children:
+        if element_type == "feedback_channel":
+            _set_feedback_description(child)
+        else:
+            _set_empty_description(child, element_type)
 
-    source = feedback_channel.get("source")
-    if source is None:
-        feedback_channel["description"] = (
-            f"Feedback updating process model part {updates}"
-        )
+
+def _fix_resps(responsibilities: Any) -> None:
+    """Repair descriptions in responsibilities and their children."""
+    if not isinstance(responsibilities, list):
         return
+    for responsibility in responsibilities:
+        if not isinstance(responsibility, dict):
+            continue
+        _set_empty_description(responsibility, "responsibility")
+        for child_key, _id_key, _prefix, element_type in (
+            _RESPONSIBILITY_CHILD_SPECS
+        ):
+            _fix_children(responsibility.get(child_key, []), element_type)
 
-    if isinstance(source, dict):
-        source_type = _reference_type_value(source.get("type"))
-        source_id = source.get("id")
-        if source_type and source_id:
-            feedback_channel["description"] = (
-                f"Feedback from {source_type.replace('_', ' ')} {source_id} "
-                f"updating process model part {updates}"
+
+def _fix_list(elements: Any, element_type: str) -> None:
+    """Repair descriptions in one top-level element collection."""
+    if not isinstance(elements, list):
+        return
+    for element in elements:
+        _set_empty_description(element, element_type)
+
+
+def _fix_links(links: Any) -> None:
+    """Repair coordination-link and mechanism descriptions."""
+    if not isinstance(links, list):
+        return
+    for link in links:
+        _set_empty_description(link, "coordination_link")
+        if isinstance(link, dict):
+            _set_empty_description(
+                link.get("coordination_mechanism"),
+                "coordination_mechanism",
             )
-            return
-    feedback_channel["description"] = (
-        f"Feedback updating process model part {updates}"
-    )
 
 
 def _repair_empty_descriptions(payload: dict[str, Any]) -> None:
     """Repair only empty descriptions after IDs and references are canonical."""
-    responsibilities = payload.get("responsibilities", [])
-    if isinstance(responsibilities, list):
-        for responsibility in responsibilities:
-            if not isinstance(responsibility, dict):
-                continue
-            _set_empty_description(responsibility, "responsibility")
-            for child_key, _id_key, _prefix, element_type in (
-                _RESPONSIBILITY_CHILD_SPECS
-            ):
-                children = responsibility.get(child_key, [])
-                if not isinstance(children, list):
-                    continue
-                for child in children:
-                    if element_type == "feedback_channel":
-                        _set_feedback_description(child)
-                    else:
-                        _set_empty_description(child, element_type)
-
-    controlled_processes = payload.get("controlled_processes", [])
-    if isinstance(controlled_processes, list):
-        for process in controlled_processes:
-            _set_empty_description(process, "controlled_process")
-
-    coordination_links = payload.get("coordination_links", [])
-    if isinstance(coordination_links, list):
-        for link in coordination_links:
-            _set_empty_description(link, "coordination_link")
-            if isinstance(link, dict):
-                _set_empty_description(
-                    link.get("coordination_mechanism"),
-                    "coordination_mechanism",
-                )
+    _fix_resps(payload.get("responsibilities", []))
+    _fix_list(payload.get("controlled_processes", []), "controlled_process")
+    _fix_links(payload.get("coordination_links", []))
 
 
 def validate_normalized_control_structure(
@@ -664,5 +680,5 @@ def validate_normalized_control_structure(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-14T00:20:58Z","module_hash":"0f73302fa7c8e7805d271801a1b4da14fb9fafe4d831cc012ea9887dad261e5f","functions":[{"id":"func/ControlStructureNormalization.old_to_new","name":"old_to_new","line":77,"end_line":79,"hash":"61a2022b46c119efe8fc394b0f6573fabe19f8f510ccfee8e246192831757756"},{"id":"func/_payload_dict","name":"_payload_dict","line":82,"end_line":93,"hash":"04d63614d7054ed03af076939fa95012c7a75fe2f7282ab6202e300d3c0edcba"},{"id":"func/_empty_namespace_entries","name":"_empty_namespace_entries","line":96,"end_line":98,"hash":"f000cbe63cad1c3296a80aa7eb6a9e8c265d66db08af8f73f3e48498619af8f3"},{"id":"func/_collect_child_source_ids","name":"_collect_child_source_ids","line":101,"end_line":121,"hash":"c98829f502fd3120cc0fc57987ecfd5a41f311a1b36e67e586863e8871d19904"},{"id":"func/_child_source_id_entry","name":"_child_source_id_entry","line":124,"end_line":137,"hash":"11abcaafe3f1fb742f3b0b1a291b86b888dcc080556d2205a32875e4ffdfe7f5"},{"id":"func/_collect_responsibility_source_ids","name":"_collect_responsibility_source_ids","line":140,"end_line":159,"hash":"c9288eb08c16461f0a45a58be2e081ce4be3a32063d94d318f1a0d7b0c78e772"},{"id":"func/_collect_controlled_process_source_ids","name":"_collect_controlled_process_source_ids","line":162,"end_line":175,"hash":"5cf7a5ef7c6aa48a6fe0c9d2e08af4ac510ec84803b02b0f80c3a18d816e8824"},{"id":"func/_collect_coordination_source_ids","name":"_collect_coordination_source_ids","line":178,"end_line":187,"hash":"d38fb4a6dd81fcc21934632aa931c22239e2c997a138f31192f681f7032c0aac"},{"id":"func/_string_id","name":"_string_id","line":190,"end_line":194,"hash":"2be0e1c959077e17f1d53d73abcbdf552cc20e2dfeeb5051de2d2f694809691c"},{"id":"func/_collect_coordination_link_source_ids","name":"_collect_coordination_link_source_ids","line":197,"end_line":213,"hash":"e4d7708ec632bfdc0399d7d5d4a813e9850a4f28c9148d2927cad699892b8dc0"},{"id":"func/_source_id_entries","name":"_source_id_entries","line":216,"end_line":236,"hash":"4ab1d149107cf0b0f7d3860d409c426c22224c775ec7bbd7f1b00e8f299081db"},{"id":"func/_unique_source_map","name":"_unique_source_map","line":239,"end_line":248,"hash":"94602069054cb0124dbf827ca2dbdae29c41b8f0f74de3caa380d96349460051"},{"id":"func/_flat_unique_source_map","name":"_flat_unique_source_map","line":251,"end_line":263,"hash":"6b577e308afd3246ade4447c7916d0065e6f74acceac5b22a0797c542ae57e6d"},{"id":"func/_set_responsibility_canonical_ids","name":"_set_responsibility_canonical_ids","line":266,"end_line":274,"hash":"6d47de99c25914b784899a1fb6acce500aaf4ee0614ea91b02d878195aba1997"},{"id":"func/_set_responsibility_child_canonical_ids","name":"_set_responsibility_child_canonical_ids","line":277,"end_line":290,"hash":"c06e17e316dfa27c65bc4eb56eee941f77723ba3cd11c5720d818d5c40c8ad5c"},{"id":"func/_set_controlled_process_canonical_ids","name":"_set_controlled_process_canonical_ids","line":293,"end_line":297,"hash":"fb6b97a53c899831a27a688075df83156ee01fda0e4c5cbb4419db6af523b9cc"},{"id":"func/_set_coordination_canonical_ids","name":"_set_coordination_canonical_ids","line":300,"end_line":308,"hash":"04c933c644aba41c05398d493959f80cbb1e28ab0132a96c7ecb69e57048e105"},{"id":"func/_set_canonical_ids","name":"_set_canonical_ids","line":311,"end_line":323,"hash":"a13e31fa5b37e084a0df0df32b9eb23e3c913039e8cc299cce9bd4259d25c718"},{"id":"func/_reference_type_value","name":"_reference_type_value","line":326,"end_line":332,"hash":"1ce8b2d123998eb9c921a8749227150832ecbd8777be5be29a8dd68550f9aabb"},{"id":"func/_rewrite_typed_reference","name":"_rewrite_typed_reference","line":335,"end_line":349,"hash":"3598ef10b0b7eb2cd4d7ee854b5af4b23bb36036fd0ac370a1aabf8684b4c8e0"},{"id":"func/_rewrite_local_pm_reference","name":"_rewrite_local_pm_reference","line":352,"end_line":359,"hash":"93514dc77186bde827b3bffccc0a180b72c04206426883e9c80f404c9776ece6"},{"id":"func/_rewrite_responsibility_references","name":"_rewrite_responsibility_references","line":362,"end_line":369,"hash":"1e471851a8bf0d199fed3f2c742dd7c3b6e389640379975b1ff3ef753911b55e"},{"id":"func/_rewrite_typed_responsibility_references","name":"_rewrite_typed_responsibility_references","line":372,"end_line":383,"hash":"8415aa595003b3d84b665419573178bb850b2fcd170b4ad43e152786fcb5caa2"},{"id":"func/_rewrite_feedback_channel_references","name":"_rewrite_feedback_channel_references","line":386,"end_line":396,"hash":"8d68098c4e797f420780765ad6643024df1d797cb1d79a1ecedce8f5590f77d0"},{"id":"func/_rewrite_coordination_references","name":"_rewrite_coordination_references","line":399,"end_line":417,"hash":"d3f62927dc29636c68cc76b577e59fd3836a0a8cb918a8c806e3641664a7a8be"},{"id":"func/_build_source_id_maps","name":"_build_source_id_maps","line":420,"end_line":429,"hash":"9634647cba55668ca0d6b59073a50818c79beae0ca12bfccff92f1dc7d663552"},{"id":"func/_build_local_pm_maps","name":"_build_local_pm_maps","line":432,"end_line":450,"hash":"79b39cf43385652eaca51a7742c95e713e4126d6330d9b644e12a26ef02450aa"},{"id":"func/normalize_control_structure_payload","name":"normalize_control_structure_payload","line":453,"end_line":487,"hash":"fef6ab78188f1a67b9a8d36c1357b814c516d39bd0784c7a5e64ce709a317f42"},{"id":"func/_rewrite_references_before_id_replacement","name":"_rewrite_references_before_id_replacement","line":490,"end_line":503,"hash":"a3a42b9afff04f7e92f8a389961d1d849fbd78c755f5dc97c9456ed81b05a36c"},{"id":"func/_rewrite_responsibility_references_in_payload","name":"_rewrite_responsibility_references_in_payload","line":506,"end_line":526,"hash":"d72e124372ef1857f517e2453099cfed4a7569c69a4c8f2d884691ecc021ad8b"},{"id":"func/validate_normalized_control_structure","name":"validate_normalized_control_structure","line":529,"end_line":534,"hash":"50b99861dc189a1f4ab2410683c9c45ecd4350b9bca9db9cfcd8c976aa1c21d6"}]}
+# {"version":1,"tested_at":"2026-08-14T11:03:17Z","module_hash":"108a41cf275e28f2ed42e5e2628645852ea1c3ed4ddade231b8794a88b3da5a1","functions":[{"id":"func/ControlStructureNormalization.old_to_new","name":"old_to_new","line":77,"end_line":79,"hash":"61a2022b46c119efe8fc394b0f6573fabe19f8f510ccfee8e246192831757756"},{"id":"func/_payload_dict","name":"_payload_dict","line":82,"end_line":93,"hash":"04d63614d7054ed03af076939fa95012c7a75fe2f7282ab6202e300d3c0edcba"},{"id":"func/_empty_namespace_entries","name":"_empty_namespace_entries","line":96,"end_line":98,"hash":"f000cbe63cad1c3296a80aa7eb6a9e8c265d66db08af8f73f3e48498619af8f3"},{"id":"func/_collect_child_source_ids","name":"_collect_child_source_ids","line":101,"end_line":121,"hash":"c98829f502fd3120cc0fc57987ecfd5a41f311a1b36e67e586863e8871d19904"},{"id":"func/_child_source_id_entry","name":"_child_source_id_entry","line":124,"end_line":137,"hash":"11abcaafe3f1fb742f3b0b1a291b86b888dcc080556d2205a32875e4ffdfe7f5"},{"id":"func/_collect_responsibility_source_ids","name":"_collect_responsibility_source_ids","line":140,"end_line":159,"hash":"c9288eb08c16461f0a45a58be2e081ce4be3a32063d94d318f1a0d7b0c78e772"},{"id":"func/_collect_controlled_process_source_ids","name":"_collect_controlled_process_source_ids","line":162,"end_line":175,"hash":"5cf7a5ef7c6aa48a6fe0c9d2e08af4ac510ec84803b02b0f80c3a18d816e8824"},{"id":"func/_collect_coordination_source_ids","name":"_collect_coordination_source_ids","line":178,"end_line":187,"hash":"d38fb4a6dd81fcc21934632aa931c22239e2c997a138f31192f681f7032c0aac"},{"id":"func/_string_id","name":"_string_id","line":190,"end_line":194,"hash":"2be0e1c959077e17f1d53d73abcbdf552cc20e2dfeeb5051de2d2f694809691c"},{"id":"func/_collect_coordination_link_source_ids","name":"_collect_coordination_link_source_ids","line":197,"end_line":213,"hash":"e4d7708ec632bfdc0399d7d5d4a813e9850a4f28c9148d2927cad699892b8dc0"},{"id":"func/_source_id_entries","name":"_source_id_entries","line":216,"end_line":236,"hash":"4ab1d149107cf0b0f7d3860d409c426c22224c775ec7bbd7f1b00e8f299081db"},{"id":"func/_unique_source_map","name":"_unique_source_map","line":239,"end_line":248,"hash":"94602069054cb0124dbf827ca2dbdae29c41b8f0f74de3caa380d96349460051"},{"id":"func/_flat_unique_source_map","name":"_flat_unique_source_map","line":251,"end_line":263,"hash":"6b577e308afd3246ade4447c7916d0065e6f74acceac5b22a0797c542ae57e6d"},{"id":"func/_set_responsibility_canonical_ids","name":"_set_responsibility_canonical_ids","line":266,"end_line":274,"hash":"6d47de99c25914b784899a1fb6acce500aaf4ee0614ea91b02d878195aba1997"},{"id":"func/_set_responsibility_child_canonical_ids","name":"_set_responsibility_child_canonical_ids","line":277,"end_line":290,"hash":"c06e17e316dfa27c65bc4eb56eee941f77723ba3cd11c5720d818d5c40c8ad5c"},{"id":"func/_set_controlled_process_canonical_ids","name":"_set_controlled_process_canonical_ids","line":293,"end_line":297,"hash":"fb6b97a53c899831a27a688075df83156ee01fda0e4c5cbb4419db6af523b9cc"},{"id":"func/_set_coordination_canonical_ids","name":"_set_coordination_canonical_ids","line":300,"end_line":308,"hash":"04c933c644aba41c05398d493959f80cbb1e28ab0132a96c7ecb69e57048e105"},{"id":"func/_set_canonical_ids","name":"_set_canonical_ids","line":311,"end_line":323,"hash":"a13e31fa5b37e084a0df0df32b9eb23e3c913039e8cc299cce9bd4259d25c718"},{"id":"func/_reference_type_value","name":"_reference_type_value","line":326,"end_line":332,"hash":"1ce8b2d123998eb9c921a8749227150832ecbd8777be5be29a8dd68550f9aabb"},{"id":"func/_ref_items","name":"_ref_items","line":335,"end_line":348,"hash":"9430a6f3bed4bedb85560faf6433f9111c8ce3966a91535db50f5950b8c320b3"},{"id":"func/_fix_type","name":"_fix_type","line":351,"end_line":362,"hash":"a349e6e21f7774866752f4abf45e3ac4fa6d83c563883cfeba437f76088ab3dc"},{"id":"func/_repair_element_ref_types","name":"_repair_element_ref_types","line":365,"end_line":374,"hash":"82422bd40d6d0aa3199211c25b9f9d516ef625775a0572be16b3e3654c807c1f"},{"id":"func/_rewrite_typed_reference","name":"_rewrite_typed_reference","line":377,"end_line":391,"hash":"3598ef10b0b7eb2cd4d7ee854b5af4b23bb36036fd0ac370a1aabf8684b4c8e0"},{"id":"func/_rewrite_local_pm_reference","name":"_rewrite_local_pm_reference","line":394,"end_line":401,"hash":"93514dc77186bde827b3bffccc0a180b72c04206426883e9c80f404c9776ece6"},{"id":"func/_rewrite_responsibility_references","name":"_rewrite_responsibility_references","line":404,"end_line":411,"hash":"1e471851a8bf0d199fed3f2c742dd7c3b6e389640379975b1ff3ef753911b55e"},{"id":"func/_rewrite_typed_responsibility_references","name":"_rewrite_typed_responsibility_references","line":414,"end_line":420,"hash":"77e51082d7f6368f729d4aea39a71dd4d67de2c8e420790af17d592ec9e02d7c"},{"id":"func/_rewrite_feedback_channel_references","name":"_rewrite_feedback_channel_references","line":423,"end_line":433,"hash":"8d68098c4e797f420780765ad6643024df1d797cb1d79a1ecedce8f5590f77d0"},{"id":"func/_rewrite_coordination_references","name":"_rewrite_coordination_references","line":436,"end_line":454,"hash":"d3f62927dc29636c68cc76b577e59fd3836a0a8cb918a8c806e3641664a7a8be"},{"id":"func/_build_source_id_maps","name":"_build_source_id_maps","line":457,"end_line":466,"hash":"9634647cba55668ca0d6b59073a50818c79beae0ca12bfccff92f1dc7d663552"},{"id":"func/_build_local_pm_maps","name":"_build_local_pm_maps","line":469,"end_line":487,"hash":"79b39cf43385652eaca51a7742c95e713e4126d6330d9b644e12a26ef02450aa"},{"id":"func/normalize_control_structure_payload","name":"normalize_control_structure_payload","line":490,"end_line":526,"hash":"d9cbf646bd1eb70d0152621ee0724af4cd7bcf033ed594fb31ffda6925625e7d"},{"id":"func/_rewrite_references_before_id_replacement","name":"_rewrite_references_before_id_replacement","line":529,"end_line":542,"hash":"a3a42b9afff04f7e92f8a389961d1d849fbd78c755f5dc97c9456ed81b05a36c"},{"id":"func/_rewrite_responsibility_references_in_payload","name":"_rewrite_responsibility_references_in_payload","line":545,"end_line":565,"hash":"d72e124372ef1857f517e2453099cfed4a7569c69a4c8f2d884691ecc021ad8b"},{"id":"func/_set_empty_description","name":"_set_empty_description","line":582,"end_line":590,"hash":"df67f9471a5f9a81bb366bf6672434cee47961ca0948ef57749b04436df34805"},{"id":"func/_fb_text","name":"_fb_text","line":593,"end_line":608,"hash":"0af9c3eb2171c35eeb30d893d6bd02082be0a83e869e861b43d070c757a7bfb9"},{"id":"func/_set_feedback_description","name":"_set_feedback_description","line":611,"end_line":618,"hash":"e99c2b5586c6e3e4d17fc4d47c5f410b4ea12828e17d7525fcac1e2eaebe9861"},{"id":"func/_fix_children","name":"_fix_children","line":621,"end_line":629,"hash":"c5cdfb6507216e864fbcc263e10494e824578077f9f3c58dba87494ee959e878"},{"id":"func/_fix_resps","name":"_fix_resps","line":632,"end_line":643,"hash":"4a7cbddb66083744fd9a1c7c41c568a12fb1b559a53900f6521c314e73a73aac"},{"id":"func/_fix_list","name":"_fix_list","line":646,"end_line":651,"hash":"92f96d67c2291f3a280a19bd0442815f2a7d0553e60154d773b88d3e1435bcc7"},{"id":"func/_fix_links","name":"_fix_links","line":654,"end_line":664,"hash":"b2a619f2edf1f59498ca0ca5e1d46dc1490282b8f2987a6c8d13781ff9b43220"},{"id":"func/_repair_empty_descriptions","name":"_repair_empty_descriptions","line":667,"end_line":671,"hash":"2516bf9eeaa9eba67242f7e376555081603f4737e68f5248107fc44ad9f06e1c"},{"id":"func/validate_normalized_control_structure","name":"validate_normalized_control_structure","line":674,"end_line":679,"hash":"50b99861dc189a1f4ab2410683c9c45ecd4350b9bca9db9cfcd8c976aa1c21d6"}]}
 # mutate4py-manifest-end
