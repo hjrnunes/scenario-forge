@@ -143,10 +143,9 @@ def _is_unsupported_unvalidated_error(
     allow_unvalidated: bool,
 ) -> bool:
     """Check whether a client rejected the optional compatibility argument."""
-    return (
-        allow_unvalidated
-        and "unexpected keyword argument" in str(error)
-    )
+    if not allow_unvalidated:
+        return False
+    return "unexpected keyword argument" in str(error)
 
 
 def _result_usage(

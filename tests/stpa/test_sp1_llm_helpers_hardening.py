@@ -3,6 +3,14 @@
 These stay separate from unit and acceptance tests. They kill surviving
 mutants in ``llm_helpers`` decode/construct helpers used before ID
 normalization.
+
+Four remaining mutate4py sites sit on keyword-only default literals
+(``log_llm_call_failure`` token/duration defaults and
+``safe_llm_call(..., allow_unvalidated=False)``). LCOV does not emit DA
+records for those signature lines, so scan reports them uncovered. The
+default paths are already exercised by
+``test_failure_log_defaults_are_zero`` and
+``test_safe_call_default_does_not_use_tolerant_fallback``.
 """
 
 from __future__ import annotations
@@ -16,6 +24,8 @@ from pydantic import BaseModel, ValidationError, field_validator
 
 from scenario_forge.stpa.infra.llm import LLMResult
 from scenario_forge.stpa.infra.llm_helpers import (
+    StageError,
+    _is_unsupported_unvalidated_error,
     _stringify_response_content,
     log_llm_call,
     log_llm_call_failure,
@@ -144,6 +154,10 @@ class TestStringifyNoneContent:
         log_llm_call(result, "test-model", tmp_path, "stage_test", "step_test")
         entry = json.loads((tmp_path / "calls.jsonl").read_text().splitlines()[0])
         assert entry["response_content"] == ""
+
+    def test_dict_and_other_content_are_stringified(self) -> None:
+        assert _stringify_response_content({"name": "ok"}) == '{"name": "ok"}'
+        assert _stringify_response_content(12) == "12"
 
 
 class TestDecodePreservesExplicitNone:
@@ -471,3 +485,22 @@ class TestSafeCallKwargsAndFailureUsage:
         assert entry["completion_tokens"] == 0
         assert entry["duration_ms"] == 0
         assert entry["error"] == "boom"
+
+
+class TestCompatGateAndStageError:
+    """Cover the compatibility predicate and StageError attributes."""
+
+    def test_compat_gate_requires_flag_and_message(self) -> None:
+        unexpected = TypeError("unexpected keyword argument 'allow_unvalidated'")
+        other = TypeError("response_format is the wrong type")
+
+        assert _is_unsupported_unvalidated_error(unexpected, True) is True
+        assert _is_unsupported_unvalidated_error(unexpected, False) is False
+        assert _is_unsupported_unvalidated_error(other, True) is False
+
+    def test_stage_error_keeps_stage_and_step(self) -> None:
+        error = StageError(stage="stage_2", step="call_1", message="offline")
+
+        assert error.stage == "stage_2"
+        assert error.step == "call_1"
+        assert str(error) == "stage_2/call_1: offline"

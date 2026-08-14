@@ -604,6 +604,76 @@ class TestSystemModelDependencyDirection:
         assert "_unique_source_map" not in source
         assert "_flat_unique_source_map" not in source
 
+    def test_acceptance_imports_normalizer_from_leaf(self):
+        """Acceptance must import the normalizer from the leaf, not a facade."""
+        acceptance_root = (
+            Path(__file__).resolve().parent.parent.parent / "acceptance"
+        )
+        facade_modules = {
+            "scenario_forge.stpa.system_model",
+            "scenario_forge.stpa.system_model.control_structure",
+        }
+        leaf = "scenario_forge.stpa.system_model.id_normalization"
+        name = "normalize_control_structure_payload"
+        facade_hits: list[str] = []
+        leaf_hits = 0
+        for path in sorted(acceptance_root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom) or not node.module:
+                    continue
+                imported = {alias.name for alias in node.names}
+                if name not in imported:
+                    continue
+                rel = path.relative_to(acceptance_root)
+                if node.module in facade_modules:
+                    facade_hits.append(f"{rel}: {node.module}")
+                if node.module == leaf:
+                    leaf_hits += 1
+        assert not facade_hits, (
+            "acceptance imported the normalizer via a package facade:\n"
+            + "\n".join(facade_hits)
+        )
+        assert leaf_hits > 0, (
+            "acceptance no longer imports the normalizer from the leaf"
+        )
+
+    def test_package_does_not_reexport_normalizer(self):
+        """The system_model package must not re-export the payload normalizer."""
+        init_path = SYSTEM_MODEL_DIR / "__init__.py"
+        tree = ast.parse(init_path.read_text(encoding="utf-8"), filename=str(init_path))
+        exported: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if not node.module or "id_normalization" not in node.module:
+                continue
+            exported.extend(alias.name for alias in node.names)
+        assert "normalize_control_structure_payload" not in exported
+        package = importlib.import_module("scenario_forge.stpa.system_model")
+        assert "normalize_control_structure_payload" not in package.__all__
+        assert not hasattr(package, "normalize_control_structure_payload")
+
+    def test_control_structure_uses_leaf_normalizer(self, system_model_files):
+        """Stage 2 may use the leaf internally; it must not become a facade."""
+        path = system_model_files["control_structure"]
+        imports = set(_system_model_internal_imports(path))
+        assert "id_normalization" in imports
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        public_names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "__all__":
+                        if isinstance(node.value, ast.List | ast.Tuple):
+                            public_names.update(
+                                elt.value
+                                for elt in node.value.elts
+                                if isinstance(elt, ast.Constant)
+                                and isinstance(elt.value, str)
+                            )
+        assert "normalize_control_structure_payload" not in public_names
+
     def test_critic_stitches_then_delegates_published_ids(
         self, system_model_files
     ):

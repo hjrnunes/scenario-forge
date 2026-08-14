@@ -310,7 +310,13 @@ class TestParseLlmResult:
             assert parsed.name == "decoded"
 
     def test_unvalidated_parser_rejects_non_mapping_content(self):
-        """Tolerant decoding still requires a mapping-shaped response."""
+        """Tolerant decoding still requires a mapping-shaped response.
+
+        ``_decode_llm_content`` always returns a dumped mapping, JSON
+        object, or raises.  The later ``isinstance(content, model_class)``
+        branch is therefore defensive and unreachable from this public
+        helper.
+        """
         result = LLMResult(
             content=["not", "a", "mapping"],
             prompt_tokens=0,

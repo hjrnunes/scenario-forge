@@ -452,3 +452,43 @@ class TestAmbiguousGlobalIdsAreNotRewritten:
         with pytest.raises(ValidationError) as caught:
             validate_normalized_control_structure(result.payload)
         assert field in str(caught.value)
+
+
+st_shared = st.text(
+    alphabet=st.characters(
+        whitelist_categories=("Ll", "Lu", "Nd"),
+        whitelist_characters=("-", "_"),
+    ),
+    min_size=1,
+    max_size=16,
+).map(lambda text: f"both-{text}")
+
+
+class TestCrossNamespaceCollisionsAreOmitted:
+    """The same source ID in two namespaces stays out of the flat map."""
+
+    @given(st_shared)
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_shared_source_id_is_omitted_from_flat_map(self, shared):
+        payload = _payload(
+            n_resps=1,
+            n_children=1,
+            n_cps=1,
+            with_links=False,
+            id_prefix="ns",
+            descriptions=["Controller", "unused", "unused"],
+        )
+        payload["responsibilities"][0]["resp_id"] = shared
+        payload["controlled_processes"][0]["cp_id"] = shared
+
+        result = normalize_control_structure_payload(payload)
+
+        assert shared not in result.mapping
+        assert result.mappings["responsibility"][shared] == "RESP-1"
+        assert result.mappings["controlled_process"][shared] == "CP-1"
+        assert result.payload["responsibilities"][0]["resp_id"] == "RESP-1"
+        assert result.payload["controlled_processes"][0]["cp_id"] == "CP-1"

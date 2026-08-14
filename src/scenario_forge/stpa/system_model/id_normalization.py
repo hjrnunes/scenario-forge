@@ -256,11 +256,11 @@ def _flat_unique_source_map(
     for entries in namespace_entries.values():
         for old_id, new_id in entries:
             occurrences.setdefault(old_id, []).append(new_id)
-    return {
-        old_id: new_ids[0]
-        for old_id, new_ids in occurrences.items()
-        if len(new_ids) == 1
-    }
+    unique: dict[str, str] = {}
+    for old_id, new_ids in occurrences.items():
+        if len(new_ids) == 1:
+            unique[old_id] = new_ids[0]
+    return unique
 
 
 def _set_responsibility_canonical_ids(
@@ -515,11 +515,10 @@ def _rewrite_responsibility_references_in_payload(
     for resp_index, resp in enumerate(responsibilities):
         if not isinstance(resp, dict):
             continue
-        local_pm_map = (
-            local_pm_maps[resp_index]
-            if resp_index < len(local_pm_maps)
-            else {}
-        )
+        if resp_index < len(local_pm_maps):
+            local_pm_map = local_pm_maps[resp_index]
+        else:
+            local_pm_map = {}
         _rewrite_responsibility_references(
             resp,
             namespace_maps,
