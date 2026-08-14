@@ -42,6 +42,12 @@ AI-agent examples:
 
 2. **Ground ICAs in process model and feedback.** Reference specific process model parts (PM-*) and feedback channels (FB-*) where relevant. The ICA should describe how the controller's process model or feedback is incorrect, stale, or missing.
 
+## Feedback-channel bridge
+
+FB-* denotes a logical information dependency that updates a process-model belief. It is not evidence of a network socket, packet stream, message bus, database connection, or attacker-accessible transport. Realize the update through a declared AI surface — prompt/context input, retrieved content, tool result, memory state, agent message, or model output — unless the supplied architecture explicitly identifies an accessible transport. Never infer interception, packet injection, blocking, spoofing, or link severing merely from the word "channel".
+
+Do not invent packet interception, MITM (man-in-the-middle access), network delay, traffic blocking, network-signal spoofing, communication-link severing, credential theft, account takeover, session hijacking/fixation, or generic flooding/DoS (denial of service). Such a mechanism is permitted only when the supplied architecture explicitly declares the transport or session surface attacker-accessible and the scenario records that evidence.
+
 3. **Reference valid hazards and constraints.** Each ICA must reference valid hazard IDs and constraint IDs from the provided loss analysis. Use the `related_hazards` and `related_constraints` fields.
 
 4. **N/A justification requirements.** If a slot is not applicable, you must:

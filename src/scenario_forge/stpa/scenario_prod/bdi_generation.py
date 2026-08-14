@@ -14,12 +14,14 @@ from pydantic import BaseModel, Field
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
+from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.models.control_structure import (
     ControlStructure,
     Responsibility,
 )
 from scenario_forge.stpa.models.enriched_threat_set import StructuralThreat
 from scenario_forge.stpa.models.ica_enumeration import UCAType
+from scenario_forge.stpa.threat_enum.technology_context import build_technology_context
 from scenario_forge.stpa.models.scenario_spec import (
     AttackerBDI,
     DefenderBDI,
@@ -155,6 +157,7 @@ def generate_bdi(
     stage: str = "stage_5",
     step: str = "bdi_generation",
     temperature: float = 0.4,
+    capability_profile: CapabilityProfile | None = None,
 ) -> tuple[BDIGenerationResult | None, str | None]:
     """Execute the combined LLM call for vulnerability annotations + attacker BDI.
 
@@ -179,7 +182,12 @@ def generate_bdi(
     target_resp_id = slot_parts["controller"]
 
     system_prompt, user_prompt = _build_bdi_prompts(
-        defender_bdi, threat, control_structure, target_resp_id, loader
+        defender_bdi,
+        threat,
+        control_structure,
+        target_resp_id,
+        loader,
+        capability_profile=capability_profile,
     )
 
     result, _llm_result, error = safe_llm_call(
@@ -204,6 +212,7 @@ def _build_bdi_prompts(
     control_structure: ControlStructure,
     target_resp_id: str,
     loader: TemplateLoader,
+    capability_profile: CapabilityProfile | None = None,
 ) -> tuple[str, str]:
     """Build the system and user prompts for the BDI generation call."""
     defender_bdi_yaml = yaml.dump(
@@ -224,6 +233,11 @@ def _build_bdi_prompts(
         sort_keys=False,
         allow_unicode=True,
     ) if threat.catalog_mappings else "No catalog mappings."
+    technology_context = (
+        build_technology_context(capability_profile)
+        if capability_profile is not None
+        else None
+    )
 
     system_prompt = loader.render_prompt("stage5_system.j2")
     user_prompt = loader.render_prompt(
@@ -235,6 +249,7 @@ def _build_bdi_prompts(
         control_structure_yaml=control_structure_yaml,
         target_resp_id=target_resp_id,
         catalog_context=catalog_context,
+        technology_context=technology_context,
     )
 
     return system_prompt, user_prompt

@@ -8,22 +8,29 @@ Feature: SP3 agentic attack-tree guidance
     Given the SP3 attack tree prompt is available
 
   # SP3-AAT-01
-  Scenario: SP3-AAT-01 the hard template replaces infrastructure leaves with AI surfaces
+  Scenario Outline: SP3-AAT-01 the hard template contains each AI-surface leaf
     When the Stage 6 attack tree system prompt is rendered
-    Then the hard template contains each AI-surface leaf:
-      | leaf                                      |
+    Then the hard template contains AI-surface leaf <leaf>
+    And the prompt permits an infrastructure leaf only with explicit attacker-accessible architecture evidence
+
+    Examples:
+      | leaf                                           |
       | Inject instructions through prompt/context input |
-      | Poison retrieved content                  |
-      | Fabricate a tool result                   |
-      | Poison memory state                       |
-      | Tamper with an agent message              |
-      | Manipulate model output                   |
-    And the hard template does not contain any mandatory infrastructure leaf:
+      | Poison retrieved content                       |
+      | Fabricate a tool result                        |
+      | Poison memory state                            |
+      | Tamper with an agent message                   |
+      | Manipulate model output                        |
+
+  Scenario Outline: SP3-AAT-01 the hard template has no mandatory infrastructure leaf
+    When the Stage 6 attack tree system prompt is rendered
+    Then the hard template does not contain mandatory infrastructure leaf <leaf>
+
+    Examples:
       | leaf                                   |
       | Delay/block feedback                   |
       | Forge feedback                         |
       | Action intercepted/modified in transit |
-    And the prompt permits an infrastructure leaf only with explicit attacker-accessible architecture evidence
 
   # SP3-AAT-02
   Scenario: SP3-AAT-02 a logical-only architecture produces agentic attack-tree leaves

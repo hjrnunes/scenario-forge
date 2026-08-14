@@ -11,7 +11,15 @@ Your task is to produce a dual-BDI (Belief-Desire-Intention) scenario specificat
 
 ## Defender-Attacker Interaction Model
 
-The attacker targets the defender's process model. The defender's beliefs (PM parts) are the attack surface. The attacker manipulates feedback channels to corrupt the process model, causing the defender to act on false beliefs and issue unsafe control actions.
+The attacker targets the defender's process model. The defender's beliefs (PM parts) are the attack surface. The attacker manipulates a declared AI surface that provides a logical feedback update, using the supplied technology-context mechanisms to corrupt the process model and cause the defender to act on false beliefs and issue unsafe control actions.
+
+Feedback is a logical belief update, not an assumed transport. Direct the attacker BDI toward the supplied technology-context mechanisms and the declared AI surfaces that can update the defender's process-model belief.
+
+## Feedback-channel bridge
+
+FB-* denotes a logical information dependency that updates a process-model belief. It is not evidence of a network socket, packet stream, message bus, database connection, or attacker-accessible transport. Realize the update through a declared AI surface — prompt/context input, retrieved content, tool result, memory state, agent message, or model output — unless the supplied architecture explicitly identifies an accessible transport. Never infer interception, packet injection, blocking, spoofing, or link severing merely from the word "channel".
+
+Do not invent packet interception, MITM (man-in-the-middle access), network delay, traffic blocking, network-signal spoofing, communication-link severing, credential theft, account takeover, session hijacking/fixation, or generic flooding/DoS (denial of service). Such a mechanism is permitted only when the supplied architecture explicitly declares the transport or session surface attacker-accessible and the scenario records that evidence.
 
 ## Output Format
 

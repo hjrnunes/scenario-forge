@@ -13,18 +13,20 @@ Feature: SP3 mechanism-context propagation
   Scenario Outline: SP3-MCP-01 downstream prompts include positive mechanism guidance
     When the <stage> user prompt is built with the capability profile
     Then the user prompt contains the complete deterministic technology context
-    And the user prompt technology context contains each positive mechanism:
-      | mechanism                |
-      | prompt injection          |
-      | tool result fabrication   |
-      | memory poisoning          |
-      | agent impersonation       |
-      | retrieval poisoning       |
+    And the user prompt technology context contains positive mechanism <mechanism>
 
     Examples:
-      | stage              |
-      | Stage 5 BDI        |
-      | Stage 6 narrative  |
+      | stage             | mechanism               |
+      | Stage 5 BDI       | prompt injection        |
+      | Stage 5 BDI       | tool result fabrication |
+      | Stage 5 BDI       | memory poisoning        |
+      | Stage 5 BDI       | agent impersonation     |
+      | Stage 5 BDI       | retrieval poisoning     |
+      | Stage 6 narrative | prompt injection        |
+      | Stage 6 narrative | tool result fabrication |
+      | Stage 6 narrative | memory poisoning        |
+      | Stage 6 narrative | agent impersonation     |
+      | Stage 6 narrative | retrieval poisoning     |
 
   # SP3-MCP-02
   Scenario: SP3-MCP-02 the full SP3 run propagates one capability taxonomy downstream

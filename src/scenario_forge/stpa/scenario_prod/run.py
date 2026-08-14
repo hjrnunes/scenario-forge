@@ -126,7 +126,15 @@ def run_sp3(
     # --- Stage 5: BDI generation (1 LLM call per scenario) ---
     for idx, threat in enumerate(enriched_threat_set.structural_threats):
         spec = _run_stage5_for_threat(
-            llm_client, threat, control_structure, run_dir, idx, loader, temperature, stage_errors
+            llm_client,
+            threat,
+            control_structure,
+            run_dir,
+            idx,
+            loader,
+            temperature,
+            stage_errors,
+            capability_profile=capability_profile,
         )
         if spec is not None:
             scenario_specs.append(spec)
@@ -208,6 +216,8 @@ def _run_stage5_for_threat(
     loader: TemplateLoader,
     temperature: float,
     stage_errors: list[str],
+    *,
+    capability_profile: CapabilityProfile | None = None,
 ) -> ScenarioSpec | None:
     """Run Stage 5 BDI generation for a single threat."""
     slot_parts = parse_ica_slot_id(threat.ica_slot_id)
@@ -221,7 +231,9 @@ def _run_stage5_for_threat(
 
     llm_result, error = generate_bdi(
         llm_client, defender_bdi, threat, control_structure, run_dir,
-        loader=loader, temperature=temperature,
+        loader=loader,
+        capability_profile=capability_profile,
+        temperature=temperature,
     )
 
     if error is not None or llm_result is None:
@@ -264,7 +276,13 @@ def _run_stage6_for_spec(
     capability_profile: CapabilityProfile | None = None,
 ) -> ScenarioEnvelope | None:
     """Run Stage 6 concretization for a single scenario spec."""
-    prompts = _build_stage6_prompts(spec, control_structure, loss_analysis, loader)
+    prompts = _build_stage6_prompts(
+        spec,
+        control_structure,
+        loss_analysis,
+        loader,
+        capability_profile=capability_profile,
+    )
 
     results = _parallel_stage6_calls(
         llm_client=llm_client,
@@ -309,9 +327,15 @@ def _build_stage6_prompts(
     control_structure: ControlStructure,
     loss_analysis: LossAnalysis,
     loader: TemplateLoader,
+    *,
+    capability_profile: CapabilityProfile | None = None,
 ) -> _Stage6Prompts:
     """Build system/user prompt pairs for all three Stage 6 calls."""
-    nar_prompts = build_narrative_prompts(spec, loader)
+    nar_prompts = build_narrative_prompts(
+        spec,
+        loader,
+        capability_profile=capability_profile,
+    )
     tree_prompts = build_attack_tree_prompts(spec, control_structure, loader)
     sc = find_security_constraint(spec, loss_analysis)
     ghk_prompts = build_gherkin_prompts(spec, sc, loss_analysis, loader)

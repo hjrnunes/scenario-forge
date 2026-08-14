@@ -12,7 +12,9 @@ from pathlib import Path
 from scenario_forge.stpa.infra.llm import LLMClient
 from scenario_forge.stpa.infra.llm_helpers import safe_llm_call_raw
 from scenario_forge.stpa.infra.templates import TemplateLoader
+from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
+from scenario_forge.stpa.threat_enum.technology_context import build_technology_context
 
 from ._constants import PROMPTS_DIR
 
@@ -27,6 +29,7 @@ def generate_narrative(
     stage: str = "stage_6",
     step: str = "narrative",
     temperature: float = 0.4,
+    capability_profile: CapabilityProfile | None = None,
 ) -> tuple[str | None, str | None]:
     """Execute the narrative LLM call.
 
@@ -45,7 +48,11 @@ def generate_narrative(
     if loader is None:
         loader = TemplateLoader(PROMPTS_DIR)
 
-    system_prompt, user_prompt = build_narrative_prompts(scenario_spec, loader)
+    system_prompt, user_prompt = build_narrative_prompts(
+        scenario_spec,
+        loader,
+        capability_profile=capability_profile,
+    )
 
     text, _result, error = safe_llm_call_raw(
         llm_client=llm_client,
@@ -65,6 +72,7 @@ def generate_narrative(
 def build_narrative_prompts(
     scenario_spec: ScenarioSpec,
     loader: TemplateLoader,
+    capability_profile: CapabilityProfile | None = None,
 ) -> tuple[str, str]:
     """Build the system and user prompts for the narrative call.
 
@@ -84,6 +92,11 @@ def build_narrative_prompts(
 
     loss_scenario = scenario_spec.loss_scenario
     ica_text = f"ICA type: {scenario_spec.ica_type.value} on {scenario_spec.target_control_action}"
+    technology_context = (
+        build_technology_context(capability_profile)
+        if capability_profile is not None
+        else None
+    )
 
     system_prompt = loader.render_prompt("stage6a_narrative_system.j2")
     user_prompt = loader.render_prompt(
@@ -91,6 +104,7 @@ def build_narrative_prompts(
         scenario_spec_yaml=scenario_spec_yaml,
         ica_text=ica_text,
         loss_scenario=loss_scenario,
+        technology_context=technology_context,
     )
 
     return system_prompt, user_prompt
