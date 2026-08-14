@@ -537,6 +537,15 @@ class TestSystemModelDependencyDirection:
             f"heuristics.py imports system_model modules: {imports}"
         )
 
+    def test_repair_passes_keep_required_order(self, system_model_files):
+        """Type inference precedes rewrite; empty descriptions follow IDs."""
+        source = system_model_files["id_normalization"].read_text(encoding="utf-8")
+        type_at = source.index("_repair_element_ref_types(normalized)")
+        rewrite_at = source.index("_rewrite_references_before_id_replacement(")
+        ids_at = source.index("_set_canonical_ids(normalized)")
+        desc_at = source.index("_repair_empty_descriptions(normalized)")
+        assert type_at < rewrite_at < ids_at < desc_at
+
     def test_id_normalization_is_leaf(self, system_model_files):
         """id_normalization.py is high-level policy — no sibling or infra imports."""
         path = system_model_files.get("id_normalization")

@@ -1,8 +1,9 @@
 """Architecture guards for policy-free unvalidated decode.
 
-The decode layer may only invent attribute-safe sentinels from type
-annotations.  Content-vs-ID policy and non-empty description rules live
-on the control-structure models, not in the adapter.
+The decode layer may invent attribute-safe sentinels from type
+annotations and copy a generic ``id`` onto an omitted required field
+whose name ends in ``_id``.  Content-vs-ID policy and non-empty
+description rules live on the control-structure models, not here.
 """
 
 from __future__ import annotations
@@ -97,6 +98,11 @@ class TestDecodeLayerIsPolicyFree:
         source = _source(DECODE_PATH)
         leaks = [token for token in _FORBIDDEN_POLICY_TOKENS if token in source]
         assert leaks == [], f"decode layer leaked field policy: {leaks}"
+
+    def test_generic_id_alias_is_suffix_only(self):
+        source = _source(DECODE_PATH)
+        assert 'name.endswith("_id")' in source
+        assert 'and "id" in value' in source
 
     def test_llm_adapter_does_not_choose_sentinels(self):
         source = _source(HELPERS_PATH)

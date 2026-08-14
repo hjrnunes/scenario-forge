@@ -3570,11 +3570,77 @@ def _sp1_repair_by_id(payload: dict, element: str, canonical_id: str) -> dict:
     raise KeyError(f"{element} {canonical_id}")
 
 
+def _sp1_repair_base() -> dict:
+    """Return a valid payload whose leftover refs survive example mutations."""
+    return {
+        "responsibilities": [
+            {
+                "resp_id": "controller-alpha",
+                "description": "First controller",
+                "responsibility_constraints": [
+                    {"rc_id": "constraint-a", "description": "Constraint A"}
+                ],
+                "process_model_parts": [
+                    {"pm_id": "state-alpha", "description": "State A"}
+                ],
+                "control_actions": [
+                    {"ca_id": "action-a", "description": "Action A"}
+                ],
+                "feedback_channels": [
+                    {
+                        "fb_id": "feedback-a",
+                        "description": "Feedback A",
+                        "updates": "state-alpha",
+                    }
+                ],
+            },
+            {
+                "resp_id": "controller-beta",
+                "description": "Second controller",
+                "responsibility_constraints": [],
+                "process_model_parts": [],
+                "control_actions": [],
+                "feedback_channels": [],
+            },
+        ],
+        "controlled_processes": [
+            {"cp_id": "process-alpha", "description": "Process A"},
+            {"cp_id": "process-beta", "description": "Process B"},
+        ],
+        "coordination_links": [
+            {
+                "link_id": "connection-alpha",
+                "source": "controller-alpha",
+                "target": "controller-beta",
+                "shared_pm": "state-alpha",
+                "coordination_mechanism": {
+                    "cm_id": "mechanism-alpha",
+                    "description": "Mechanism A",
+                    "payload": "State payload A",
+                },
+                "description": "Connection A",
+            }
+        ],
+    }
+
+
+def _remap_src(payload: dict, old_id: str, new_id: str) -> None:
+    """Keep leftover fixture refs aligned when a source ID is rewritten."""
+    if old_id == new_id:
+        return
+    for link in payload.get("coordination_links", []):
+        if not isinstance(link, dict):
+            continue
+        for field in ("source", "target", "shared_pm"):
+            if link.get(field) == old_id:
+                link[field] = new_id
+
+
 def _h_sp1_repair_payload(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: a tolerantly decoded SP1 control-structure payload."""
-    world.sp1_repair_payload = _sp1_id_payload()
+    world.sp1_repair_payload = _sp1_repair_base()
     return True, ""
 
 
@@ -3598,7 +3664,10 @@ def _h_sp1_repair_reference_target(
         element, id_key = findOwnerEl(payload, position)
     except (KeyError, IndexError, TypeError) as exc:
         return False, f"Unknown referenced position: {exc}"
+    old_id = element.get(id_key)
     element[id_key] = source_id
+    if isinstance(old_id, str):
+        _remap_src(payload, old_id, source_id)
     return True, ""
 
 
@@ -3640,7 +3709,10 @@ def _h_sp1_repair_source_id(
     )
     index = int(match.group(2)) - 1
     id_key = "resp_id" if match.group(1).lower() == "responsibility" else "cp_id"
+    old_id = collection[index].get(id_key)
     collection[index][id_key] = match.group(3)
+    if isinstance(old_id, str):
+        _remap_src(world.sp1_repair_payload, old_id, match.group(3))
     return True, ""
 
 
@@ -3838,6 +3910,7 @@ def _h_sp1_repair_validate(
         )
     except (ValidationError, ValueError) as exc:
         world.validation_error = exc
+        return False, f"Normalized payload did not validate: {exc}"
     return True, ""
 
 

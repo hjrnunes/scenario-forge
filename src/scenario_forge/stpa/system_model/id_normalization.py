@@ -4,6 +4,11 @@ High-level SP1 policy: after an LLM payload is decoded and before
 ``ControlStructure`` validation, assign canonical IDs from structural
 position and rewrite references to those IDs.
 
+Recoverable LLM defects stay in this same pass.  ElementRef types are
+inferred from source-ID prefixes *before* rewrite, so the correct
+namespace can be chosen.  Empty description sentinels are replaced
+*after* canonical IDs and rewritten references exist.
+
 This module is a leaf.  It depends on the boundary schema and the
 standard library only — never on LLM clients, files, or Stage 2
 orchestration.
@@ -55,6 +60,22 @@ _TYPED_REFERENCE_FIELDS = (
 _TYPED_REFERENCE_NAMESPACES = {
     "responsibility": "responsibility",
     "controlled_process": "controlled_process",
+}
+_PREFIXES = (
+    ("RESP-", "responsibility"),
+    ("CP-", "controlled_process"),
+)
+_DESC_TYPES = {
+    "responsibility": ("Responsibility", "resp_id"),
+    "responsibility_constraint": (
+        "Responsibility constraint",
+        "rc_id",
+    ),
+    "process_model_part": ("Process model part", "pm_id"),
+    "control_action": ("Control action", "ca_id"),
+    "controlled_process": ("Controlled process", "cp_id"),
+    "coordination_link": ("Coordination link", "link_id"),
+    "coordination_mechanism": ("Coordination mechanism", "cm_id"),
 }
 
 
@@ -356,10 +377,10 @@ def _fix_type(reference: dict[str, Any]) -> None:
     source_id = reference.get("id")
     if not isinstance(source_id, str):
         return
-    if source_id.startswith("RESP-"):
-        reference["type"] = "responsibility"
-    elif source_id.startswith("CP-"):
-        reference["type"] = "controlled_process"
+    for prefix, kind in _PREFIXES:
+        if source_id.startswith(prefix):
+            reference["type"] = kind
+            return
 
 
 def _repair_element_ref_types(payload: dict[str, Any]) -> None:
@@ -509,7 +530,12 @@ def normalize_control_structure_payload(
     # ID is valid in separate responsibilities.
     local_pm_maps = _build_local_pm_maps(normalized)
 
-    # Capture reference values before IDs are overwritten.
+    # Pass order is load-bearing:
+    # 1. Infer ElementRef types from source-ID prefixes so rewrite can
+    #    select a namespace.
+    # 2. Rewrite references while source IDs still match those maps.
+    # 3. Replace published IDs with structural IDs.
+    # 4. Fill empty descriptions from the now-canonical IDs and refs.
     _repair_element_ref_types(normalized)
     _rewrite_references_before_id_replacement(
         normalized,
@@ -563,20 +589,6 @@ def _rewrite_responsibility_references_in_payload(
             namespace_maps,
             local_pm_map,
         )
-
-
-_DESC_TYPES = {
-    "responsibility": ("Responsibility", "resp_id"),
-    "responsibility_constraint": (
-        "Responsibility constraint",
-        "rc_id",
-    ),
-    "process_model_part": ("Process model part", "pm_id"),
-    "control_action": ("Control action", "ca_id"),
-    "controlled_process": ("Controlled process", "cp_id"),
-    "coordination_link": ("Coordination link", "link_id"),
-    "coordination_mechanism": ("Coordination mechanism", "cm_id"),
-}
 
 
 def _set_empty_description(

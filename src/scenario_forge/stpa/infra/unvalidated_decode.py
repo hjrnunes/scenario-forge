@@ -2,8 +2,9 @@
 
 Omitted required fields receive type-appropriate sentinels so attribute
 access is safe.  Declared defaults stay authoritative.  Required nested
-models are not fabricated.  Generic input IDs may fill omitted model ID
-fields; content validity belongs to model validators.
+models are not fabricated.  A generic input ``id`` may fill an omitted
+required field whose name ends in ``_id``.  Other fields never read
+``id``.  Content validity belongs to model validators.
 """
 
 from __future__ import annotations
@@ -108,6 +109,22 @@ def _required_field_sentinel(annotation: Any) -> Any:
     return _required_scalar_sentinel(annotation)
 
 
+def _id_alias(name: str, value: dict[str, Any]) -> bool:
+    """Return True when a generic ``id`` may fill an omitted ``*_id`` field."""
+    return name.endswith("_id") and "id" in value
+
+
+def _omitted_value(
+    name: str,
+    field: Any,
+    value: dict[str, Any],
+) -> Any:
+    """Fill one omitted required field from ``id`` or a type sentinel."""
+    if _id_alias(name, value):
+        return _construct_unvalidated(value["id"], field.annotation)
+    return _required_field_sentinel(field.annotation)
+
+
 def _construct_model_values(
     value: dict[str, Any],
     annotation: type[BaseModel],
@@ -117,14 +134,9 @@ def _construct_model_values(
     for name, field in annotation.model_fields.items():
         if name in value:
             values[name] = _construct_unvalidated(value[name], field.annotation)
-        elif field.is_required():
-            if name.endswith("_id") and "id" in value:
-                values[name] = _construct_unvalidated(
-                    value["id"],
-                    field.annotation,
-                )
-            else:
-                values[name] = _required_field_sentinel(field.annotation)
+            continue
+        if field.is_required():
+            values[name] = _omitted_value(name, field, value)
     return values
 
 
