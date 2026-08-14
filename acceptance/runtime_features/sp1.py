@@ -3857,6 +3857,8 @@ def _h_sp1_repair_null_ref(
         owner, field = _ref_slot(payload, location)
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         return False, f"Unknown null reference location: {exc}"
+    if field not in {"feedback_source", "target", "source"}:
+        return False, f"Unknown null reference field: {field}"
     owner[field] = None
     return True, ""
 
@@ -3877,6 +3879,8 @@ def _h_sp1_repair_null_ref_assert(
         )
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         return False, f"Unknown normalized reference location: {exc}"
+    if field not in owner:
+        return False, f"Missing normalized reference field: {field}"
     if owner.get(field) is not None:
         return False, f"Expected null reference, got {owner.get(field)!r}"
     return True, ""
