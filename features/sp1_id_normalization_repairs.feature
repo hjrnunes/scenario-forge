@@ -108,3 +108,53 @@ Feature: SP1 ID normalization repairs
     And the added feedback channel has a non-empty human-readable description
     And the added ElementRef has type controlled_process and the canonical controlled-process ID
     And the revised ControlStructure validates without a degraded-revision warning
+
+  # SP1-ID-NORMALIZATION-REPAIRS-08 wraps and rewrites recognized bare-string ElementRefs
+  Scenario Outline: SP1-ID-NORMALIZATION-REPAIRS-08 wraps and rewrites recognized bare-string ElementRefs
+    Given the element at <referenced_position> has source ID <source_id>
+    And <reference_location> is the bare string <source_id>
+    When the payload is normalized
+    Then <reference_location> is an ElementRef object with type <reference_type> and ID <canonical_id>
+    And the normalized payload validates as a ControlStructure
+
+    Examples:
+      | referenced_position  | source_id | reference_location                                  | reference_type     | canonical_id |
+      | controlled process 2 | CP-9      | responsibility 1 process model part 1 feedback_source | controlled_process | CP-2         |
+      | controlled process 2 | CP-9      | responsibility 1 control action 1 target            | controlled_process | CP-2         |
+      | controlled process 2 | CP-9      | responsibility 1 feedback channel 1 source          | controlled_process | CP-2         |
+      | responsibility 2     | RESP-9    | responsibility 1 process model part 1 feedback_source | responsibility     | RESP-2       |
+      | responsibility 2     | RESP-9    | responsibility 1 control action 1 target            | responsibility     | RESP-2       |
+      | responsibility 2     | RESP-9    | responsibility 1 feedback channel 1 source          | responsibility     | RESP-2       |
+
+  # SP1-ID-NORMALIZATION-REPAIRS-09 leaves an unrecognized bare-string ElementRef for validation
+  Scenario: SP1-ID-NORMALIZATION-REPAIRS-09 leaves an unrecognized bare-string ElementRef for validation
+    Given responsibility 1 control action 1 target is the bare string process-alpha
+    When the payload is normalized
+    Then responsibility 1 control action 1 target remains the bare string process-alpha
+    When the normalized payload is validated
+    Then validation fails with an error identifying target as a malformed ElementRef
+
+  # SP1-ID-NORMALIZATION-REPAIRS-10 preserves null ElementRef fields
+  Scenario Outline: SP1-ID-NORMALIZATION-REPAIRS-10 preserves null ElementRef fields
+    Given <reference_location> is null
+    When the payload is normalized
+    Then <reference_location> remains null
+    And the normalized payload validates as a ControlStructure
+
+    Examples:
+      | reference_location                                  |
+      | responsibility 1 process model part 1 feedback_source |
+      | responsibility 1 control action 1 target            |
+      | responsibility 1 feedback channel 1 source          |
+
+  # SP1-ID-NORMALIZATION-REPAIRS-11 preserves every production-shaped bare-string cross-reference
+  Scenario: SP1-ID-NORMALIZATION-REPAIRS-11 preserves every production-shaped bare-string cross-reference
+    Given Call 2b returns 11 control actions with bare-string targets
+    And Call 2b returns 16 feedback channels with bare-string sources
+    And every bare string identifies an existing responsibility or controlled process by source ID
+    And the source IDs differ from the IDs implied by final list position
+    When SP1 assembles the control structure with deterministic ID normalization
+    Then all 11 control action targets are ElementRef objects with canonical IDs
+    And all 16 feedback channel sources are ElementRef objects with canonical IDs
+    And every cross-reference identifies its intended element
+    And ControlStructure validation succeeds without assembly degradation

@@ -158,3 +158,84 @@ source ID. Choose source IDs that differ from final positions.
 positions. The ElementRef has type `controlled_process` and the intended
 canonical CP ID. The FB has a human-readable generated description. No
 `Revision delta merge degraded` warning appears.
+
+## QA-SP1-ID-REPAIR-09: Bare controlled-process strings are preserved
+
+**Fixture:** Call 2b supplies a PM `feedback_source`, CA `target`, and FB
+`source` as the bare string `CP-9`. The referenced controlled process is
+second in its list, so its published ID is `CP-2`. Keep all other fields valid.
+
+**Workflow:**
+1. Run the CLI.
+2. Inspect the three fields in `control-structure.yaml`.
+3. Inspect assembly diagnostics in `calls.jsonl` and `run-manifest.yaml`.
+
+**Expected:** Each field is published as
+`{type: controlled_process, id: CP-2}`. All three references remain present,
+the control structure validates, and no fallback-stripping warning appears.
+
+## QA-SP1-ID-REPAIR-10: Bare responsibility strings are preserved
+
+**Fixture:** Call 2b supplies a PM `feedback_source`, CA `target`, and FB
+`source` as the bare string `RESP-9`. The referenced responsibility is second
+in its list, so its published ID is `RESP-2`. Keep all other fields valid.
+
+**Workflow:**
+1. Run the CLI.
+2. Inspect the three fields in `control-structure.yaml`.
+3. Inspect assembly diagnostics in `calls.jsonl` and `run-manifest.yaml`.
+
+**Expected:** Each field is published as
+`{type: responsibility, id: RESP-2}`. All three references remain present,
+the control structure validates, and no fallback-stripping warning appears.
+
+## QA-SP1-ID-REPAIR-11: Production-sized bare-string response does not degrade
+
+**Fixture:** Model Call 2b on the observed production shape: return 11 control
+actions whose `target` values are bare `CP-*` or `RESP-*` strings and 16
+feedback channels whose `source` values are bare `CP-*` or `RESP-*` strings.
+Every source ID uniquely identifies an element, and several source IDs differ
+from their final list-position IDs.
+
+**Workflow:**
+1. Run the CLI.
+2. Count CA targets and FB sources in `control-structure.yaml`.
+3. Verify each reference against the intended responsibility or controlled
+   process from the fixture.
+4. Inspect stderr, `calls.jsonl`, and `run-manifest.yaml`.
+
+**Expected:** The artifact contains all 11 CA targets and all 16 FB sources as
+ElementRef objects with the correct type and canonical ID. No cross-reference
+is null or omitted, validation succeeds, and diagnostics contain neither an
+assembly degradation nor a cross-reference stripping warning.
+
+## QA-SP1-ID-REPAIR-12: Unrecognized bare strings still fail safely
+
+**Fixture:** A CA target is the bare string `process-alpha`. The payload does
+not provide a recognized `RESP-*` or `CP-*` prefix for that value.
+
+**Workflow:**
+1. Run the CLI into a fresh output directory.
+2. Inspect stderr, `calls.jsonl`, `run-manifest.yaml`, and any published
+   `control-structure.yaml`.
+
+**Expected:** Diagnostics identify the target as an invalid ElementRef. The
+normalizer does not invent a reference type. Any artifact published under the
+existing graceful-degradation policy is schema-valid and does not contain the
+malformed target.
+
+## QA-SP1-ID-REPAIR-13: Correct objects and nulls do not regress
+
+**Fixture:** Across PM `feedback_source`, CA `target`, and FB `source`, include
+correct ElementRef objects for both supported types and explicit null values.
+Use source IDs that require canonical rewriting for the non-null references.
+
+**Workflow:**
+1. Run the CLI.
+2. Compare every affected field in `control-structure.yaml` with its fixture
+   value and intended canonical element.
+
+**Expected:** Correct objects retain their supplied `responsibility` or
+`controlled_process` type and receive only the required canonical ID rewrite.
+Null fields remain null. No field is spuriously wrapped, stripped, or warned
+about, and the artifact validates successfully.
