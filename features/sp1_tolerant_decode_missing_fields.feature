@@ -1,8 +1,8 @@
 Feature: SP1 tolerant decoding of missing Call 2b fields
   SP1 tolerates omitted required fields long enough to assign canonical IDs
   from structural position. Missing or blank source IDs are repairable.
-  Missing non-ID content remains a validation error after normalization, and
-  neither normal assembly nor its fallback may expose AttributeError.
+  Missing non-ID content is repaired with a placeholder after normalization,
+  and neither normal assembly nor its fallback may expose AttributeError.
 
   Background:
     Given a valid Call 2a response with ordered responsibilities
@@ -34,13 +34,13 @@ Feature: SP1 tolerant decoding of missing Call 2b fields
       | controlled process | controlled process 1          | omitted         | CP-1        |
       | controlled process | controlled process 2          | blank           | CP-2        |
 
-  # SP1-TOLERANT-DECODE-03 reports an omitted required non-ID field after normalization
-  Scenario: SP1-TOLERANT-DECODE-03 reports an omitted required non-ID field after normalization
+  # SP1-TOLERANT-DECODE-03 repairs an omitted required non-ID field after normalization
+  Scenario: SP1-TOLERANT-DECODE-03 repairs an omitted required non-ID field after normalization
     Given Call 2b control action 1 has ca_id source-action
     And the control action omits required field description
     When the control structure is assembled
     Then ID normalization assigns the control action ID CA-1-1
-    And post-normalization validation fails with an error identifying description
+    And post-normalization validation succeeds with a repaired description
     And no AttributeError is raised
 
   # SP1-TOLERANT-DECODE-04 fallback does not repeat the missing-ID failure

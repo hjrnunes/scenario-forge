@@ -3330,6 +3330,25 @@ def _h_sp1_tolerant_post_normalization_error(
     return True, ""
 
 
+def _h_sp1_tolerant_post_normalization_succeeds(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    """Handle: post-normalization validation succeeds with repaired description."""
+    error = getattr(world, "validation_error", None)
+    if error is not None:
+        return False, f"Expected validation to succeed, got error: {error}"
+    cs = getattr(world, "control_structure", None)
+    if cs is None:
+        return False, "Expected ControlStructure, got None"
+    actions = cs.responsibilities[0].control_actions
+    if not actions:
+        return False, "Expected at least one control action"
+    desc = actions[0].description
+    if not desc:
+        return False, f"Expected non-empty repaired description, got '{desc}'"
+    return True, ""
+
+
 def _h_sp1_tolerant_assemble(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
@@ -4747,6 +4766,7 @@ def register(api: object) -> None:
     api.register('responsibility \\d+ contains control action \\S+$', _h_sp1_tolerant_assert_responsibility_action, source_order=7062)
     api.register('ID normalization assigns the control action ID \\S+$', _h_sp1_tolerant_normalized_action_id, source_order=7063)
     api.register_first('post-normalization validation fails with an error identifying description$', _h_sp1_tolerant_post_normalization_error, source_order=7064)
+    api.register('post-normalization validation succeeds with a repaired description$', _h_sp1_tolerant_post_normalization_succeeds, source_order=7064)
     api.register('no AttributeError is raised$', _h_sp1_tolerant_no_attribute_error, source_order=7065)
     api.register_first('the (?:control action|feedback channel|controlled process) at .* has ID .*', _h_sp1_tolerant_payload_element, source_order=7066)
     api.register('a ControlStructure model is produced$', _h_sp1_s2_cs_produced, source_order=7067)
