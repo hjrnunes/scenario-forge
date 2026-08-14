@@ -690,6 +690,169 @@ def _h_sp1_cp_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
         world.validation_error = e
     return True, ""
 
+
+def _h_ing_ep(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle an entry point declaration used by ingress-zone scenarios."""
+    from scenario_forge.models.capability_profile import EntryPoint
+
+    match = re.search(
+        r'entry point named "([^"]+)" with direction "([^"]+)"'
+        r'(?: and ingress zone "([^"]+)"| and no ingress zone)$',
+        text,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return False, f"Could not parse entry point declaration: {text}"
+
+    name, direction, zone = match.groups()
+    try:
+        world.ing_ep = EntryPoint(
+            name=name,
+            direction=direction,
+            ingress_zone=zone,
+        )
+        world.validation_error = None
+        world.validation_succeeded = True
+    except (ValidationError, ValueError) as exc:
+        world.ing_ep = None
+        world.validation_error = exc
+        world.validation_succeeded = False
+    return True, ""
+
+
+def _h_ing_check(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle validation of the current entry point declaration."""
+    return True, ""
+
+
+def _h_ing_ok(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle successful entry-point validation."""
+    if not world.validation_succeeded or world.validation_error is not None:
+        return False, f"Entry-point validation failed: {world.validation_error}"
+    return True, ""
+
+
+def _ing_result(world: World) -> object | None:
+    """Return the entry point produced by the current ingress scenario."""
+    ep = getattr(world, "ing_ep", None)
+    if ep is not None:
+        return ep
+    profile = getattr(world, "ing_profile", None)
+    if profile is not None and profile.entry_points:
+        return profile.entry_points[0]
+    return None
+
+
+def _h_ing_dir(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle the resulting entry point direction assertion."""
+    match = re.search(r'direction "([^"]+)"$', text, re.IGNORECASE)
+    ep = _ing_result(world)
+    if match is None or ep is None:
+        return False, "No resulting entry point direction is available"
+    expected = match.group(1)
+    if ep.direction != expected:
+        return False, f"Expected direction {expected!r}, got {ep.direction!r}"
+    return True, ""
+
+
+def _h_ing_no_zone(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle the absence of an effective ingress zone."""
+    ep = _ing_result(world)
+    if ep is None:
+        return False, "No resulting entry point is available"
+    if ep.ingress_zone is not None:
+        return False, f"Expected no ingress zone, got {ep.ingress_zone!r}"
+    return True, ""
+
+
+def _h_ing_zone(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle preservation of a declared non-output ingress zone."""
+    match = re.search(r'ingress zone "([^"]+)"$', text, re.IGNORECASE)
+    ep = _ing_result(world)
+    if match is None or ep is None:
+        return False, "No resulting entry point ingress zone is available"
+    expected = match.group(1)
+    if ep.ingress_zone != expected:
+        return False, f"Expected ingress zone {expected!r}, got {ep.ingress_zone!r}"
+    return True, ""
+
+
+def _h_ing_eff_none(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle the effective ingress-zone absence assertion."""
+    ep = _ing_result(world)
+    if ep is None:
+        return False, "No resulting entry point is available"
+    if ep.effective_ingress_zone is not None:
+        return False, f"Expected no effective ingress zone, got {ep.effective_ingress_zone!r}"
+    return True, ""
+
+
+def _h_ing_no_access(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle the attacker-accessible ingress assertion."""
+    from scenario_forge.models.capability_profile import is_attacker_accessible_ingress
+
+    ep = _ing_result(world)
+    if ep is None:
+        return False, "No resulting entry point is available"
+    if is_attacker_accessible_ingress(ep):
+        return False, "Output entry point is attacker-accessible"
+    return True, ""
+
+
+def _h_ing_s1_given(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle a Stage 1 response containing a contradictory output zone."""
+    match = re.search(
+        r'entry point named "([^"]+)" with direction "([^"]+)"'
+        r' and ingress zone "([^"]+)"$',
+        text,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return False, f"Could not parse Stage 1 entry point: {text}"
+
+    name, direction, zone = match.groups()
+    data = _sp1_valid_stage1_profile_dict()
+    data["entry_points"] = [
+        {
+            "name": name,
+            "direction": direction,
+            "ingress_zone": zone,
+        }
+    ]
+    world.ing_data = data
+    return True, ""
+
+
+def _h_ing_s1_check(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle Stage 1 capability-profile validation."""
+    run_dir = Path(_tempfile.mkdtemp(prefix="sp1_ingress_"))
+    client = _SP1MockLLM()
+    client.set_response_for(
+        _SP1Stage1Profile,
+        getattr(world, "ing_data", _sp1_valid_stage1_profile_dict()),
+    )
+    try:
+        world.ing_profile = _sp1_derive_capability_profile(
+            llm_client=client,
+            use_case_text=world.sp1_use_case_text,
+            run_dir=run_dir,
+        )
+        world.validation_error = None
+        world.validation_succeeded = True
+    except (ValidationError, ValueError, _GDStageError) as exc:
+        world.ing_profile = None
+        world.validation_error = exc
+        world.validation_succeeded = False
+    return True, ""
+
+
+def _h_ing_s1_ok(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle successful Stage 1 profile loading."""
+    if getattr(world, "ing_profile", None) is None:
+        return False, f"Stage 1 profile loading failed: {world.validation_error}"
+    return True, ""
+
+
 def _h_sp1_cp_profile_flag_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: Stage 1b is run with the profile flag."""
     run_dir = world.sp1_run_dir or Path(_tempfile.mkdtemp(prefix="sp1_cp_"))
@@ -5133,6 +5296,32 @@ def register(api: object) -> None:
     api.register('all \\d+ (?:control action targets|feedback channel sources) are ElementRef objects with canonical IDs$', _h_sp1_repair_many_assert, source_order=15154)
     api.register('every cross-reference identifies its intended element$', _h_sp1_repair_many_cross_refs, source_order=15155)
     api.register_first('validation fails with an error identifying target as a malformed ElementRef$', _h_sp1_repair_bare_ref_validation_error, source_order=15156)
+    api.register(
+        r'an entry point named "[^"]+" with direction "(?:input|output|bidirectional)"'
+        r'(?: and ingress zone "[^"]+"| and no ingress zone)$',
+        _h_ing_ep,
+        source_order=15160,
+    )
+    api.register('capability profile entry-point validation is available$', _h_ing_check, source_order=15161)
+    api.register('the entry point is validated$', _h_ing_check, source_order=15162)
+    api.register('entry-point validation succeeds$', _h_ing_ok, source_order=15163)
+    api.register('the resulting entry point has direction "[^"]+"$', _h_ing_dir, source_order=15164)
+    api.register('the resulting entry point has no ingress zone$', _h_ing_no_zone, source_order=15165)
+    api.register('the resulting entry point retains ingress zone "[^"]+"$', _h_ing_zone, source_order=15166)
+    api.register('its effective ingress zone is absent$', _h_ing_eff_none, source_order=15167)
+    api.register('it is not an attacker-accessible ingress$', _h_ing_no_access, source_order=15168)
+    api.register(
+        r'a Stage 1 profile response containing an entry point named "[^"]+"'
+        r' with direction "(?:input|output|bidirectional)" and ingress zone "[^"]+"$',
+        _h_ing_s1_given,
+        source_order=15169,
+    )
+    api.register(
+        'Stage 1 capability profile inference validates the response$',
+        _h_ing_s1_check,
+        source_order=15170,
+    )
+    api.register('Stage 1 profile loading succeeds$', _h_ing_s1_ok, source_order=15171)
     api.set_feature(None)
 
 __all__ = ["FEATURE_ID", "register"]

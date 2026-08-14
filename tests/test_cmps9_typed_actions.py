@@ -1989,7 +1989,7 @@ class TestAuthoredYamlSchemaZones:
 
 class TestIngressZoneDeclarations:
     """EntryPoint.ingress_zone must be a valid Schneider zone Literal,
-    and output-only entries cannot have an ingress zone (cmps.9 review 5)."""
+    and output-only entries have contradictory zones removed (cmps.9 review 5)."""
 
     def test_invalid_ingress_zone_rejected(self):
         """A non-Schneider ingress_zone value is rejected by Pydantic."""
@@ -2002,16 +2002,16 @@ class TestIngressZoneDeclarations:
                 ingress_zone="invalid_zone",
             )
 
-    def test_output_only_with_ingress_zone_rejected(self):
-        """An output-only entry point with an ingress zone is rejected."""
+    def test_output_zone_is_cleared(self):
+        """An output-only entry point with an ingress zone is corrected."""
         from scenario_forge.models.capability_profile import EntryPoint
 
-        with pytest.raises(ValidationError, match="output.*ingress_zone"):
-            EntryPoint(
-                name="dashboard alerts",
-                direction="output",
-                ingress_zone="input",
-            )
+        ep = EntryPoint(
+            name="dashboard alerts",
+            direction="output",
+            ingress_zone="input",
+        )
+        assert ep.ingress_zone is None
 
     def test_output_only_without_ingress_zone_accepted(self):
         """An output-only entry point without an ingress zone is accepted."""

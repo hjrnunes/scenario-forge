@@ -1121,21 +1121,37 @@ class EntryPoint(BaseModel):
             return "input"
         return None
 
+    @model_validator(mode="before")
+    @classmethod
+    def fix_zone(cls, data: object) -> object:
+        """Normalize valid output ingress declarations before construction.
+
+        Pydantic does not apply a replacement returned by a top-level
+        ``mode="after"`` validator when a model is constructed through
+        ``__init__``.  Normalize constructor input here as well so the
+        auto-correction applies consistently to profiles assembled from
+        dictionaries.
+        """
+        if (
+            isinstance(data, dict)
+            and data.get("direction") == "output"
+            and data.get("ingress_zone") in ZONE_NAMES
+        ):
+            return {**data, "ingress_zone": None}
+        return data
+
     @model_validator(mode="after")
     def validate_ingress_zone_consistency(self) -> EntryPoint:
-        """Reject output-only entries with an ingress zone (cmps.9 review 5).
+        """Auto-correct output-only entries with an ingress zone (cmps.9 review 5).
 
         Output-only entry points are not attacker-accessible ingress paths.
-        Assigning a Schneider zone to them is a contradiction — the zone
-        would imply the attacker can enter through an output surface.
+        If the model assigns a Schneider zone to an output-only entry point,
+        nullify it instead of rejecting — the model reflexively fills
+        ingress_zone for every entry point, and this deterministic invariant
+        eliminates a consistent Stage 1b blocker.
         """
         if self.direction == "output" and self.ingress_zone is not None:
-            raise ValueError(
-                f"Entry point '{self.name}' has direction='output' but "
-                f"ingress_zone='{self.ingress_zone}'. Output-only entry "
-                f"points cannot have an ingress zone — they are not "
-                f"attacker-accessible ingress paths."
-            )
+            return self.model_copy(update={"ingress_zone": None})
         return self
 
 
