@@ -1,0 +1,108 @@
+Feature: SP1 ID normalization repairs
+  SP1 repairs recoverable LLM control-structure fields before schema
+  validation. An ElementRef whose type repeats its RESP-* or CP-* ID receives
+  the corresponding reference type, and a blank element description receives
+  a human-readable description from its normalized context. Valid supplied
+  values remain unchanged, while values that cannot be inferred still fail
+  validation.
+
+  Background:
+    Given a tolerantly decoded SP1 control-structure payload
+    And every field not varied by the scenario is valid
+
+  # SP1-ID-NORMALIZATION-REPAIRS-01 infers malformed ElementRef types and preserves valid types
+  Scenario Outline: SP1-ID-NORMALIZATION-REPAIRS-01 infers malformed ElementRef types and preserves valid types
+    Given the element at <referenced_position> has source ID <source_id>
+    And <reference_owner> has <reference_field> type <supplied_type> and ID <source_id>
+    When the payload is normalized
+    Then <reference_owner> <reference_field> has type <reference_type>
+    And <reference_owner> <reference_field> has ID <canonical_id>
+    And the normalized payload validates as a ControlStructure
+
+    Examples:
+      | referenced_position  | source_id | reference_owner                        | reference_field | supplied_type      | reference_type     | canonical_id |
+      | responsibility 2     | RESP-9    | responsibility 1 process model part 1 | feedback_source | RESP-9             | responsibility     | RESP-2       |
+      | controlled process 2 | CP-9      | responsibility 1 control action 1     | target          | CP-9               | controlled_process | CP-2         |
+      | controlled process 2 | CP-9      | responsibility 1 feedback channel 1   | source          | CP-9               | controlled_process | CP-2         |
+      | controlled process 2 | CP-9      | responsibility 1 control action 1     | target          | RESP-77             | controlled_process | CP-2         |
+      | responsibility 2     | RESP-9    | responsibility 1 process model part 1 | feedback_source | responsibility     | responsibility     | RESP-2       |
+      | controlled process 2 | CP-9      | responsibility 1 control action 1     | target          | controlled_process | controlled_process | CP-2         |
+
+  # SP1-ID-NORMALIZATION-REPAIRS-02 leaves an uninferable ElementRef type for validation
+  Scenario: SP1-ID-NORMALIZATION-REPAIRS-02 leaves an uninferable ElementRef type for validation
+    Given controlled process 1 has source ID process-alpha
+    And responsibility 1 control action 1 target has type process-alpha and ID process-alpha
+    When the payload is normalized
+    Then the target type remains process-alpha
+    When the normalized payload is validated
+    Then validation fails with an error identifying target type
+
+  # SP1-ID-NORMALIZATION-REPAIRS-03 repairs blank descriptions for every control-structure element
+  Scenario Outline: SP1-ID-NORMALIZATION-REPAIRS-03 repairs blank descriptions for every control-structure element
+    Given <element> <canonical_id> has an empty description
+    When the payload is normalized
+    Then <element> <canonical_id> has description <expected_description>
+    And the normalized payload validates as a ControlStructure
+
+    Examples:
+      | element                   | canonical_id | expected_description                    |
+      | responsibility            | RESP-1       | Responsibility RESP-1                   |
+      | responsibility constraint | RC-1-1       | Responsibility constraint RC-1-1        |
+      | process model part        | PM-1-1       | Process model part PM-1-1               |
+      | control action            | CA-1-1       | Control action CA-1-1                   |
+      | controlled process        | CP-1         | Controlled process CP-1                 |
+      | coordination link         | CL-1         | Coordination link CL-1                  |
+      | coordination mechanism    | CM-1         | Coordination mechanism CM-1             |
+
+  # SP1-ID-NORMALIZATION-REPAIRS-04 describes repaired feedback from its normalized references
+  Scenario: SP1-ID-NORMALIZATION-REPAIRS-04 describes repaired feedback from its normalized references
+    Given controlled process 2 has source ID CP-9
+    And responsibility 1 process model part 1 has source ID state-alpha
+    And responsibility 1 feedback channel 1 has an empty description
+    And its source has type CP-9 and ID CP-9
+    And its updates value is state-alpha
+    When the payload is normalized
+    Then feedback channel FB-1-1 has description Feedback from controlled process CP-2 updating process model part PM-1-1
+    And the normalized payload validates as a ControlStructure
+
+  # SP1-ID-NORMALIZATION-REPAIRS-05 preserves supplied non-empty descriptions
+  Scenario Outline: SP1-ID-NORMALIZATION-REPAIRS-05 preserves supplied non-empty descriptions
+    Given <element> <canonical_id> has description Operator supplied description
+    When the payload is normalized
+    Then normalization preserves the description Operator supplied description on <element> <canonical_id>
+
+    Examples:
+      | element                   | canonical_id |
+      | responsibility            | RESP-1       |
+      | responsibility constraint | RC-1-1       |
+      | process model part        | PM-1-1       |
+      | control action            | CA-1-1       |
+      | feedback channel          | FB-1-1       |
+      | controlled process        | CP-1         |
+      | coordination link         | CL-1         |
+      | coordination mechanism    | CM-1         |
+
+  # SP1-ID-NORMALIZATION-REPAIRS-06 repairs the combined production response before assembly validation
+  Scenario: SP1-ID-NORMALIZATION-REPAIRS-06 repairs the combined production response before assembly validation
+    Given Call 2a and Call 2b use id instead of each model-specific ID field
+    And Call 2b omits every feedback channel description
+    And Call 2b copies each referenced RESP-* or CP-* ID into its ElementRef type
+    And the source IDs differ from the IDs implied by final list position
+    When SP1 assembles the control structure with deterministic ID normalization
+    Then every element has its canonical ID from final list position
+    And every ElementRef has the type implied by its referenced ID prefix
+    And every ElementRef ID identifies the corresponding canonical element
+    And every element has a non-empty description
+    And ControlStructure validation succeeds without assembly degradation
+
+  # SP1-ID-NORMALIZATION-REPAIRS-07 applies the same repairs after revision stitching
+  Scenario: SP1-ID-NORMALIZATION-REPAIRS-07 applies the same repairs after revision stitching
+    Given a decoded revision delta adds elements using id instead of model-specific ID fields
+    And an added feedback channel has an empty description
+    And an added ElementRef copies its CP-* ID into its type
+    And every revision reference resolves by source ID in the stitched structure
+    When the revision delta is merged
+    Then the added elements have canonical IDs from final list position
+    And the added feedback channel has a non-empty human-readable description
+    And the added ElementRef has type controlled_process and the canonical controlled-process ID
+    And the revised ControlStructure validates without a degraded-revision warning
