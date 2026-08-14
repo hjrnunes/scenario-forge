@@ -24,7 +24,23 @@ import yaml
 import run_sp1_id_renumbering_qa_suite as base
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CASES = ("prod", "inferred", "valid", "blank", "kept", "explicit", "invalid", "revision")
+CASES = (
+    "prod",
+    "inferred",
+    "valid",
+    "blank",
+    "kept",
+    "explicit",
+    "invalid",
+    "revision",
+    "bare-cp",
+    "bare-resp",
+    "production",
+    "bare-unknown",
+    "stable",
+)
+PROD_LOG = PROJECT_ROOT / "output/runs/20260811-full2-airbnb/calls.jsonl"
+PROD_FIX = PROJECT_ROOT / "tests/stpa/fixtures/sp1_airbnb_call2.json"
 BAD_TERMS = (
     "assemble_control_structure",
     "fallback stripping",
@@ -58,6 +74,9 @@ def _with_id(
 
 
 def _resp(case: str) -> dict[str, Any]:
+    if case == "production":
+        return _prod("call_2a_responsibilities")
+
     source_ids = ("RESP-3", "RESP-9")
     result = []
     for index, source in enumerate(source_ids, start=1):
@@ -84,14 +103,24 @@ def _resp(case: str) -> dict[str, Any]:
             ],
         }
         result.append(item)
-    result[0]["process_model_parts"][0]["feedback_source"] = {
-        "type": _ref_type(case, "RESP-9", "responsibility"),
-        "id": "RESP-9",
-    }
+    if case == "bare-cp":
+        result[0]["process_model_parts"][0]["feedback_source"] = "CP-9"
+    elif case == "bare-resp":
+        result[0]["process_model_parts"][0]["feedback_source"] = "RESP-9"
+    else:
+        result[0]["process_model_parts"][0]["feedback_source"] = {
+            "type": _ref_type(case, "RESP-9", "responsibility"),
+            "id": "RESP-9",
+        }
+    if case == "stable":
+        result[1]["process_model_parts"][0]["feedback_source"] = None
     return {"responsibilities": result}
 
 
 def _controls(case: str) -> dict[str, Any]:
+    if case == "production":
+        return _prod("call_2b_control_elements")
+
     result: dict[str, Any] = {
         "control_actions": [],
         "feedback_channels": [],
@@ -118,6 +147,14 @@ def _controls(case: str) -> dict[str, Any]:
                 "type": "process-alpha",
                 "id": "process-alpha",
             }
+        elif case == "bare-unknown" and index == 1:
+            action["target"] = "process-alpha"
+        elif case == "bare-cp":
+            action["target"] = "CP-9"
+        elif case == "bare-resp":
+            action["target"] = "RESP-9"
+        elif case == "stable" and index == 2:
+            action["target"] = None
         channel = {
             **_with_id(
                 case,
@@ -133,10 +170,17 @@ def _controls(case: str) -> dict[str, Any]:
         }
         if case not in {"prod", "inferred"}:
             channel["description"] = _desc(case, "feedback", index)
+        if case == "bare-cp":
+            channel["source"] = "CP-9"
+        elif case == "bare-resp":
+            channel["source"] = "RESP-9"
+        elif case == "stable" and index == 2:
+            channel["source"] = None
         result["control_actions"].append(action)
         result["feedback_channels"].append(channel)
 
-    for index, source in enumerate(("CP-4", "CP-8"), start=1):
+    cp_ids = ("CP-4", "CP-9") if case == "bare-cp" else ("CP-4", "CP-8")
+    for index, source in enumerate(cp_ids, start=1):
         if case == "invalid" and index == 1:
             source = "process-alpha"
         result["controlled_processes"].append(
@@ -154,13 +198,15 @@ def _controls(case: str) -> dict[str, Any]:
 
 
 def _coord(case: str) -> dict[str, Any]:
+    target = "RESP-2" if case == "production" else "RESP-9"
+    shared_pm = "PM-1-1" if case == "production" else "PM-3-1"
     return {
         "coordination_links": [
             {
                 **_with_id(case, "link_id", "CL-7"),
                 "source": "RESP-3",
-                "target": "RESP-9",
-                "shared_pm": "PM-3-1",
+                "target": target,
+                "shared_pm": shared_pm,
                 "coordination_mechanism": {
                     **_with_id(case, "cm_id", "CM-7"),
                     "description": _desc(case, "coordination mechanism"),
@@ -171,6 +217,36 @@ def _coord(case: str) -> dict[str, Any]:
         ],
         "integrity_findings": [],
     }
+
+
+def _prod(step: str) -> dict[str, Any]:
+    if PROD_LOG.exists():
+        rows = [
+            json.loads(line)
+            for line in PROD_LOG.read_text(encoding="utf-8").splitlines()
+        ]
+        row = next(
+            (
+                item
+                for item in rows
+                if item.get("step") == step and item.get("success") is True
+            ),
+            None,
+        )
+        assert row is not None, f"Missing successful production response for {step}"
+        result = json.loads(row["response_content"])
+    else:
+        captured = json.loads(PROD_FIX.read_text(encoding="utf-8"))
+        result = captured[step]
+
+    if step == "call_2b_control_elements":
+        refs = [
+            *[item.get("target") for item in result["control_actions"]],
+            *[item.get("source") for item in result["feedback_channels"]],
+        ]
+        assert len(refs) == 27
+        assert all(isinstance(item, str) for item in refs)
+    return result
 
 
 def _revision() -> dict[str, Any]:
@@ -497,7 +573,7 @@ def _run_report(output_dir: Path) -> None:
 
 
 def _check(case: str, result: subprocess.CompletedProcess[str], output_dir: Path) -> None:
-    if case == "invalid":
+    if case in {"invalid", "bare-unknown"}:
         text = _diag(result, output_dir)
         assert "process-alpha" in text, text
         if (output_dir / "control-structure.yaml").exists():
@@ -559,6 +635,57 @@ def _check(case: str, result: subprocess.CompletedProcess[str], output_dir: Path
         assert added["feedback_channels"][0]["description"] == (
             "Feedback from controlled process CP-3 updating process model part PM-3-1"
         )
+    elif case in {"bare-cp", "bare-resp"}:
+        expected = {
+            "type": "controlled_process" if case == "bare-cp" else "responsibility",
+            "id": "CP-2" if case == "bare-cp" else "RESP-2",
+        }
+        first = structure["responsibilities"][0]
+        assert first["process_model_parts"][0]["feedback_source"] == expected
+        assert first["control_actions"][0]["target"] == expected
+        assert first["feedback_channels"][0]["source"] == expected
+    elif case == "production":
+        actions = [
+            action
+            for responsibility in structure["responsibilities"]
+            for action in responsibility["control_actions"]
+        ]
+        feedback = [
+            channel
+            for responsibility in structure["responsibilities"]
+            for channel in responsibility["feedback_channels"]
+        ]
+        refs = [
+            *[item["target"] for item in actions],
+            *[item["source"] for item in feedback],
+        ]
+        assert len(actions) == 11
+        assert len(feedback) == 16
+        assert len(refs) == 27
+        assert all(
+            isinstance(item, dict)
+            and item["type"] in {"controlled_process", "responsibility"}
+            and item["id"].startswith(("CP-", "RESP-"))
+            for item in refs
+        )
+    elif case == "stable":
+        first, second = structure["responsibilities"]
+        assert first["process_model_parts"][0]["feedback_source"] == {
+            "type": "responsibility",
+            "id": "RESP-2",
+        }
+        assert first["control_actions"][0]["target"] == {
+            "type": "controlled_process",
+            "id": "CP-2",
+        }
+        assert first["feedback_channels"][0]["source"] == {
+            "type": "controlled_process",
+            "id": "CP-2",
+        }
+        # Published YAML omits optional nulls; absence is its documented null form.
+        assert second["process_model_parts"][0].get("feedback_source") is None
+        assert second["control_actions"][0].get("target") is None
+        assert second["feedback_channels"][0].get("source") is None
 
 
 def main() -> int:
@@ -587,7 +714,7 @@ def main() -> int:
         server.server_close()
         thread.join(timeout=5)
 
-    print(f"SP1 ID normalization repairs QA: {passed}/8 procedures passed")
+    print(f"SP1 ID normalization repairs QA: {passed}/{len(CASES)} procedures passed")
     return 0
 
 
