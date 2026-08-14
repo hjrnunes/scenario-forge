@@ -24,7 +24,7 @@ from scenario_forge.models.capability_profile import (
     ToolInventoryEntry,
 )
 from scenario_forge.stpa.scenario_prod.bdi_generation import (
-    _build_bdi_prompts,
+    build_bdi_prompts,
     populate_defender_bdi,
 )
 from scenario_forge.stpa.scenario_prod.narrative import build_narrative_prompts, generate_narrative
@@ -529,7 +529,7 @@ def _h_mcp_prompt(world: World, text: str, examples: dict) -> tuple[bool, str]:
         return False, f"Could not identify prompt stage in: {text}"
     if stage.group(1) == "Stage 5 BDI":
         threat = _make_sp3_threat()
-        _system, user = _build_bdi_prompts(
+        _system, user = build_bdi_prompts(
             populate_defender_bdi(_make_sp3_cs(), "RESP-1"),
             threat,
             _make_sp3_cs(),

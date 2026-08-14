@@ -42,6 +42,8 @@ AI-agent examples:
 
 2. **Ground ICAs in process model and feedback.** Reference specific process model parts (PM-*) and feedback channels (FB-*) where relevant. The ICA should describe how the controller's process model or feedback is incorrect, stale, or missing.
 
+{# Feedback-channel bridge is duplicated in stage5/stage6a system prompts.
+   Shared includes would cross the threat_enum and scenario_prod TemplateLoader roots. #}
 ## Feedback-channel bridge
 
 FB-* denotes a logical information dependency that updates a process-model belief. It is not evidence of a network socket, packet stream, message bus, database connection, or attacker-accessible transport. Realize the update through a declared AI surface — prompt/context input, retrieved content, tool result, memory state, agent message, or model output — unless the supplied architecture explicitly identifies an accessible transport. Never infer interception, packet injection, blocking, spoofing, or link severing merely from the word "channel".

@@ -1178,3 +1178,108 @@ class TestEnrichmentModuleBoundary:
         assert callable(mod.compute_consumer_hints)
         assert "compute_system_context" in mod.__all__
         assert "compute_consumer_hints" in mod.__all__
+
+
+# ---------------------------------------------------------------------------
+# SP3 feedback-bridge and context-propagation architecture
+# ---------------------------------------------------------------------------
+
+THREAT_ENUM_DIR = STPA_ROOT / "threat_enum"
+_BRIDGE_ANCHOR = (
+    "FB-* denotes a logical information dependency that updates a "
+    "process-model belief"
+)
+_BRIDGE_TEMPLATES = (
+    THREAT_ENUM_DIR / "prompts" / "stage3_system.j2",
+    SCENARIO_PROD_DIR / "prompts" / "stage5_system.j2",
+    SCENARIO_PROD_DIR / "prompts" / "stage6a_narrative_system.j2",
+)
+
+
+def _bridge_body(path: Path) -> str:
+    """Return the shared FB-bridge paragraphs of a system prompt template."""
+    text = path.read_text(encoding="utf-8")
+    start = text.index(_BRIDGE_ANCHOR)
+    end = text.index("records that evidence.", start) + len("records that evidence.")
+    return text[start:end].strip()
+
+
+class TestFeedbackBridgeDuplication:
+    """The FB-bridge rule is duplicated across SP3 system prompts on purpose.
+
+    ``TemplateLoader`` is bound to one prompts directory.  Stage 3 lives
+    under ``threat_enum/prompts`` and Stages 5/6a live under
+    ``scenario_prod/prompts``.  A shared Jinja include would either
+    couple those package loaders or invent a third prompt root.  Keep
+    the templates self-contained and lock the shared prose so it cannot
+    drift independently.
+    """
+
+    def test_bridge_prose_is_identical(self):
+        """All three system prompts share the same FB-bridge body."""
+        bodies = [_bridge_body(path) for path in _BRIDGE_TEMPLATES]
+        assert all(_BRIDGE_ANCHOR in body for body in bodies)
+        assert len(set(bodies)) == 1
+
+    def test_no_cross_package_prompt_includes(self):
+        """SP3 templates must not include files from another package."""
+        import re
+
+        include_re = re.compile(r"{%\s*include\s+['\"]([^'\"]+)['\"]")
+        roots = (
+            THREAT_ENUM_DIR / "prompts",
+            SCENARIO_PROD_DIR / "prompts",
+        )
+        violations: list[str] = []
+        for root in roots:
+            for path in sorted(root.glob("*.j2")):
+                for match in include_re.finditer(path.read_text(encoding="utf-8")):
+                    target = match.group(1)
+                    if "/" in target or ".." in target:
+                        violations.append(f"{path.name} includes {target!r}")
+        assert not violations, (
+            "Cross-package prompt includes would couple TemplateLoader roots:\n"
+            + "\n".join(violations)
+        )
+
+
+class TestContextPropagationBoundary:
+    """Technology context flows inward through public prompt builders."""
+
+    def test_bdi_prompts_is_public(self):
+        """Stage 5 prompt assembly is a public seam, not a private helper."""
+        from scenario_forge.stpa.scenario_prod import bdi_generation
+
+        assert "build_bdi_prompts" in bdi_generation.__all__
+        assert hasattr(bdi_generation, "build_bdi_prompts")
+        assert not hasattr(bdi_generation, "_build_bdi_prompts")
+
+    def test_acceptance_uses_public_bdi_prompt_builder(self):
+        """Acceptance handlers must not import the retired private name."""
+        acceptance_root = (
+            Path(__file__).resolve().parent.parent.parent / "acceptance"
+        )
+        leaked: list[str] = []
+        for path in sorted(acceptance_root.rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            if "_build_bdi_prompts" in source:
+                leaked.append(str(path.relative_to(acceptance_root)))
+        assert not leaked, (
+            "acceptance still imports private _build_bdi_prompts:\n"
+            + "\n".join(leaked)
+        )
+
+    def test_prompt_builders_do_not_import_run(self):
+        """Stage 5/6a assemblers stay below the orchestrator."""
+        for name in ("bdi_generation", "narrative"):
+            path = SCENARIO_PROD_DIR / f"{name}.py"
+            imports = set(_scenario_prod_internal_imports(path))
+            assert "run" not in imports, f"{name}.py imports run.py"
+
+    def test_context_for_is_the_omit_policy(self):
+        """The omit-when-absent rule lives next to the context builder."""
+        from scenario_forge.stpa.threat_enum.technology_context import (
+            context_for,
+        )
+
+        assert context_for(None) is None

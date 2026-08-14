@@ -3343,7 +3343,7 @@ def _h_072o_gherkin_no_hazard_ids(world: World, text: str, examples: dict) -> tu
 def _h_072o_render_all_prompts(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: all SP3 Stage 5 through Stage 6c prompts are rendered."""
     from scenario_forge.stpa.scenario_prod.attack_tree import build_attack_tree_prompts
-    from scenario_forge.stpa.scenario_prod.bdi_generation import _build_bdi_prompts
+    from scenario_forge.stpa.scenario_prod.bdi_generation import build_bdi_prompts
     from scenario_forge.stpa.scenario_prod.gherkin import build_gherkin_prompts, find_security_constraint
     from scenario_forge.stpa.scenario_prod.narrative import build_narrative_prompts
     from scenario_forge.stpa.scenario_prod._constants import PROMPTS_DIR
@@ -3356,7 +3356,7 @@ def _h_072o_render_all_prompts(world: World, text: str, examples: dict) -> tuple
     loader = TemplateLoader(PROMPTS_DIR)
     threat = _make_sp3_threat()
     sc = find_security_constraint(world.scenario_spec, world.loss_analysis)
-    s5_sys, s5_usr = _build_bdi_prompts(world.scenario_spec.defender_bdi, threat, cs, "RESP-1", loader)
+    s5_sys, s5_usr = build_bdi_prompts(world.scenario_spec.defender_bdi, threat, cs, "RESP-1", loader)
     s6a_sys, s6a_usr = build_narrative_prompts(world.scenario_spec, loader)
     s6b_sys, s6b_usr = build_attack_tree_prompts(world.scenario_spec, cs, loader)
     s6c_sys, s6c_usr = build_gherkin_prompts(world.scenario_spec, sc, world.loss_analysis, loader)

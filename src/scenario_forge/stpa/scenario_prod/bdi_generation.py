@@ -21,7 +21,7 @@ from scenario_forge.stpa.models.control_structure import (
 )
 from scenario_forge.stpa.models.enriched_threat_set import StructuralThreat
 from scenario_forge.stpa.models.ica_enumeration import UCAType
-from scenario_forge.stpa.threat_enum.technology_context import build_technology_context
+from scenario_forge.stpa.threat_enum.technology_context import context_for
 from scenario_forge.stpa.models.scenario_spec import (
     AttackerBDI,
     DefenderBDI,
@@ -38,6 +38,7 @@ __all__ = [
     "BDIGenerationResult",
     "populate_defender_bdi",
     "generate_bdi",
+    "build_bdi_prompts",
     "assemble_scenario_spec",
     "generate_scenario_id",
     "parse_ica_slot_id",
@@ -183,7 +184,7 @@ def generate_bdi(
     slot_parts = parse_ica_slot_id(threat.ica_slot_id)
     target_resp_id = slot_parts["controller"]
 
-    system_prompt, user_prompt = _build_bdi_prompts(
+    system_prompt, user_prompt = build_bdi_prompts(
         defender_bdi,
         threat,
         control_structure,
@@ -208,7 +209,7 @@ def generate_bdi(
     return result, None
 
 
-def _build_bdi_prompts(
+def build_bdi_prompts(
     defender_bdi: DefenderBDI,
     threat: StructuralThreat,
     control_structure: ControlStructure,
@@ -219,7 +220,8 @@ def _build_bdi_prompts(
     """Build the system and user prompts for the BDI generation call.
 
     When supplied, ``capability_profile`` is rendered as technology context
-    so attacker intentions stay grounded in declared AI surfaces.
+    so attacker intentions stay grounded in declared AI surfaces.  When
+    omitted, the technology-context section is left out of the user prompt.
     """
     defender_bdi_yaml = yaml.dump(
         defender_bdi.model_dump(mode="json"),
@@ -239,11 +241,7 @@ def _build_bdi_prompts(
         sort_keys=False,
         allow_unicode=True,
     ) if threat.catalog_mappings else "No catalog mappings."
-    technology_context = (
-        build_technology_context(capability_profile)
-        if capability_profile is not None
-        else None
-    )
+    technology_context = context_for(capability_profile)
 
     system_prompt = loader.render_prompt("stage5_system.j2")
     user_prompt = loader.render_prompt(
@@ -311,5 +309,5 @@ def assemble_scenario_spec(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T14:15:34Z","module_hash":"242c523e26a60ac7f34fa981de08222a17f65c2117fa68f5c8818ee0c5f9c348","functions":[{"id":"func/generate_scenario_id","name":"generate_scenario_id","line":52,"end_line":61,"hash":"530efa395a985f80bec7697e91e2a58ea143f9407ee1e32542f30b6fc43b8348"},{"id":"func/parse_ica_slot_id","name":"parse_ica_slot_id","line":64,"end_line":84,"hash":"a414c48cebfc7adc3589764e920f3181d7eccc71a3a5f86880cb39b36b221670"},{"id":"func/populate_defender_bdi","name":"populate_defender_bdi","line":87,"end_line":132,"hash":"f1beb2a9519da247cf720b1a6f684bb3d46c2e8d8e3405337b0e9f6cfe66ec4f"},{"id":"func/_find_responsibility","name":"_find_responsibility","line":135,"end_line":145,"hash":"d049061f7dd1686e0e9cb5a856b073db342800b7a83098911ba067f75c94b415"},{"id":"func/generate_bdi","name":"generate_bdi","line":148,"end_line":198,"hash":"6a1d40e8c999019d59f36aae719523285c285291c06606948e2115d2686800ed"},{"id":"func/_build_bdi_prompts","name":"_build_bdi_prompts","line":201,"end_line":240,"hash":"b2b020f7bf29868f31347ce6232fd8c0d5365368978f06d6244bb214e1433866"},{"id":"func/assemble_scenario_spec","name":"assemble_scenario_spec","line":243,"end_line":289,"hash":"dc3abfa5cb86f9cfe4dab0414493baef561212a0fe62f7766e9291bc4fd916c9"}]}
+# {"version":1,"tested_at":"2026-08-10T14:15:34Z","module_hash":"242c523e26a60ac7f34fa981de08222a17f65c2117fa68f5c8818ee0c5f9c348","functions":[{"id":"func/generate_scenario_id","name":"generate_scenario_id","line":52,"end_line":61,"hash":"530efa395a985f80bec7697e91e2a58ea143f9407ee1e32542f30b6fc43b8348"},{"id":"func/parse_ica_slot_id","name":"parse_ica_slot_id","line":64,"end_line":84,"hash":"a414c48cebfc7adc3589764e920f3181d7eccc71a3a5f86880cb39b36b221670"},{"id":"func/populate_defender_bdi","name":"populate_defender_bdi","line":87,"end_line":132,"hash":"f1beb2a9519da247cf720b1a6f684bb3d46c2e8d8e3405337b0e9f6cfe66ec4f"},{"id":"func/_find_responsibility","name":"_find_responsibility","line":135,"end_line":145,"hash":"d049061f7dd1686e0e9cb5a856b073db342800b7a83098911ba067f75c94b415"},{"id":"func/generate_bdi","name":"generate_bdi","line":148,"end_line":198,"hash":"6a1d40e8c999019d59f36aae719523285c285291c06606948e2115d2686800ed"},{"id":"func/build_bdi_prompts","name":"build_bdi_prompts","line":201,"end_line":240,"hash":"b2b020f7bf29868f31347ce6232fd8c0d5365368978f06d6244bb214e1433866"},{"id":"func/assemble_scenario_spec","name":"assemble_scenario_spec","line":243,"end_line":289,"hash":"dc3abfa5cb86f9cfe4dab0414493baef561212a0fe62f7766e9291bc4fd916c9"}]}
 # mutate4py-manifest-end

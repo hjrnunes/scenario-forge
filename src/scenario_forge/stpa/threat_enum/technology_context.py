@@ -17,7 +17,7 @@ from collections.abc import Callable
 
 from scenario_forge.models.capability_profile import CapabilityProfile
 
-__all__ = ["build_technology_context"]
+__all__ = ["build_technology_context", "context_for"]
 
 # Zone-based failure mode templates.
 _ZONE_FAILURE_MODES: dict[str, str] = {
@@ -146,6 +146,18 @@ def _classify_tool_failure_mode(description: str) -> str:
     return _UNKNOWN_FAILURE_SUFFIX
 
 
+def context_for(profile: CapabilityProfile | None) -> str | None:
+    """Return the technology-context block, or None when no profile is given.
+
+    Prompt assemblers pass the result straight into templates.  A None
+    value omits the section; a profile always yields the same block as
+    :func:`build_technology_context`.
+    """
+    if profile is None:
+        return None
+    return build_technology_context(profile)
+
+
 def build_technology_context(profile: CapabilityProfile) -> str:
     """Derive implementation-specific failure modes from a capability profile.
 
@@ -231,5 +243,5 @@ def _emit_tool_inventory_failure_modes(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-12T19:28:11Z","module_hash":"db388a9d88a897e84d209f9925c9b54d2c34d9db25603bf74c3ffac342f91888","functions":[{"id":"func/_has_rag","name":"_has_rag","line":51,"end_line":53,"hash":"0cac04b0fcf1e2abc0dd93ec3efc3d8414141d50fadd6515284cf0a73ca225e2"},{"id":"func/_has_cross_session_memory","name":"_has_cross_session_memory","line":56,"end_line":58,"hash":"dc7f3d4b41eeda83e7dcdd0f7da0a7aa8a98b52dee09d1e7ee2ecc99bc3e7660"},{"id":"func/_has_multi_agent","name":"_has_multi_agent","line":61,"end_line":63,"hash":"a324b39add1f27ba122364a02f89ff2b5b210d1863691958d352b54b16c69c13"},{"id":"func/_has_hitl","name":"_has_hitl","line":66,"end_line":68,"hash":"af2921c248d197d32dd3f065cb05609ef59fa7441017d97481072eb77773c59a"},{"id":"func/_has_code_execution","name":"_has_code_execution","line":71,"end_line":73,"hash":"8a7323f5e6b335eb64bef8e33abc770f09e8d6ec3b85b5c9caf108b35e1cc234"},{"id":"func/_classify_tool_failure_mode","name":"_classify_tool_failure_mode","line":135,"end_line":146,"hash":"32004062807f345992bc3430c9fa428ba8ada34929dca3b9c3923f41fff958e8"},{"id":"func/build_technology_context","name":"build_technology_context","line":149,"end_line":174,"hash":"8635b66655e37525365de7b4d7ffda7dfd888f6d2c6b7359e96fd06a5f911b99"},{"id":"func/_emit_zone_failure_modes","name":"_emit_zone_failure_modes","line":177,"end_line":182,"hash":"bd88a9c679ee0285671255a2653c85ec37fb3d71e51a631ddca9f51e8fc9944e"},{"id":"func/_emit_kc_failure_modes","name":"_emit_kc_failure_modes","line":185,"end_line":195,"hash":"49b0651a494ef5c76f46015379d4ae1ed50c6095fe224b74ffb5661bf90bb4a5"},{"id":"func/_emit_entry_point_failure_modes","name":"_emit_entry_point_failure_modes","line":198,"end_line":212,"hash":"b007dad48da85924be6041f9c517082d0dda3e5fc84301a24f90d8e56ec93d88"},{"id":"func/_emit_tool_inventory_failure_modes","name":"_emit_tool_inventory_failure_modes","line":215,"end_line":230,"hash":"bac03455735d253aa7dd04b8bf8d2c467529a540fe69f0d5384f17d2e9bfb037"}]}
+# {"version":1,"tested_at":"2026-08-12T19:28:11Z","module_hash":"db388a9d88a897e84d209f9925c9b54d2c34d9db25603bf74c3ffac342f91888","functions":[{"id":"func/_has_rag","name":"_has_rag","line":51,"end_line":53,"hash":"0cac04b0fcf1e2abc0dd93ec3efc3d8414141d50fadd6515284cf0a73ca225e2"},{"id":"func/_has_cross_session_memory","name":"_has_cross_session_memory","line":56,"end_line":58,"hash":"dc7f3d4b41eeda83e7dcdd0f7da0a7aa8a98b52dee09d1e7ee2ecc99bc3e7660"},{"id":"func/_has_multi_agent","name":"_has_multi_agent","line":61,"end_line":63,"hash":"a324b39add1f27ba122364a02f89ff2b5b210d1863691958d352b54b16c69c13"},{"id":"func/_has_hitl","name":"_has_hitl","line":66,"end_line":68,"hash":"af2921c248d197d32dd3f065cb05609ef59fa7441017d97481072eb77773c59a"},{"id":"func/_has_code_execution","name":"_has_code_execution","line":71,"end_line":73,"hash":"8a7323f5e6b335eb64bef8e33abc770f09e8d6ec3b85b5c9caf108b35e1cc234"},{"id":"func/_classify_tool_failure_mode","name":"_classify_tool_failure_mode","line":135,"end_line":146,"hash":"32004062807f345992bc3430c9fa428ba8ada34929dca3b9c3923f41fff958e8"},{"id":"func/context_for","name":"context_for","line":149,"end_line":159,"hash":"placeholder"},{"id":"func/build_technology_context","name":"build_technology_context","line":162,"end_line":187,"hash":"8635b66655e37525365de7b4d7ffda7dfd888f6d2c6b7359e96fd06a5f911b99"},{"id":"func/_emit_zone_failure_modes","name":"_emit_zone_failure_modes","line":190,"end_line":195,"hash":"bd88a9c679ee0285671255a2653c85ec37fb3d71e51a631ddca9f51e8fc9944e"},{"id":"func/_emit_kc_failure_modes","name":"_emit_kc_failure_modes","line":198,"end_line":208,"hash":"49b0651a494ef5c76f46015379d4ae1ed50c6095fe224b74ffb5661bf90bb4a5"},{"id":"func/_emit_entry_point_failure_modes","name":"_emit_entry_point_failure_modes","line":211,"end_line":225,"hash":"b007dad48da85924be6041f9c517082d0dda3e5fc84301a24f90d8e56ec93d88"},{"id":"func/_emit_tool_inventory_failure_modes","name":"_emit_tool_inventory_failure_modes","line":228,"end_line":243,"hash":"bac03455735d253aa7dd04b8bf8d2c467529a540fe69f0d5384f17d2e9bfb037"}]}
 # mutate4py-manifest-end

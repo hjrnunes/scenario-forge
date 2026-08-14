@@ -14,7 +14,7 @@ from scenario_forge.stpa.infra.llm_helpers import safe_llm_call_raw
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.models.capability_profile import CapabilityProfile
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
-from scenario_forge.stpa.threat_enum.technology_context import build_technology_context
+from scenario_forge.stpa.threat_enum.technology_context import context_for
 
 from ._constants import PROMPTS_DIR
 
@@ -96,11 +96,7 @@ def build_narrative_prompts(
 
     loss_scenario = scenario_spec.loss_scenario
     ica_text = f"ICA type: {scenario_spec.ica_type.value} on {scenario_spec.target_control_action}"
-    technology_context = (
-        build_technology_context(capability_profile)
-        if capability_profile is not None
-        else None
-    )
+    technology_context = context_for(capability_profile)
 
     system_prompt = loader.render_prompt("stage6a_narrative_system.j2")
     user_prompt = loader.render_prompt(

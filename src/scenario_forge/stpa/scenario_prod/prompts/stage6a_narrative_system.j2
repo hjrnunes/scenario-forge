@@ -27,6 +27,8 @@ The narrative MUST follow these 7 steps in order:
 - The narrative should be prose, not bullet points.
 - Each step should be a distinct paragraph or section.
 
+{# Feedback-channel bridge is duplicated in stage3/stage5 system prompts.
+   Shared includes would cross the threat_enum and scenario_prod TemplateLoader roots. #}
 ## Feedback-channel bridge
 
 FB-* denotes a logical information dependency that updates a process-model belief. It is not evidence of a network socket, packet stream, message bus, database connection, or attacker-accessible transport. Realize the update through a declared AI surface — prompt/context input, retrieved content, tool result, memory state, agent message, or model output — unless the supplied architecture explicitly identifies an accessible transport. Never infer interception, packet injection, blocking, spoofing, or link severing merely from the word "channel".
