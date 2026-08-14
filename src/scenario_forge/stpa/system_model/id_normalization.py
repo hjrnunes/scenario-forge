@@ -387,13 +387,16 @@ def _prefix_type(source_id: Any) -> str | None:
 
 
 def _wrap_ref(child: dict[str, Any], ref_key: str) -> None:
-    """Wrap one recognized bare ElementRef ID."""
+    """Wrap one recognized bare ElementRef ID.
+
+    Shape only: recognized ``CP-*`` / ``RESP-*`` strings become ``{"id": ...}``.
+    Type inference is the next pass, so newly wrapped refs and already-object
+    refs share one type policy.
+    """
     reference = child.get(ref_key)
-    if not isinstance(reference, str):
+    if not isinstance(reference, str) or _prefix_type(reference) is None:
         return
-    reference_type = _prefix_type(reference)
-    if reference_type is not None:
-        child[ref_key] = {"type": reference_type, "id": reference}
+    child[ref_key] = {"id": reference}
 
 
 def _fix_type(reference: dict[str, Any]) -> None:
@@ -566,11 +569,12 @@ def normalize_control_structure_payload(
     local_pm_maps = _build_local_pm_maps(normalized)
 
     # Pass order is load-bearing:
-    # 1. Wrap bare ElementRef IDs and infer types from source-ID prefixes so
-    #    rewrite can select a namespace.
-    # 2. Rewrite references while source IDs still match those maps.
-    # 3. Replace published IDs with structural IDs.
-    # 4. Fill empty descriptions from the now-canonical IDs and refs.
+    # 1. Wrap recognized bare ElementRef IDs into objects (shape only).
+    # 2. Infer missing or invalid types from source-ID prefixes so rewrite
+    #    can select a namespace.  Newly wrapped refs need this pass.
+    # 3. Rewrite references while source IDs still match those maps.
+    # 4. Replace published IDs with structural IDs.
+    # 5. Fill empty descriptions from the now-canonical IDs and refs.
     _wrap_bare_string_refs(normalized)
     _repair_element_ref_types(normalized)
     _rewrite_references_before_id_replacement(

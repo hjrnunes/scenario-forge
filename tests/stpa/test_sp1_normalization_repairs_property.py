@@ -1,9 +1,11 @@
 """Property tests for recoverable SP1 normalization repairs.
 
-These cover three high-level invariants:
+These cover four high-level invariants:
 
 - ElementRef type inference fires only for invalid types whose IDs start
   with RESP- or CP-
+- bare CP-/RESP- strings become ElementRef objects; dicts, None, and
+  unknown-prefix strings stay as they are
 - empty-string descriptions are replaced; None and non-empty stay put
 - generic ``id`` fills omitted ``*_id`` fields and never other fields
 """
@@ -36,6 +38,10 @@ st_bad_type = st_label.filter(
     and not text.startswith("CP-")
 )
 st_desc_kind = st.sampled_from(("empty", "keep", "none", "omit"))
+st_slot = st.sampled_from(("target", "source", "feedback_source"))
+st_unknown = st_label.filter(
+    lambda text: not text.startswith("RESP-") and not text.startswith("CP-")
+)
 
 
 def _payload(
@@ -134,6 +140,115 @@ class TestElementRefTypeInference:
         result = normalize_control_structure_payload(payload)
         target = result.payload["responsibilities"][0]["control_actions"][0]["target"]
         assert target == {"type": source_type, "id": source_type}
+
+
+def _slot_payload(slot: str, value: object) -> dict:
+    """Return one controller/process pair with *value* in one ElementRef slot."""
+    responsibility = {
+        "resp_id": "controller-alpha",
+        "description": "Controller",
+        "responsibility_constraints": [],
+        "process_model_parts": [
+            {
+                "pm_id": "state-alpha",
+                "description": "State",
+                "feedback_source": value if slot == "feedback_source" else None,
+            }
+        ],
+        "control_actions": [
+            {
+                "ca_id": "action-alpha",
+                "description": "Action",
+                "target": value if slot == "target" else None,
+            }
+        ],
+        "feedback_channels": [
+            {
+                "fb_id": "channel-alpha",
+                "description": "Channel",
+                "source": value if slot == "source" else None,
+                "updates": "state-alpha",
+            }
+        ],
+    }
+    return {
+        "responsibilities": [responsibility],
+        "controlled_processes": [
+            {"cp_id": "process-alpha", "description": "Process"}
+        ],
+        "coordination_links": [],
+    }
+
+
+def _slot_value(payload: dict, slot: str) -> object:
+    """Read one ElementRef slot from a normalized payload."""
+    responsibility = payload["responsibilities"][0]
+    if slot == "target":
+        return responsibility["control_actions"][0]["target"]
+    if slot == "source":
+        return responsibility["feedback_channels"][0]["source"]
+    return responsibility["process_model_parts"][0]["feedback_source"]
+
+
+class TestBareStringWrap:
+    """Only recognized bare CP-/RESP- strings become ElementRef objects."""
+
+    @given(st_slot, st_prefix, st_label)
+    @settings(
+        max_examples=40,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_known_prefix_strings_become_objects(self, slot, prefix, label):
+        source_id = f"{prefix}{label}"
+        result = normalize_control_structure_payload(
+            _slot_payload(slot, source_id)
+        )
+        actual = _slot_value(result.payload, slot)
+        assert isinstance(actual, dict)
+        assert actual["id"] in {source_id, "CP-1", "RESP-1"}
+        expected_type = (
+            "responsibility" if prefix == "RESP-" else "controlled_process"
+        )
+        assert actual["type"] == expected_type
+
+    @given(st_slot, st_unknown)
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_unknown_prefix_strings_stay_strings(self, slot, source_id):
+        result = normalize_control_structure_payload(
+            _slot_payload(slot, source_id)
+        )
+        assert _slot_value(result.payload, slot) == source_id
+
+    @given(st_slot)
+    @settings(
+        max_examples=10,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_null_slots_stay_null(self, slot):
+        result = normalize_control_structure_payload(_slot_payload(slot, None))
+        assert _slot_value(result.payload, slot) is None
+
+    @given(st_slot, st_valid_type, st_label)
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_dicts_stay_dicts(self, slot, source_type, label):
+        original = {"type": source_type, "id": f"keep-{label}"}
+        result = normalize_control_structure_payload(
+            _slot_payload(slot, original)
+        )
+        actual = _slot_value(result.payload, slot)
+        assert isinstance(actual, dict)
+        assert actual["type"] == source_type
+        assert actual["id"] == f"keep-{label}"
 
 
 class TestEmptyDescriptionRepair:

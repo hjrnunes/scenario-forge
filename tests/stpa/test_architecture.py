@@ -538,13 +538,19 @@ class TestSystemModelDependencyDirection:
         )
 
     def test_repair_passes_keep_required_order(self, system_model_files):
-        """Type inference precedes rewrite; empty descriptions follow IDs."""
+        """Wrap, then type inference, then rewrite; empty descriptions follow IDs.
+
+        Bare-string wrapping must run first so type inference can stamp the
+        newly created object.  Type inference must run before rewrite so the
+        typed namespace can be selected.
+        """
         source = system_model_files["id_normalization"].read_text(encoding="utf-8")
+        wrap_at = source.index("_wrap_bare_string_refs(normalized)")
         type_at = source.index("_repair_element_ref_types(normalized)")
         rewrite_at = source.index("_rewrite_references_before_id_replacement(")
         ids_at = source.index("_set_canonical_ids(normalized)")
         desc_at = source.index("_repair_empty_descriptions(normalized)")
-        assert type_at < rewrite_at < ids_at < desc_at
+        assert wrap_at < type_at < rewrite_at < ids_at < desc_at
 
     def test_id_normalization_is_leaf(self, system_model_files):
         """id_normalization.py is high-level policy — no sibling or infra imports."""
