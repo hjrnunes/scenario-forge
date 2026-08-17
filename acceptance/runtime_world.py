@@ -10,20 +10,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from scenario_forge.stpa.models.control_structure import ControlStructure
-from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet
-from scenario_forge.stpa.models.ica_enumeration import ICAEnumeration
-from scenario_forge.stpa.models.loss_analysis import LossAnalysis
-
 
 class World:
-    """Shared state for a single scenario execution."""
+    """Shared state for a single scenario execution.
+
+    Field types stay generic so this module does not depend on production
+    models, persistence shapes, or feature handlers.  Handlers that need
+    those types import them from their own side of the boundary.
+    """
 
     def __init__(self) -> None:
-        self.loss_analysis: LossAnalysis | None = None
-        self.control_structure: ControlStructure | None = None
-        self.ica_enumeration: ICAEnumeration | None = None
-        self.enriched_threat_set: EnrichedThreatSet | None = None
+        self.loss_analysis: Any = None
+        self.control_structure: Any = None
+        self.ica_enumeration: Any = None
+        self.enriched_threat_set: Any = None
         self.scenario_spec: Any = None  # ScenarioSpec
         self.validation_error: Exception | None = None
         self.validation_succeeded: bool = False

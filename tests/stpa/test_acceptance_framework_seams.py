@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import subprocess
 import sys
@@ -9,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import given, strategies as st
 
 _PROJECT_ROOT = next(
     path
@@ -216,3 +218,82 @@ def test_refresh_tool_runner_uses_fallback_and_reports_failure(monkeypatch) -> N
     monkeypatch.setattr(refresh_snapshot, "_resolve_binary", lambda _name: None)
     with pytest.raises(FileNotFoundError, match="neither bb"):
         refresh_snapshot.run_tool(["gherkin-parser", "input", "output"])
+
+
+_ACCEPTANCE = _PROJECT_ROOT / "acceptance"
+_FRAMEWORK_CORE = (
+    "lifecycle.py",
+    "live_llm_opt_in.py",
+    "paths.py",
+    "registry.py",
+    "runner_protocol.py",
+    "runtime_world.py",
+)
+_FORBIDDEN_FRAMEWORK_IMPORTS = {
+    "acceptance_runtime",
+    "runtime_features",
+    "runtime_shared",
+    "scenario_forge",
+}
+
+
+def _imported_modules(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.append(node.module)
+    return names
+
+
+@pytest.mark.parametrize("module_name", _FRAMEWORK_CORE)
+def test_framework_core_depends_inward_only(module_name: str) -> None:
+    imports = _imported_modules(_ACCEPTANCE / module_name)
+    violations = [
+        name
+        for name in imports
+        if name in _FORBIDDEN_FRAMEWORK_IMPORTS
+        or name.startswith("runtime_features.")
+        or name.startswith("scenario_forge.")
+    ]
+    assert violations == []
+
+
+def test_runtime_world_stays_independent_of_production_models() -> None:
+    imports = _imported_modules(_ACCEPTANCE / "runtime_world.py")
+    assert all(not name.startswith("scenario_forge") for name in imports)
+    world = World()
+    assert world.loss_analysis is None
+    assert world.control_structure is None
+
+
+@given(
+    first_tag=st.sampled_from(("alpha", "beta")),
+    other_tag=st.sampled_from(("alpha", "beta", None)),
+)
+def test_published_registry_never_selects_ineligible_feature(
+    first_tag: str, other_tag: str | None
+) -> None:
+    def first_handler(world: World, text: str, examples: dict) -> tuple[bool, str]:
+        return True, "first"
+
+    def other_handler(world: World, text: str, examples: dict) -> tuple[bool, str]:
+        return True, "other"
+
+    stage = RegistrationStage()
+    api = RegistrationAPI(stage)
+    api.set_feature(first_tag)
+    api.register_first("witness", first_handler, source_order=1)
+    api.set_feature("omega")
+    api.register_first("witness", other_handler, source_order=2)
+
+    registry = PatternRegistry()
+    registry.publish(stage)
+    resolved = registry.resolve("witness", other_tag)
+    if other_tag == first_tag:
+        assert resolved is first_handler
+    else:
+        assert resolved is not first_handler
+        assert resolved is not other_handler
