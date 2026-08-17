@@ -71,6 +71,19 @@ def test_qa_runner_reports_recording_order_and_deterministic_status(capsys):
     assert "QA suite: 1 passed, 1 failed" in output
 
 
+def test_qa_runner_summary_distinguishes_prefix_overlapping_names(capsys):
+    runner = QARunner()
+
+    runner.record("AA", True)
+    runner.record("A", True)
+
+    assert runner.summary() == 0
+    lines = [
+        line for line in capsys.readouterr().out.splitlines() if line.startswith("  [")
+    ]
+    assert lines == ["  [PASS] AA", "  [PASS] A"]
+
+
 def test_qa_child_execution_is_isolated_and_captures_streams(tmp_path, monkeypatch):
     original_cwd = Path.cwd()
     monkeypatch.setenv("QA_PARENT_ONLY", "present")
@@ -688,11 +701,9 @@ def test_qa_runner_summary_is_deterministic_for_recorded_results(
         expected_status = 0 if second_passed else 1
         status = runner.summary()
     assert status == expected_status
-    output = buffer.getvalue()
-    first_line = f"[PASS] {first_name}"
-    second_line = f"[{'PASS' if second_passed else 'FAIL'}] {second_name}"
-    assert output.index(first_line) < output.index(second_line)
-    assert output.count(first_line) == 1
-    assert output.count(second_line) == 1
+    lines = [line for line in buffer.getvalue().splitlines() if line.startswith("  [")]
+    first_line = f"  [PASS] {first_name}"
+    second_line = f"  [{'PASS' if second_passed else 'FAIL'}] {second_name}"
+    assert lines == [first_line, second_line]
     failed = 0 if second_passed else 1
-    assert f"QA suite: {2 - failed} passed, {failed} failed" in output
+    assert f"QA suite: {2 - failed} passed, {failed} failed" in buffer.getvalue()
