@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import ast
+import io
 import os
+import string
 import subprocess
 import sys
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from pathlib import Path
+
+from hypothesis import assume, given, strategies as st
 
 _PROJECT_ROOT = next(
     path
@@ -258,7 +263,7 @@ def test_only_migrated_qa_suite_imports_qa_harness():
         ):
             importers.append(path.relative_to(_PROJECT_ROOT).as_posix())
 
-    assert importers == ["acceptance/qa/acceptance-framework-refactor/qa_suite.py"]
+    assert importers == list(_ALLOWED_QA_HARNESS_IMPORTERS)
 
 
 def test_acceptance_refresh_handler_branches_remain_characterized(tmp_path):
@@ -517,3 +522,177 @@ def test_qa_cleanup_checks_cover_refresh_parsing_and_generation(monkeypatch, tmp
         generated_world, "exactly 2 scenarios report PASS", {}
     )[0]
     assert not checks._h_aqrc_source_pass_count(generated_world, "malformed", {})[0]
+
+
+_QA_RUNTIME_MODULES = (
+    "acceptance/runtime_features/acceptance_qa_runtime_cleanup.py",
+    "acceptance/runtime_features/acceptance_qa_runtime_cleanup_harness.py",
+    "acceptance/runtime_features/acceptance_qa_runtime_cleanup_checks.py",
+)
+_ALLOWED_QA_HARNESS_IMPORTERS = (
+    "acceptance/qa/acceptance-framework-refactor/qa_suite.py",
+)
+_ENV_NAME_CHARS = string.ascii_letters + string.digits + "_"
+_ENV_VALUE_CHARS = string.ascii_letters + string.digits + " ._-"
+
+
+def _imported_module_names(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.append(node.module)
+    return names
+
+
+def test_qa_runtime_glue_never_imports_qa_harness():
+    for relative in _QA_RUNTIME_MODULES:
+        imports = _imported_module_names(_PROJECT_ROOT / relative)
+        assert all(
+            name != "qa_harness" and not name.startswith("qa_harness.")
+            for name in imports
+        ), relative
+
+
+def test_qa_harness_depends_only_on_stdlib():
+    imports = _imported_module_names(
+        _PROJECT_ROOT / "acceptance" / "qa" / "qa_harness.py"
+    )
+    forbidden = [
+        name
+        for name in imports
+        if name.startswith(
+            (
+                "runtime_features",
+                "runtime_shared",
+                "runtime_manifest",
+                "acceptance_runtime",
+                "scenario_forge",
+                "qa_suite",
+            )
+        )
+    ]
+    assert forbidden == []
+
+
+def test_manifest_registration_does_not_load_qa_harness():
+    before = {
+        name for name in sys.modules if name == "qa_harness" or "qa_harness" in name
+    }
+    import runtime_manifest
+
+    modules = runtime_manifest.load_modules()
+    identities = [module.FEATURE_ID for module in modules]
+    after = {
+        name for name in sys.modules if name == "qa_harness" or "qa_harness" in name
+    }
+
+    assert identities.count("acceptance_refresh") == 1
+    assert identities.count("acceptance_qa_runtime_cleanup") == 1
+    assert after == before
+
+
+def test_acceptance_refresh_facade_keeps_handler_aliases():
+    expected = {
+        "_h_ar_add_coordination",
+        "_h_ar_assemble",
+        "_h_ar_call2a_run",
+        "_h_ar_call2b_run",
+        "_h_ar_call3_prompt",
+        "_h_ar_call3_run",
+        "_h_ar_call_log_exists",
+        "_h_ar_call_sequence",
+        "_h_ar_control_element_set",
+        "_h_ar_control_elements_contains_cp",
+        "_h_ar_control_elements_produced",
+        "_h_ar_control_structure_element",
+        "_h_ar_coordination_analysis",
+        "_h_ar_coordination_contains_link",
+        "_h_ar_coordination_produced",
+        "_h_ar_integrity_findings",
+        "_h_ar_link_source_target",
+        "_h_ar_model_field",
+        "_h_ar_module_export",
+        "_h_ar_named_prompts_contains",
+        "_h_ar_no_assembly_failure",
+        "_h_ar_no_coordination_links",
+        "_h_ar_no_log_step",
+        "_h_ar_prior_prompt_contains",
+        "_h_ar_render_call2a_prompt",
+        "_h_ar_responsibility_no_field",
+        "_h_ar_responsibility_set",
+        "_h_ar_responsibility_shape",
+        "_h_ar_sp1_assembly_error",
+        "_h_ar_stage2_calls_ready",
+        "_h_ar_stage2_run",
+        "_h_ar_valid_responsibility_set",
+        "_h_ar_warnings_include",
+    }
+    available = {
+        name for name in dir(acceptance_refresh) if name.startswith("_h_ar_")
+    }
+    assert expected <= available
+    assert acceptance_refresh.__all__ == ["FEATURE_ID", "register"]
+
+
+@given(
+    keep_name=st.text(alphabet=_ENV_NAME_CHARS, min_size=1, max_size=12).filter(
+        lambda name: name.isidentifier() and not name.startswith("_")
+    ),
+    keep_value=st.text(alphabet=_ENV_VALUE_CHARS, min_size=0, max_size=24),
+    drop_name=st.text(alphabet=_ENV_NAME_CHARS, min_size=1, max_size=12).filter(
+        lambda name: name.isidentifier() and not name.startswith("_")
+    ),
+    drop_value=st.text(alphabet=_ENV_VALUE_CHARS, min_size=0, max_size=24),
+    extra_name=st.text(alphabet=_ENV_NAME_CHARS, min_size=1, max_size=12).filter(
+        lambda name: name.isidentifier() and not name.startswith("_")
+    ),
+    extra_value=st.text(alphabet=_ENV_VALUE_CHARS, min_size=0, max_size=24),
+)
+def test_child_env_copies_parent_and_removes_only_requested_keys(
+    keep_name: str,
+    keep_value: str,
+    drop_name: str,
+    drop_value: str,
+    extra_name: str,
+    extra_value: str,
+) -> None:
+    assume(len({keep_name, drop_name, extra_name}) == 3)
+    parent = {keep_name: keep_value, drop_name: drop_value}
+    snapshot = dict(parent)
+    isolated = child_env(parent, **{drop_name: None, extra_name: extra_value})
+    assert parent == snapshot
+    assert isolated[keep_name] == keep_value
+    assert drop_name not in isolated
+    assert isolated[extra_name] == extra_value
+    isolated[keep_name] = "mutated"
+    assert parent[keep_name] == keep_value
+
+
+@given(
+    first_name=st.text(alphabet=string.ascii_letters, min_size=1, max_size=16),
+    second_name=st.text(alphabet=string.ascii_letters, min_size=1, max_size=16),
+    second_passed=st.booleans(),
+)
+def test_qa_runner_summary_is_deterministic_for_recorded_results(
+    first_name: str, second_name: str, second_passed: bool
+) -> None:
+    assume(first_name != second_name)
+    runner = QARunner()
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        runner.record(first_name, True)
+        runner.record(second_name, second_passed)
+        expected_status = 0 if second_passed else 1
+        status = runner.summary()
+    assert status == expected_status
+    output = buffer.getvalue()
+    first_line = f"[PASS] {first_name}"
+    second_line = f"[{'PASS' if second_passed else 'FAIL'}] {second_name}"
+    assert output.index(first_line) < output.index(second_line)
+    assert output.count(first_line) == 1
+    assert output.count(second_line) == 1
+    failed = 0 if second_passed else 1
+    assert f"QA suite: {2 - failed} passed, {failed} failed" in output
