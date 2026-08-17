@@ -11,8 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from runtime_features.acceptance_live_opt_in import (
+from live_llm_opt_in import (
     LIVE_LLM_ACCEPTANCE_MARKER,
+    LIVE_LLM_SKIP_REASON,
+    live_llm_acceptance_authorized,
+    scenario_requires_live_llm_acceptance,
 )
 from runtime_features.sp1_revision import (
     _h_rev_revision_run as _retained_rev_revision_run,
@@ -280,13 +283,12 @@ def _derive_feature_tag(ir_path: str) -> str | None:
     return None
 
 
-def _requires_live_llm_acceptance(scenario: dict[str, Any]) -> bool:
+def _requires_live_llm_acceptance(
+    scenario: dict[str, Any],
+    background: list[Any] | None = None,
+) -> bool:
     """Return whether a scenario explicitly opts into live LLM execution."""
-    return any(
-        step.get("text", "").strip() == LIVE_LLM_ACCEPTANCE_MARKER
-        for step in scenario.get("steps", [])
-        if isinstance(step, dict)
-    )
+    return scenario_requires_live_llm_acceptance(scenario, background)
 
 
 def _restore_environment(environment: dict[str, str]) -> None:
@@ -301,69 +303,71 @@ def execute_ir(ir_path: str) -> tuple[bool, str]:
     Returns (all_passed, output).
     """
     global _CURRENT_EXECUTION_FEATURE
+    previous_feature = _CURRENT_EXECUTION_FEATURE
     _CURRENT_EXECUTION_FEATURE = _derive_feature_tag(ir_path)
+    try:
+        with open(ir_path) as f:
+            ir = json.load(f)
 
-    with open(ir_path) as f:
-        ir = json.load(f)
+        background_steps = ir.get("background", [])
+        scenarios = ir.get("scenarios", [])
 
-    background_steps = ir.get("background", [])
-    scenarios = ir.get("scenarios", [])
+        output_lines: list[str] = []
+        all_passed = True
 
-    output_lines: list[str] = []
-    all_passed = True
+        for s_idx, scenario in enumerate(scenarios):
+            scenario_name = scenario.get("name", f"scenario_{s_idx}")
+            steps = scenario.get("steps", [])
+            examples = scenario.get("examples", [])
 
-    for s_idx, scenario in enumerate(scenarios):
-        scenario_name = scenario.get("name", f"scenario_{s_idx}")
-        steps = scenario.get("steps", [])
-        examples = scenario.get("examples", [])
+            if not examples:
+                examples = [{}]
 
-        if not examples:
-            examples = [{}]
+            for e_idx, example in enumerate(examples):
+                exec_name = f"{scenario_name}/example_{e_idx + 1}"
+                if (
+                    _requires_live_llm_acceptance(scenario, background_steps)
+                    and not live_llm_acceptance_authorized()
+                ):
+                    output_lines.append(f"SKIP {exec_name}: {LIVE_LLM_SKIP_REASON}")
+                    continue
 
-        for e_idx, example in enumerate(examples):
-            exec_name = f"{scenario_name}/example_{e_idx + 1}"
-            if (
-                _requires_live_llm_acceptance(scenario)
-                and os.environ.get("SCENARIO_FORGE_QA_PIPELINE") != "1"
-            ):
-                output_lines.append(
-                    f"SKIP {exec_name}: live LLM acceptance requires "
-                    f'SCENARIO_FORGE_QA_PIPELINE "1"'
-                )
-                continue
-
-            world = World()
-            original_environment = dict(os.environ)
-            try:
-                # Execute background steps
-                for bg_step in background_steps:
-                    success, error = execute_step(world, bg_step, example)
-                    if not success:
-                        detail = getattr(world, "acceptance_status_detail", "")
-                        suffix = f" ({detail})" if detail else ""
-                        output_lines.append(
-                            f"FAIL {exec_name}: background step failed: {error}{suffix}"
-                        )
-                        all_passed = False
-                        break
-                else:
-                    # Execute scenario steps
-                    for step in steps:
-                        success, error = execute_step(world, step, example)
+                world = World()
+                original_environment = dict(os.environ)
+                try:
+                    # Execute background steps
+                    for bg_step in background_steps:
+                        success, error = execute_step(world, bg_step, example)
                         if not success:
                             detail = getattr(world, "acceptance_status_detail", "")
                             suffix = f" ({detail})" if detail else ""
-                            output_lines.append(f"FAIL {exec_name}: {error}{suffix}")
+                            output_lines.append(
+                                f"FAIL {exec_name}: background step failed: {error}{suffix}"
+                            )
                             all_passed = False
                             break
                     else:
-                        detail = getattr(world, "acceptance_status_detail", "")
-                        suffix = f": {detail}" if detail else ""
-                        output_lines.append(f"PASS {exec_name}{suffix}")
-            finally:
-                _restore_environment(original_environment)
+                        # Execute scenario steps
+                        for step in steps:
+                            success, error = execute_step(world, step, example)
+                            if not success:
+                                detail = getattr(world, "acceptance_status_detail", "")
+                                suffix = f" ({detail})" if detail else ""
+                                output_lines.append(
+                                    f"FAIL {exec_name}: {error}{suffix}"
+                                )
+                                all_passed = False
+                                break
+                        else:
+                            detail = getattr(world, "acceptance_status_detail", "")
+                            suffix = f": {detail}" if detail else ""
+                            output_lines.append(f"PASS {exec_name}{suffix}")
+                finally:
+                    _restore_environment(original_environment)
 
-    return all_passed, "\n".join(output_lines)
+        return all_passed, "\n".join(output_lines)
+    finally:
+        _CURRENT_EXECUTION_FEATURE = previous_feature
 
 
 _load_feature_registry()

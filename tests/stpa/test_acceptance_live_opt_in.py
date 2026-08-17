@@ -19,6 +19,7 @@ ROOT = next(
 sys.path.insert(0, str(ROOT / "acceptance"))
 
 from acceptance_runtime import execute_ir  # noqa: E402
+from live_llm_opt_in import LIVE_LLM_SKIP_REASON  # noqa: E402
 
 
 LIVE_MARKER = 'live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"'
@@ -71,10 +72,7 @@ def test_default_execution_skips_marked_scenario_even_with_endpoint(
 
     assert passed
     assert "PASS deterministic/example_1" in output
-    assert (
-        "SKIP live/example_1: live LLM acceptance requires "
-        'SCENARIO_FORGE_QA_PIPELINE "1"'
-    ) in output
+    assert f"SKIP live/example_1: {LIVE_LLM_SKIP_REASON}" in output
     assert "FAIL live/example_1" not in output
 
 
@@ -188,3 +186,72 @@ def test_pipeline_placeholders_are_fresh_files_per_scenario(
     assert len(set(input_paths + risk_paths)) == 4
     assert all(path != Path(".") for path in input_paths + risk_paths)
     assert all("fixture=" in line and "output=" in line for line in output.splitlines())
+
+
+def test_background_marker_skips_every_scenario_without_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SCENARIO_FORGE_QA_PIPELINE", raising=False)
+    ir_path = tmp_path / "background.json"
+    ir_path.write_text(
+        json.dumps(
+            {
+                "name": "Background marker",
+                "background": [{"keyword": "Given", "text": LIVE_MARKER}],
+                "scenarios": [
+                    _scenario("first"),
+                    _scenario("second"),
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    passed, output = execute_ir(str(ir_path))
+
+    assert passed
+    assert f"SKIP first/example_1: {LIVE_LLM_SKIP_REASON}" in output
+    assert f"SKIP second/example_1: {LIVE_LLM_SKIP_REASON}" in output
+    assert "PASS" not in output
+
+
+def test_casefold_marker_is_recognized_and_nearby_wording_is_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SCENARIO_FORGE_QA_PIPELINE", raising=False)
+    passed, output = execute_ir(
+        str(
+            _write_ir(
+                tmp_path,
+                [
+                    _scenario("cased", LIVE_MARKER.upper()),
+                    _scenario(
+                        "nearby",
+                        f"{LIVE_MARKER} extra wording",
+                    ),
+                ],
+            )
+        )
+    )
+
+    assert not passed
+    assert f"SKIP cased/example_1: {LIVE_LLM_SKIP_REASON}" in output
+    assert "SKIP nearby/example_1" not in output
+    assert "FAIL nearby/example_1: Unsupported step" in output
+
+
+def test_nested_execute_ir_restores_feature_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import acceptance_runtime
+
+    monkeypatch.setenv("SCENARIO_FORGE_QA_PIPELINE", "1")
+    monkeypatch.setattr(acceptance_runtime, "_CURRENT_EXECUTION_FEATURE", "outer")
+    try:
+        passed, _output = execute_ir(
+            str(_write_ir(tmp_path, [_scenario("inner")]))
+        )
+        assert passed
+        assert acceptance_runtime._CURRENT_EXECUTION_FEATURE == "outer"
+    finally:
+        acceptance_runtime._CURRENT_EXECUTION_FEATURE = None

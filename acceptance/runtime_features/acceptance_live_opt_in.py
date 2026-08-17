@@ -9,19 +9,17 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from live_llm_opt_in import LIVE_LLM_ACCEPTANCE_MARKER, LIVE_LLM_SKIP_REASON
 from runtime_shared import World
 
 
-LIVE_LLM_ACCEPTANCE_MARKER = (
-    'live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"'
-)
 _ENDPOINT_VARIABLES = (
     "SCENARIO_FORGE_MODEL_BASE_URL",
     "OPENAI_BASE_URL",
     "OPENAI_API_KEY",
     "SCENARIO_FORGE_API_KEY",
 )
-_FIXTURE_STATE: dict[str, Any] = {}
+_FIXTURE_STATE_STACK: list[dict[str, Any]] = []
 
 
 def _h_live_llm_marker(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -75,6 +73,26 @@ def _endpoint_configured() -> bool:
     return any(os.environ.get(name) for name in _ENDPOINT_VARIABLES)
 
 
+def _empty_fixture_state() -> dict[str, Any]:
+    """Return a fresh isolated-fixture observation record."""
+    return {
+        "deterministic_count": 0,
+        "live_attempted": 0,
+        "live_executed": 0,
+        "live_environments": [],
+        "live_fixture_dirs": [],
+        "live_output_dirs": [],
+        "foreign_output_observations": [],
+    }
+
+
+def _current_fixture_state() -> dict[str, Any]:
+    """Return the innermost isolated fixture's mutable observation record."""
+    if not _FIXTURE_STATE_STACK:
+        raise RuntimeError("no isolated fixture is executing")
+    return _FIXTURE_STATE_STACK[-1]
+
+
 def _fixture_scenario(name: str, live: bool = False) -> dict[str, Any]:
     steps = []
     if live:
@@ -106,28 +124,20 @@ def _execute_fixture(world: World, text: str, examples: dict) -> tuple[bool, str
         encoding="utf-8",
     )
     original_environment = dict(os.environ)
-    _FIXTURE_STATE.clear()
-    _FIXTURE_STATE.update(
-        {
-            "deterministic_count": 0,
-            "live_attempted": 0,
-            "live_executed": 0,
-            "live_environments": [],
-            "live_fixture_dirs": [],
-            "live_output_dirs": [],
-            "foreign_output_observations": [],
-        }
-    )
-    previous_feature = acceptance_runtime._CURRENT_EXECUTION_FEATURE
+    state = _empty_fixture_state()
+    _FIXTURE_STATE_STACK.append(state)
     try:
         passed, output = execute_ir(str(fixture_path))
+        world.acceptance_fixture_state = {
+            key: list(value) if isinstance(value, list) else value
+            for key, value in state.items()
+        }
     finally:
-        acceptance_runtime._CURRENT_EXECUTION_FEATURE = previous_feature
+        _FIXTURE_STATE_STACK.pop()
     world.acceptance_result = passed
     world.acceptance_output = output
     world.acceptance_original_environment = original_environment
-    world.acceptance_fixture_state = dict(_FIXTURE_STATE)
-    output_dirs = _FIXTURE_STATE.get("live_output_dirs", [])
+    output_dirs = world.acceptance_fixture_state.get("live_output_dirs", [])
     world.acceptance_status_detail = (
         f"fixture={fixture_dir} "
         f"output={','.join(str(path) for path in output_dirs) or 'none'}"
@@ -139,27 +149,36 @@ def _h_fixture_deterministic(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Record execution of the deterministic fixture scenario."""
-    _FIXTURE_STATE["deterministic_count"] += 1
+    _current_fixture_state()["deterministic_count"] += 1
     return True, ""
 
 
 def _h_fixture_live(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Run the isolated live fixture step without contacting an endpoint."""
-    _FIXTURE_STATE["live_attempted"] += 1
-    _FIXTURE_STATE["live_environments"].append(dict(os.environ))
+    state = _current_fixture_state()
+    state["live_attempted"] += 1
+    state["live_environments"].append(dict(os.environ))
+    previous_fixture_dirs = list(state["live_fixture_dirs"])
+    previous_output_dirs = list(state["live_output_dirs"])
     fixture_dir = Path(tempfile.mkdtemp(prefix="acceptance-live-scenario-fixture-"))
     output_dir = fixture_dir / "output"
     output_dir.mkdir()
-    _FIXTURE_STATE["live_fixture_dirs"].append(fixture_dir)
-    _FIXTURE_STATE["live_output_dirs"].append(output_dir)
-    _FIXTURE_STATE["foreign_output_observations"].append(False)
+    observed_foreign = fixture_dir in previous_fixture_dirs or any(
+        output_dir == other
+        or output_dir.is_relative_to(other)
+        or other.is_relative_to(fixture_dir)
+        for other in previous_output_dirs
+    )
+    state["live_fixture_dirs"].append(fixture_dir)
+    state["live_output_dirs"].append(output_dir)
+    state["foreign_output_observations"].append(observed_foreign)
     (output_dir / "output.txt").write_text("fixture output\n", encoding="utf-8")
     if not _endpoint_configured():
         return (
             False,
             "LLM endpoint not configured (live acceptance scenario requires LLM)",
         )
-    _FIXTURE_STATE["live_executed"] += 1
+    state["live_executed"] += 1
     return True, ""
 
 
@@ -199,7 +218,7 @@ def _h_live_executed(world: World, text: str, examples: dict) -> tuple[bool, str
 def _h_live_reported_skipped(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
-    expected = 'SKIP live/example_1: live LLM acceptance requires SCENARIO_FORGE_QA_PIPELINE "1"'
+    expected = f"SKIP live/example_1: {LIVE_LLM_SKIP_REASON}"
     output = _output(world)
     return expected in output, f"missing skip report: {output}"
 
