@@ -107,6 +107,7 @@ def test_generate_writes_repo_relative_paths_and_feature_hash(tmp_path: Path):
     assert "_PROJECT_ROOT / \"acceptance\"" in body
     assert "_GENERATED_DIR.parent" not in body
     assert "/Users/" not in body
+    assert body.count("print(output)") == 2
     assert meta["feature_path"] == "features/group/example.feature"
     assert meta["ir_path"] == "build/acceptance/ir/group/example.json"
     assert meta["generated_files"] == ["example_acceptance_test.py"]

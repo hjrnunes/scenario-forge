@@ -88,6 +88,7 @@ def test_acceptance():
     """Run all acceptance scenarios from the IR."""
     ir_path = _PROJECT_ROOT / "{paths.ir_path}"
     passed, output = execute_ir(str(ir_path))
+    print(output)
     assert passed, f"Acceptance tests failed:\\n{{output}}"
 
 

@@ -181,6 +181,31 @@ def _h_stage1_given_prebuilt_profile(
     return True, ""
 
 
+def _pipeline_input_files(world: World) -> tuple[Path, Path, Path]:
+    """Create isolated, file-backed inputs for a pipeline scenario."""
+    import tempfile
+
+    fixture_dir = Path(tempfile.mkdtemp(prefix="stage1-acc-fixture-"))
+    use_case = fixture_dir / "use-case.txt"
+    risk_file = fixture_dir / "risk-extraction.json"
+    profile = fixture_dir / "capability-profile.yaml"
+    use_case.write_text(
+        "An AI assistant accepts user prompts and reasons about requests.\n",
+        encoding="utf-8",
+    )
+    risk_file.write_text(json.dumps({"risks": []}) + "\n", encoding="utf-8")
+    profile_source = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "scenario_forge"
+        / "stpa"
+        / "fixtures"
+        / "capability_profile_klarna.yaml"
+    )
+    profile.write_text(profile_source.read_text(encoding="utf-8"), encoding="utf-8")
+    return use_case, risk_file, profile
+
+
 def _h_stage1_run_stpa(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: I run `scenario-forge stpa-run ...`."""
     import os
@@ -208,16 +233,19 @@ def _h_stage1_run_stpa(world: World, text: str, examples: dict) -> tuple[bool, s
 
     # Resolve placeholders to temp paths
     output_dir = Path(tempfile.mkdtemp(prefix="stage1-acc-")) / "output"
-    cmd_args = cmd_args.replace("<use_case>", str(world.fixture_dir or Path(".")))
-    cmd_args = cmd_args.replace("<risk_file>", str(world.fixture_dir or Path(".")))
+    output_dir.mkdir()
+    use_case, risk_file, profile = _pipeline_input_files(world)
+    cmd_args = cmd_args.replace("<use_case>", f"@{use_case}")
+    cmd_args = cmd_args.replace("<risk_file>", str(risk_file))
     cmd_args = cmd_args.replace("<dir>", str(output_dir))
-    cmd_args = cmd_args.replace("<profile>", str(world.fixture_dir or Path(".")))
+    cmd_args = cmd_args.replace("<profile>", str(profile))
 
     cmd = f"uv run scenario-forge stpa-run {cmd_args}"
     proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=600)
     world.stage1_exit_code = proc.returncode
     world.stage1_output_dir = output_dir
     world.stage1_stderr = proc.stderr
+    world.acceptance_status_detail = f"fixture={use_case.parent} output={output_dir}"
 
     return True, ""
 

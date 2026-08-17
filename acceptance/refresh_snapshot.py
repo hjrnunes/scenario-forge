@@ -121,7 +121,7 @@ def refresh_snapshot(root: Path | None = None, run_tests: bool = False) -> int:
     if run_tests:
         generated = project_root / layout.generated_dir
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", str(generated), "-q"],
+            [sys.executable, "-m", "pytest", str(generated), "-q", "-s"],
             cwd=project_root,
             check=False,
         )

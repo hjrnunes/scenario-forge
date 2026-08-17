@@ -35,6 +35,7 @@ class TestGate:
             "${SWARMFORGE_ACCEPTANCE_GENERATED_DIR:-build/acceptance/generated}"
             in body
         )
+        assert 'exec uv run pytest "$root/$generated/" -q -s' in body
         assert gate < pytest
 
     def test_test_mode_stops_when_quality_fails(self, tmp_path: Path):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import traceback
@@ -24,6 +25,9 @@ STEP_PATTERNS: list[tuple[re.Pattern, Any, str | None]] = []
 _CURRENT_REGISTRATION_FEATURE: str | None = None
 _CURRENT_EXECUTION_FEATURE: str | None = None
 _REGISTERED_PATTERN_KEYS: set[tuple[str, str, str | None]] = set()
+LIVE_LLM_ACCEPTANCE_MARKER = (
+    'live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"'
+)
 
 
 def _set_feature(tag: str | None) -> None:
@@ -276,6 +280,21 @@ def _derive_feature_tag(ir_path: str) -> str | None:
     return None
 
 
+def _requires_live_llm_acceptance(scenario: dict[str, Any]) -> bool:
+    """Return whether a scenario explicitly opts into live LLM execution."""
+    return any(
+        step.get("text", "").strip() == LIVE_LLM_ACCEPTANCE_MARKER
+        for step in scenario.get("steps", [])
+        if isinstance(step, dict)
+    )
+
+
+def _restore_environment(environment: dict[str, str]) -> None:
+    """Restore the process environment after one scenario example."""
+    os.environ.clear()
+    os.environ.update(environment)
+
+
 def execute_ir(ir_path: str) -> tuple[bool, str]:
     """Execute all scenarios in a JSON IR file.
 
@@ -303,27 +322,46 @@ def execute_ir(ir_path: str) -> tuple[bool, str]:
 
         for e_idx, example in enumerate(examples):
             exec_name = f"{scenario_name}/example_{e_idx + 1}"
-            world = World()
+            if (
+                _requires_live_llm_acceptance(scenario)
+                and os.environ.get("SCENARIO_FORGE_QA_PIPELINE") != "1"
+            ):
+                output_lines.append(
+                    f"SKIP {exec_name}: live LLM acceptance requires "
+                    f'SCENARIO_FORGE_QA_PIPELINE "1"'
+                )
+                continue
 
-            # Execute background steps
-            for bg_step in background_steps:
-                success, error = execute_step(world, bg_step, example)
-                if not success:
-                    output_lines.append(
-                        f"FAIL {exec_name}: background step failed: {error}"
-                    )
-                    all_passed = False
-                    break
-            else:
-                # Execute scenario steps
-                for step in steps:
-                    success, error = execute_step(world, step, example)
+            world = World()
+            original_environment = dict(os.environ)
+            try:
+                # Execute background steps
+                for bg_step in background_steps:
+                    success, error = execute_step(world, bg_step, example)
                     if not success:
-                        output_lines.append(f"FAIL {exec_name}: {error}")
+                        detail = getattr(world, "acceptance_status_detail", "")
+                        suffix = f" ({detail})" if detail else ""
+                        output_lines.append(
+                            f"FAIL {exec_name}: background step failed: {error}{suffix}"
+                        )
                         all_passed = False
                         break
                 else:
-                    output_lines.append(f"PASS {exec_name}")
+                    # Execute scenario steps
+                    for step in steps:
+                        success, error = execute_step(world, step, example)
+                        if not success:
+                            detail = getattr(world, "acceptance_status_detail", "")
+                            suffix = f" ({detail})" if detail else ""
+                            output_lines.append(f"FAIL {exec_name}: {error}{suffix}")
+                            all_passed = False
+                            break
+                    else:
+                        detail = getattr(world, "acceptance_status_detail", "")
+                        suffix = f": {detail}" if detail else ""
+                        output_lines.append(f"PASS {exec_name}{suffix}")
+            finally:
+                _restore_environment(original_environment)
 
     return all_passed, "\n".join(output_lines)
 
@@ -364,6 +402,8 @@ __all__ = [
     "_register_first",
     "_set_feature",
     "_derive_feature_tag",
+    "LIVE_LLM_ACCEPTANCE_MARKER",
+    "_requires_live_llm_acceptance",
     "find_pattern_conflicts",
     "World",
     "_h_rev_revision_run",
