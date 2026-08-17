@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
+from runtime_features.acceptance_live_opt_in import (
+    LIVE_LLM_ACCEPTANCE_MARKER,
+)
 from runtime_features.sp1_revision import (
     _h_rev_revision_run as _retained_rev_revision_run,
 )
@@ -25,9 +28,6 @@ STEP_PATTERNS: list[tuple[re.Pattern, Any, str | None]] = []
 _CURRENT_REGISTRATION_FEATURE: str | None = None
 _CURRENT_EXECUTION_FEATURE: str | None = None
 _REGISTERED_PATTERN_KEYS: set[tuple[str, str, str | None]] = set()
-LIVE_LLM_ACCEPTANCE_MARKER = (
-    'live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"'
-)
 
 
 def _set_feature(tag: str | None) -> None:

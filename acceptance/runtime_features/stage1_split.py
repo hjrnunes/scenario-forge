@@ -181,7 +181,7 @@ def _h_stage1_given_prebuilt_profile(
     return True, ""
 
 
-def _pipeline_input_files(world: World) -> tuple[Path, Path, Path]:
+def _pipeline_input_files() -> tuple[Path, Path, Path]:
     """Create isolated, file-backed inputs for a pipeline scenario."""
     import tempfile
 
@@ -234,7 +234,7 @@ def _h_stage1_run_stpa(world: World, text: str, examples: dict) -> tuple[bool, s
     # Resolve placeholders to temp paths
     output_dir = Path(tempfile.mkdtemp(prefix="stage1-acc-")) / "output"
     output_dir.mkdir()
-    use_case, risk_file, profile = _pipeline_input_files(world)
+    use_case, risk_file, profile = _pipeline_input_files()
     cmd_args = cmd_args.replace("<use_case>", f"@{use_case}")
     cmd_args = cmd_args.replace("<risk_file>", str(risk_file))
     cmd_args = cmd_args.replace("<dir>", str(output_dir))

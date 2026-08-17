@@ -12,7 +12,9 @@ from typing import Any
 from runtime_shared import World
 
 
-LIVE_LLM_MARKER = 'live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"'
+LIVE_LLM_ACCEPTANCE_MARKER = (
+    'live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"'
+)
 _ENDPOINT_VARIABLES = (
     "SCENARIO_FORGE_MODEL_BASE_URL",
     "OPENAI_BASE_URL",
@@ -29,7 +31,6 @@ def _h_live_llm_marker(world: World, text: str, examples: dict) -> tuple[bool, s
 
 def _h_fixture_background(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Prepare the deterministic fixture used by the opt-in feature."""
-    world.acceptance_fixture_scenario_count = 1
     world.acceptance_fixture_live_count = 1
     return True, ""
 
@@ -77,7 +78,7 @@ def _endpoint_configured() -> bool:
 def _fixture_scenario(name: str, live: bool = False) -> dict[str, Any]:
     steps = []
     if live:
-        steps.append({"keyword": "Given", "text": LIVE_LLM_MARKER})
+        steps.append({"keyword": "Given", "text": LIVE_LLM_ACCEPTANCE_MARKER})
         steps.append({"keyword": "When", "text": "acceptance fixture live step"})
     else:
         steps.append(
@@ -122,8 +123,6 @@ def _execute_fixture(world: World, text: str, examples: dict) -> tuple[bool, str
         passed, output = execute_ir(str(fixture_path))
     finally:
         acceptance_runtime._CURRENT_EXECUTION_FEATURE = previous_feature
-    world.acceptance_fixture_dir = fixture_dir
-    world.acceptance_fixture_path = fixture_path
     world.acceptance_result = passed
     world.acceptance_output = output
     world.acceptance_original_environment = original_environment
@@ -270,7 +269,7 @@ def register(api: object) -> None:
     """Register the live-LLM opt-in marker as a global step."""
     api.set_feature(None)
     api.register(
-        r'live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"',
+        rf"^{re.escape(LIVE_LLM_ACCEPTANCE_MARKER)}$",
         _h_live_llm_marker,
     )
     api.register(
