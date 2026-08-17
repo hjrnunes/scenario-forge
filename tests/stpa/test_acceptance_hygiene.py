@@ -60,6 +60,24 @@ class TestGate:
 
 
 class TestRuntime:
+    def test_manifest_loads_through_acceptance_namespace(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import acceptance.runtime_manifest as manifest; "
+                    "assert len(manifest.load_modules()) == len(manifest.MODULES)"
+                ),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+
     def test_manifest_loads_valid_step_patterns(self):
         import acceptance_runtime
         import runtime_manifest
