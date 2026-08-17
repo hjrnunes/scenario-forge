@@ -118,6 +118,12 @@ def _h_ar_no_coordination_links(
     return True, ""
 
 
+def _control_structure_ids(control_structure: ControlStructure, kind: str) -> list[str]:
+    if kind == "responsibility":
+        return [item.resp_id for item in control_structure.responsibilities]
+    return [item.cp_id for item in control_structure.controlled_processes]
+
+
 def _h_ar_control_structure_element(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
@@ -129,14 +135,25 @@ def _h_ar_control_structure_element(
     if not match:
         return False, f"Could not parse control structure element: {text}"
     kind, element_id = match.groups()
-    values = (
-        [item.resp_id for item in world.control_structure.responsibilities]
-        if kind == "responsibility"
-        else [item.cp_id for item in world.control_structure.controlled_processes]
-    )
+    values = _control_structure_ids(world.control_structure, kind)
     if element_id not in values:
         return False, f"{kind} {element_id} not found in {values}"
     return True, ""
+
+
+def _coordination_link(control_structure: ControlStructure):
+    return next(
+        (
+            item
+            for item in control_structure.coordination_links
+            if item.link_id == "CL-1"
+        ),
+        None,
+    )
+
+
+def _has_expected_link(link: object) -> bool:
+    return link is not None and link.source == "RESP-1" and link.target == "RESP-2"
 
 
 def _h_ar_link_source_target(
@@ -144,15 +161,7 @@ def _h_ar_link_source_target(
 ) -> tuple[bool, str]:
     if world.control_structure is None:
         return False, "No ControlStructure available"
-    link = next(
-        (
-            item
-            for item in world.control_structure.coordination_links
-            if item.link_id == "CL-1"
-        ),
-        None,
-    )
-    if link is None or link.source != "RESP-1" or link.target != "RESP-2":
+    if not _has_expected_link(_coordination_link(world.control_structure)):
         return False, "CL-1 does not connect RESP-1 to RESP-2"
     return True, ""
 

@@ -27,6 +27,14 @@ from runtime_shared import (
     _sp1_valid_resp_set_2a_dict,
 )
 
+_KNOWN_RETIRED_STEPS = frozenset(
+    {
+        "call_2_responsibilities",
+        "call_3_connections",
+        "merge_connection_set",
+    }
+)
+
 
 def _h_ar_module_export(world: World, text: str, examples: dict) -> tuple[bool, str]:
     from scenario_forge.stpa.system_model import control_structure
@@ -77,6 +85,19 @@ def _h_ar_valid_responsibility_set(
     return True, ""
 
 
+def _preserve_control_element_set(
+    existing: _SP1ControlElementSet,
+    text: str,
+) -> _SP1ControlElementSet:
+    if "unresolvable feedback source reference" in text:
+        for feedback in existing.feedback_channels:
+            if feedback.fb_id == "FB-2-1":
+                feedback.source = ElementRef(
+                    type=ReferenceType.controlled_process, id="CP-404"
+                )
+    return existing
+
+
 def _h_ar_control_element_set(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
@@ -86,13 +107,10 @@ def _h_ar_control_element_set(
         # feedback source on top of the existing set.  Target FB-2-1
         # (not FB-1-1) so that step-2 modifications to FB-1-1 are
         # preserved.
-        existing = world.sp1_control_element_set
-        if "unresolvable feedback source reference" in text:
-            for feedback in existing.feedback_channels:
-                if feedback.fb_id == "FB-2-1":
-                    feedback.source = ElementRef(
-                        type=ReferenceType.controlled_process, id="CP-404"
-                    )
+        existing = _preserve_control_element_set(
+            world.sp1_control_element_set,
+            text,
+        )
         _ar_client(world).set_response_for(_SP1ControlElementSet, existing.model_dump())
         return True, ""
     response = _sp1_valid_control_element_set_dict()
@@ -186,42 +204,32 @@ def _h_ar_call_sequence(world: World, text: str, examples: dict) -> tuple[bool, 
 
 
 def _h_ar_call_log_exists(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    match = re.search(r"step (\S+)", text)
-    step = match.group(1) if match else ""
-    path = _ar_run_dir(world) / "calls.jsonl"
-    entries = (
-        [json.loads(line) for line in path.read_text().splitlines()]
-        if path.exists()
-        else []
-    )
+    step = _step_name(text)
+    entries = _call_log_entries(world)
     if not any(entry.get("step") == step for entry in entries):
         return False, f"No {step} entry in call log"
     return True, ""
 
 
-def _h_ar_no_log_step(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    known_retired_steps = frozenset(
-        {
-            "call_2_responsibilities",
-            "call_3_connections",
-            "merge_connection_set",
-        }
-    )
+def _step_name(text: str) -> str:
     match = re.search(r"step (\S+)", text)
-    if not match:
+    return match.group(1) if match else ""
+
+
+def _call_log_entries(world: World) -> list[dict]:
+    path = _ar_run_dir(world) / "calls.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def _h_ar_no_log_step(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    step = _step_name(text)
+    if not step:
         return False, "Could not parse step name from step text"
-    step = match.group(1)
-    if step not in known_retired_steps:
+    if step not in _KNOWN_RETIRED_STEPS:
         return False, f"'{step}' is not a recognized retired step name"
-    run_dir = _ar_run_dir(world)
-    entries = (
-        [
-            json.loads(line)
-            for line in (run_dir / "calls.jsonl").read_text().splitlines()
-        ]
-        if (run_dir / "calls.jsonl").exists()
-        else []
-    )
+    entries = _call_log_entries(world)
     if any(entry.get("step") == step for entry in entries):
         return False, f"Unexpected {step} entry in call log"
     return True, ""

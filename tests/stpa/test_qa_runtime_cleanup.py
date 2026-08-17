@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import ast
+import os
 import subprocess
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 _PROJECT_ROOT = next(
@@ -20,6 +23,32 @@ from qa_harness import (  # noqa: E402
     write_capture,
 )
 from runtime_features import acceptance_refresh  # noqa: E402
+from runtime_shared import (  # noqa: E402
+    _SP1CoordinationAnalysis,
+    _sp1_valid_coordination_analysis_dict,
+    _sp1_valid_cs_dict,
+)
+from runtime_features.acceptance_refresh_coordination import (  # noqa: E402
+    _h_ar_coordination_contains_link,
+    _h_ar_control_structure_element,
+    _h_ar_no_coordination_links,
+    _h_ar_link_source_target,
+    _h_ar_model_field,
+    _h_ar_sp1_assembly_error,
+    _h_ar_warnings_include,
+)
+from runtime_features.acceptance_refresh_stage2 import (  # noqa: E402
+    _h_ar_call3_prompt,
+    _h_ar_call_log_exists,
+    _h_ar_control_elements_contains_cp,
+    _h_ar_named_prompts_contains,
+    _h_ar_no_log_step,
+    _h_ar_prior_prompt_contains,
+    _h_ar_responsibility_no_field,
+    _h_ar_responsibility_shape,
+    _h_ar_valid_responsibility_set,
+)
+from runtime_world import World  # noqa: E402
 
 
 def test_qa_runner_reports_recording_order_and_deterministic_status(capsys):
@@ -40,6 +69,10 @@ def test_qa_runner_reports_recording_order_and_deterministic_status(capsys):
 def test_qa_child_execution_is_isolated_and_captures_streams(tmp_path, monkeypatch):
     original_cwd = Path.cwd()
     monkeypatch.setenv("QA_PARENT_ONLY", "present")
+    parent_environment = dict(os.environ)
+    isolated_environment = child_env(parent_environment, QA_PARENT_ONLY=None)
+    assert parent_environment["QA_PARENT_ONLY"] == "present"
+    assert "QA_PARENT_ONLY" not in isolated_environment
     command = [
         sys.executable,
         "-c",
@@ -53,15 +86,13 @@ def test_qa_child_execution_is_isolated_and_captures_streams(tmp_path, monkeypat
 
     result = run_command(
         command,
-        env=child_env(QA_PARENT_ONLY=None),
+        env=isolated_environment,
     )
 
     assert result.returncode == 7
     assert result.stdout.strip() == str(_PROJECT_ROOT)
     assert result.stderr.strip() == "missing"
     assert Path.cwd() == original_cwd
-    import os
-
     assert os.environ["QA_PARENT_ONLY"] == "present"
 
     capture = write_capture(
@@ -173,3 +204,316 @@ def test_find_project_root_accepts_nested_start(tmp_path):
     nested.mkdir()
 
     assert find_project_root(nested) == nested.parent
+
+
+def test_run_command_defaults_to_project_root_from_nested_cwd(tmp_path, monkeypatch):
+    nested = tmp_path / "nested" / "invocation"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+
+    result = run_command(
+        [sys.executable, "-c", "from pathlib import Path; print(Path.cwd())"]
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == str(_PROJECT_ROOT)
+
+
+def test_runtime_cleanup_handler_does_not_import_qa_harness():
+    source = (
+        _PROJECT_ROOT
+        / "acceptance"
+        / "runtime_features"
+        / "acceptance_qa_runtime_cleanup.py"
+    ).read_text()
+    tree = ast.parse(source)
+
+    imports = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    ]
+    assert all(
+        not (isinstance(node, ast.ImportFrom) and node.module == "qa_harness")
+        and not (
+            isinstance(node, ast.Import)
+            and any(alias.name == "qa_harness" for alias in node.names)
+        )
+        for node in imports
+    )
+
+
+def test_only_migrated_qa_suite_imports_qa_harness():
+    importers = []
+    acceptance_root = _PROJECT_ROOT / "acceptance"
+    for path in acceptance_root.rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        if any(
+            (isinstance(node, ast.ImportFrom) and node.module == "qa_harness")
+            or (
+                isinstance(node, ast.Import)
+                and any(alias.name == "qa_harness" for alias in node.names)
+            )
+            for node in ast.walk(tree)
+        ):
+            importers.append(path.relative_to(_PROJECT_ROOT).as_posix())
+
+    assert importers == ["acceptance/qa/acceptance-framework-refactor/qa_suite.py"]
+
+
+def test_acceptance_refresh_handler_branches_remain_characterized(tmp_path):
+    world = SimpleNamespace(
+        sp1_run_dir=tmp_path,
+        sp1_responsibility_set=None,
+        sp1_control_element_set=None,
+        control_structure=None,
+        sp1_mock_client=SimpleNamespace(
+            calls=[{"user_prompt": "requirements for Call 2a"}]
+        ),
+    )
+
+    assert not _h_ar_call_log_exists(world, "a malformed step", {})[0]
+    (tmp_path / "calls.jsonl").write_text('{"step": "call_3_coordination"}\n')
+    assert _h_ar_call_log_exists(
+        world, "a call log entry exists with step call_3_coordination", {}
+    )[0]
+    assert not _h_ar_call_log_exists(
+        world, "a call log entry exists with step missing", {}
+    )[0]
+    assert _h_ar_no_log_step(
+        world, "no call log entry has step call_2_responsibilities", {}
+    )[0]
+    (tmp_path / "calls.jsonl").write_text('{"step": "call_3_connections"}\n')
+    assert not _h_ar_no_log_step(
+        world, "no call log entry has step call_3_connections", {}
+    )[0]
+    (tmp_path / "calls.jsonl").unlink()
+    assert _h_ar_no_log_step(
+        world, "no call log entry has step call_2_responsibilities", {}
+    )[0]
+    assert not _h_ar_no_log_step(world, "no call log entry has step unknown_step", {})[
+        0
+    ]
+    assert not _h_ar_no_log_step(world, "no call log entry has no-step", {})[0]
+
+    assert not _h_ar_responsibility_shape(world, "", {})[0]
+    world.sp1_responsibility_set = SimpleNamespace(responsibilities=[])
+    assert _h_ar_responsibility_shape(world, "", {})[0]
+    world.sp1_responsibility_set = SimpleNamespace(
+        responsibilities=[
+            SimpleNamespace(
+                resp_id="RESP-404",
+                responsibility_constraints=[],
+                process_model_parts=[1],
+            )
+        ]
+    )
+    assert not _h_ar_responsibility_shape(world, "", {})[0]
+    world.sp1_responsibility_set = SimpleNamespace(
+        responsibilities=[
+            SimpleNamespace(responsibility_constraints=[1], process_model_parts=[1])
+        ]
+    )
+    assert _h_ar_responsibility_shape(world, "", {})[0]
+
+    assert not _h_ar_control_elements_contains_cp(world, "", {})[0]
+    world.sp1_control_element_set = SimpleNamespace(controlled_processes=[])
+    assert not _h_ar_control_elements_contains_cp(world, "", {})[0]
+    world.sp1_control_element_set = SimpleNamespace(
+        controlled_processes=[SimpleNamespace(cp_id="CP-1")]
+    )
+    assert _h_ar_control_elements_contains_cp(world, "", {})[0]
+
+    assert _h_ar_model_field(
+        world, "the `CoordinationAnalysis` model declare `coordination_links`", {}
+    )[0]
+    assert _h_ar_model_field(
+        world,
+        "the `CoordinationAnalysis` model does not declare `connection_links`",
+        {},
+    )[0]
+    assert not _h_ar_model_field(world, "malformed", {})[0]
+
+    assert _h_ar_named_prompts_contains(
+        world, "the SP2 prompts directory contains `stage3_system.j2`", {}
+    )[0]
+    assert _h_ar_named_prompts_contains(
+        world, "the SP3 prompts directory contains `stage5_system.j2`", {}
+    )[0]
+    assert not _h_ar_named_prompts_contains(
+        world, "the SP3 prompts directory contains `missing.j2`", {}
+    )[0]
+    assert not _h_ar_named_prompts_contains(world, "malformed", {})[0]
+
+    assert _h_ar_prior_prompt_contains(
+        world, "the Call 2a user prompt contains requirements", {}
+    )[0]
+    assert not _h_ar_prior_prompt_contains(
+        world, "the Call 2b user prompt contains responsibilities", {}
+    )[0]
+    world.sp1_mock_client.calls = [{"user_prompt": "responsibilities"}]
+    assert _h_ar_prior_prompt_contains(
+        world, "the Call 2b user prompt contains responsibilities", {}
+    )[0]
+
+    assert _h_ar_responsibility_no_field(
+        world, "the `ResponsibilitySet` model does not declare `control_actions`", {}
+    )[0]
+    assert not _h_ar_responsibility_no_field(
+        world, "the `ResponsibilitySet` model does not declare `responsibilities`", {}
+    )[0]
+    assert not _h_ar_responsibility_no_field(world, "malformed", {})[0]
+
+    model_world = World()
+    assert _h_ar_valid_responsibility_set(
+        model_world, "a valid ResponsibilitySet from Call 2a", {}
+    )[0]
+    assert _h_ar_valid_responsibility_set(
+        model_world,
+        "a valid ResponsibilitySet from Call 2a with a ControlElementSet from Call 2b",
+        {},
+    )[0]
+
+    prompt_world = SimpleNamespace(
+        sp1_mock_client=SimpleNamespace(
+            calls=[
+                {
+                    "response_format": _SP1CoordinationAnalysis,
+                    "user_prompt": "RESP-1 controls CP-1",
+                }
+            ]
+        )
+    )
+    assert _h_ar_call3_prompt(prompt_world, "", {})[0]
+    prompt_world.sp1_mock_client.calls = []
+    assert not _h_ar_call3_prompt(prompt_world, "", {})[0]
+
+    error_world = SimpleNamespace(
+        gd_run_result=SimpleNamespace(
+            stage_errors=["assemble_control_structure failed"]
+        ),
+        sp1_run_result=None,
+    )
+    assert _h_ar_sp1_assembly_error(error_world, "", {})[0]
+    error_world.gd_run_result = SimpleNamespace(stage_errors=[])
+    assert not _h_ar_sp1_assembly_error(error_world, "", {})[0]
+
+
+def test_acceptance_refresh_control_structure_branches():
+    from scenario_forge.stpa.models.control_structure import ControlStructure
+
+    world = SimpleNamespace(control_structure=None)
+    assert not _h_ar_control_structure_element(world, "", {})[0]
+    assert not _h_ar_link_source_target(world, "", {})[0]
+
+    control_structure_data = _sp1_valid_cs_dict()
+    world.control_structure = ControlStructure.model_validate(control_structure_data)
+    assert _h_ar_control_structure_element(
+        world, "the ControlStructure contains responsibility RESP-1", {}
+    )[0]
+    assert _h_ar_control_structure_element(
+        world, "the ControlStructure contains controlled process CP-1", {}
+    )[0]
+    assert not _h_ar_control_structure_element(
+        world, "the ControlStructure contains responsibility RESP-404", {}
+    )[0]
+    assert not _h_ar_control_structure_element(world, "malformed", {})[0]
+    assert not _h_ar_link_source_target(world, "", {})[0]
+
+    control_structure_data["coordination_links"] = [
+        _sp1_valid_coordination_analysis_dict()["coordination_links"][0]
+    ]
+    world.control_structure = ControlStructure.model_validate(control_structure_data)
+    assert _h_ar_link_source_target(world, "", {})[0]
+    world.control_structure = SimpleNamespace(
+        coordination_links=[
+            SimpleNamespace(link_id="CL-1", source="RESP-404", target="RESP-2")
+        ]
+    )
+    assert not _h_ar_link_source_target(world, "", {})[0]
+
+
+def test_acceptance_refresh_link_and_warning_handler_branches():
+    world = SimpleNamespace(
+        sp1_connection_set=None,
+        control_structure=None,
+        sp1_warnings=[],
+    )
+    assert not _h_ar_coordination_contains_link(world, "", {})[0]
+    assert not _h_ar_no_coordination_links(world, "", {})[0]
+
+    world.control_structure = SimpleNamespace(coordination_links=[])
+    assert _h_ar_no_coordination_links(world, "", {})[0]
+    world.control_structure.coordination_links = [SimpleNamespace(link_id="CL-2")]
+    assert not _h_ar_no_coordination_links(world, "", {})[0]
+    world.sp1_connection_set = SimpleNamespace(coordination_links=[])
+    assert _h_ar_no_coordination_links(world, "", {})[0]
+    world.sp1_connection_set.coordination_links = [SimpleNamespace(link_id="CL-1")]
+    assert _h_ar_coordination_contains_link(world, "", {})[0]
+
+    assert not _h_ar_warnings_include(
+        world, "the warnings list includes a warning naming step STEP-1", {}
+    )[0]
+    world.sp1_warnings = ["STEP-1 failed"]
+    assert _h_ar_warnings_include(
+        world, "the warnings list includes a warning naming step STEP-1", {}
+    )[0]
+    world.sp1_warnings = []
+    assert not _h_ar_warnings_include(world, "malformed", {})[0]
+
+
+def test_qa_cleanup_checks_cover_refresh_parsing_and_generation(monkeypatch, tmp_path):
+    import runtime_features.acceptance_qa_runtime_cleanup_checks as checks
+
+    world = SimpleNamespace(
+        aqrc_refresh_entries=[
+            (priority, 0, True, "", None, "acceptance_refresh")
+            for priority in range(21826, 21839)
+        ]
+        + [(priority, 0, False, "", None, None) for priority in range(21916, 21941)],
+        aqrc_default_output="\n".join(f"PASS {name}" for name in checks._REFRESH_CASES),
+    )
+    assert checks._h_aqrc_feature_scope(world, "", {})[0]
+    assert checks._h_aqrc_global_scope(world, "", {})[0]
+    world.aqrc_refresh_entries = world.aqrc_refresh_entries[:-1]
+    assert not checks._h_aqrc_global_scope(world, "", {})[0]
+    assert checks._h_aqrc_default_refresh_passes(world, "", {})[0]
+    world.aqrc_default_output += "\nFAIL stage2-coordination-analysis"
+    assert not checks._h_aqrc_default_refresh_passes(world, "", {})[0]
+
+    source_text = (
+        "the acceptance-refresh source feature "
+        '"acceptance-refresh/generated.feature" is generated'
+    )
+    generated_path = tmp_path / "generated.py"
+    monkeypatch.setattr(checks, "_generated_test_path", lambda _: generated_path)
+
+    def generate_success(*args, **kwargs):
+        generated_path.write_text("# generated\n")
+        return subprocess.CompletedProcess(args[0], 0, "", "")
+
+    monkeypatch.setattr(checks, "_run_external_command", generate_success)
+    generated_world = SimpleNamespace()
+    assert checks._h_aqrc_source_generated(generated_world, source_text, {})[0]
+    assert generated_world.aqrc_source_test == generated_path
+
+    generated_path.unlink()
+    monkeypatch.setattr(
+        checks,
+        "_run_external_command",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 1, "", "generation failed"
+        ),
+    )
+    assert not checks._h_aqrc_source_generated(SimpleNamespace(), source_text, {})[0]
+
+    generated_world.aqrc_source_output = "PASS one/example_1\nPASS two/example_1\n"
+    generated_world.aqrc_source_result = subprocess.CompletedProcess([], 0)
+    assert checks._h_aqrc_source_pass_count(
+        generated_world, "exactly 2 scenarios report PASS", {}
+    )[0]
+    generated_world.aqrc_source_result = subprocess.CompletedProcess([], 1)
+    assert not checks._h_aqrc_source_pass_count(
+        generated_world, "exactly 2 scenarios report PASS", {}
+    )[0]
+    assert not checks._h_aqrc_source_pass_count(generated_world, "malformed", {})[0]

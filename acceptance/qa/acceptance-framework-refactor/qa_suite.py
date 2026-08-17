@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +25,14 @@ from qa_harness import (  # noqa: E402
     child_env,
     run_command,
     write_capture as _write_capture,
+)
+from qa_suite_support import (  # noqa: E402
+    parse_runtime_lines,
+    write_ir,
+)
+from qa_suite_generation import (  # noqa: E402
+    GenerationContext,
+    qa_afr_01,
 )
 
 QA_ROOT = PROJECT_ROOT / "tmp" / "qa-acceptance-framework"
@@ -46,7 +53,6 @@ JPKW_FALLBACK = (
     "Gherkin is unavailable"
 )
 LIVE_MARKER = 'live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"'
-OPT_IN_REASON = 'SCENARIO_FORGE_QA_PIPELINE "1"'
 AFR_EXPECTED = (
     "AFR-01",
     "AFR-02",
@@ -59,201 +65,15 @@ AFR_EXPECTED = (
     "AFR-09",
 )
 
-
-def feature_paths() -> list[Path]:
-    return sorted(FEATURES_DIR.rglob("*.feature"))
-
-
-def qa_layout() -> dict[str, Path]:
-    return {
-        "ir": QA_ROOT / "ir",
-        "dry": QA_ROOT / "dry",
-        "generated": QA_ROOT / "generated",
-        "mutation": QA_ROOT / "mutation",
-    }
-
-
-def generation_env() -> dict[str, str]:
-    layout = qa_layout()
-    return child_env(
-        SWARMFORGE_FEATURES_DIR="features",
-        SWARMFORGE_ACCEPTANCE_IR_DIR=str(layout["ir"].relative_to(PROJECT_ROOT)),
-        SWARMFORGE_ACCEPTANCE_DRY_DIR=str(layout["dry"].relative_to(PROJECT_ROOT)),
-        SWARMFORGE_ACCEPTANCE_GENERATED_DIR=str(
-            layout["generated"].relative_to(PROJECT_ROOT)
-        ),
-        SWARMFORGE_ACCEPTANCE_MUTATION_DIR=str(
-            layout["mutation"].relative_to(PROJECT_ROOT)
-        ),
-        SCENARIO_FORGE_QA_PIPELINE=None,
-        SCENARIO_FORGE_MODEL_BASE_URL="http://127.0.0.1:9/v1",
-    )
-
-
-def collect_generated(root: Path, pattern: str) -> set[str]:
-    if not root.exists():
-        return set()
-    return {
-        path.relative_to(root).as_posix()
-        for path in root.rglob(pattern)
-        if path.is_file()
-    }
-
-
-def file_digest_map(root: Path, pattern: str) -> dict[str, str]:
-    mapping: dict[str, str] = {}
-    if not root.exists():
-        return mapping
-    for path in root.rglob(pattern):
-        if path.is_file():
-            mapping[path.relative_to(root).as_posix()] = path.read_text()
-    return mapping
-
-
-def metadata_has_absolute_paths(path: Path) -> list[str]:
-    problems: list[str] = []
-    data = json.loads(path.read_text())
-    for key in ("feature_path", "ir_path"):
-        value = data.get(key, "")
-        if not isinstance(value, str) or not value:
-            problems.append(f"{path.name}: missing {key}")
-            continue
-        if Path(value).is_absolute() or value.startswith(str(PROJECT_ROOT)):
-            problems.append(f"{path.name}: {key} is absolute ({value})")
-    return problems
-
-
-def parse_runtime_lines(text: str) -> dict[str, list[str]]:
-    found = {"PASS": [], "FAIL": [], "SKIP": []}
-    for raw in text.splitlines():
-        line = raw.strip()
-        for status in found:
-            if line.startswith(f"{status} "):
-                found[status].append(line)
-    return found
-
-
-def write_ir(path: Path, name: str, step_text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "name": name,
-                "background": [],
-                "scenarios": [
-                    {
-                        "name": name,
-                        "steps": [{"keyword": "Given", "text": step_text}],
-                        "examples": [],
-                    }
-                ],
-            }
-        )
-        + "\n"
-    )
-
-
-def qa_afr_01(runner: QARunner) -> None:
-    layout = qa_layout()
-    for path in layout.values():
-        if path.exists():
-            shutil.rmtree(path)
-        path.mkdir(parents=True)
-
-    first = run_command([str(ACCEPTANCE_SH)], env=generation_env(), timeout=2400)
-    _write_capture("qa-afr-01-generate", first, root=QA_ROOT)
-    runner.check(
-        "QA-AFR-01 generate completes",
-        first.returncode in {0, 1},
-        f"exit={first.returncode}",
-    )
-    first_ir = collect_generated(layout["ir"], "*.json")
-    first_tests = collect_generated(layout["generated"], "*_acceptance_test.py")
-    first_meta = collect_generated(layout["generated"] / "metadata", "*.json")
-    first_contents = {
-        "ir": file_digest_map(layout["ir"], "*.json"),
-        "tests": file_digest_map(layout["generated"], "*_acceptance_test.py"),
-        "meta": file_digest_map(layout["generated"] / "metadata", "*.json"),
-    }
-
-    missing: list[str] = []
-    for feature in feature_paths():
-        rel = feature.relative_to(FEATURES_DIR)
-        ir = layout["ir"] / rel.with_suffix(".json")
-        dry = layout["dry"] / rel.with_suffix(".txt")
-        test = layout["generated"] / f"{feature.stem}_acceptance_test.py"
-        meta = layout["generated"] / "metadata" / f"{_slug(feature.stem)}.json"
-        for artifact in (ir, dry, test, meta):
-            if not artifact.is_file():
-                missing.append(str(artifact.relative_to(PROJECT_ROOT)))
-    runner.check(
-        "QA-AFR-01 every feature has nested IR/DRY and flat test/metadata",
-        not missing,
-        f"missing={missing[:8]}",
-    )
-
-    abs_problems: list[str] = []
-    for meta in (layout["generated"] / "metadata").glob("*.json"):
-        abs_problems.extend(metadata_has_absolute_paths(meta))
-    runner.check(
-        "QA-AFR-01 metadata paths are repo-relative",
-        not abs_problems,
-        "; ".join(abs_problems[:6]),
-    )
-
-    stale_ir = layout["ir"] / "stale-orphan.json"
-    stale_test = layout["generated"] / "stale_orphan_acceptance_test.py"
-    stale_meta = layout["generated"] / "metadata" / "stale-orphan.json"
-    unrelated = layout["generated"] / "keep-me.txt"
-    stale_ir.write_text("{}\n")
-    stale_test.write_text("# stale\n")
-    stale_meta.write_text("{}\n")
-    unrelated.write_text("keep\n")
-
-    second = run_command([str(ACCEPTANCE_SH)], env=generation_env(), timeout=2400)
-    _write_capture("qa-afr-01-refresh", second, root=QA_ROOT)
-    runner.check(
-        "QA-AFR-01 stale mapped artifacts are removed",
-        not stale_ir.exists() and not stale_test.exists() and not stale_meta.exists(),
-        f"ir={stale_ir.exists()} test={stale_test.exists()} meta={stale_meta.exists()}",
-    )
-    runner.check(
-        "QA-AFR-01 unrelated file is preserved",
-        unrelated.is_file() and unrelated.read_text() == "keep\n",
-    )
-
-    third = run_command([str(ACCEPTANCE_SH)], env=generation_env(), timeout=2400)
-    _write_capture("qa-afr-01-repeat", third, root=QA_ROOT)
-    after_ir = collect_generated(layout["ir"], "*.json")
-    after_tests = collect_generated(layout["generated"], "*_acceptance_test.py")
-    after_meta = collect_generated(layout["generated"] / "metadata", "*.json")
-    after_contents = {
-        "ir": file_digest_map(layout["ir"], "*.json"),
-        "tests": file_digest_map(layout["generated"], "*_acceptance_test.py"),
-        "meta": file_digest_map(layout["generated"] / "metadata", "*.json"),
-    }
-    runner.check(
-        "QA-AFR-01 third refresh is deterministic",
-        after_ir == first_ir
-        and after_tests == first_tests
-        and after_meta == first_meta
-        and after_contents == first_contents,
-        f"ir_delta={sorted(after_ir ^ first_ir)[:6]} "
-        f"test_delta={sorted(after_tests ^ first_tests)[:6]}",
-    )
-
-
-def _slug(stem: str) -> str:
-    cleaned = []
-    last_dash = False
-    for char in stem.lower():
-        if char.isalnum():
-            cleaned.append(char)
-            last_dash = False
-        elif not last_dash:
-            cleaned.append("-")
-            last_dash = True
-    return "".join(cleaned).strip("-")
+GENERATION_CONTEXT = GenerationContext(
+    project_root=PROJECT_ROOT,
+    qa_root=QA_ROOT,
+    features_dir=FEATURES_DIR,
+    acceptance_script=ACCEPTANCE_SH,
+    child_env=child_env,
+    run_command=run_command,
+    write_capture=_write_capture,
+)
 
 
 def qa_afr_02(runner: QARunner) -> subprocess.CompletedProcess[str]:
@@ -595,7 +415,7 @@ def main() -> int:
     runner = QARunner()
     print("End-to-end QA: acceptance framework refactor", flush=True)
     if not args.skip_generate:
-        qa_afr_01(runner)
+        qa_afr_01(runner, GENERATION_CONTEXT)
     else:
         runner.record("QA-AFR-01 skipped by --skip-generate", True)
     qa_afr_02(runner)
