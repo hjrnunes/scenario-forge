@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=eaab3790a394e667506f8c2dec40342fd7d18aacd8cbe68be9f0f3a23de2a53b
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-11T21:22:56.518920Z","feature_name":"SP3 — Run orchestration","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp3_run_orchestration.feature","background_hash":"b3d17b98f7fe97dbc2e371f25e10e49cd0c68d2bc051be7b494a5f806a0d57b1","implementation_hash":"sha256:15cd226aba77fda094a97620b718c9114a17855004646e8c38f67f33cabec5de","scenarios":[{"index":8,"name":"SP3-RUN-09 prompt templates exist for all stages","scenario_hash":"c6268e7f28641f6063d437e0782cb831813ead1cdaa33e3ff6f16491e617ff6c","mutation_count":8,"result":{"Total":8,"Killed":8,"Survived":0,"Errors":0},"tested_at":"2026-08-11T21:22:56.518920Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP3 — Run orchestration
   The SP3 run orchestrates Stage 5 (BDI generation), Stage 6 (narrative,
   attack tree, Gherkin), and Stage 7 (validators, eval metrics, coverage
@@ -77,17 +82,20 @@ Feature: SP3 — Run orchestration
     And the run manifest prompt_hashes contains SHA-256 hashes for stage6c_gherkin_system.j2
 
   # SP3-RUN-09
-  Scenario: SP3-RUN-09 prompt templates exist for all stages
+  Scenario Outline: SP3-RUN-09 prompt templates exist for all stages
     Given the SP3 prompt templates directory
-    Then the following template files exist:
-      | stage5_system.j2                |
-      | stage5_user.j2                  |
-      | stage6a_narrative_system.j2     |
-      | stage6a_narrative_user.j2       |
-      | stage6b_tree_system.j2          |
-      | stage6b_tree_user.j2            |
-      | stage6c_gherkin_system.j2       |
-      | stage6c_gherkin_user.j2         |
+    Then the SP3 prompts directory contains `<template>`
+
+    Examples:
+      | template                    |
+      | stage5_system.j2            |
+      | stage5_user.j2              |
+      | stage6a_narrative_system.j2 |
+      | stage6a_narrative_user.j2   |
+      | stage6b_tree_system.j2      |
+      | stage6b_tree_user.j2        |
+      | stage6c_gherkin_system.j2   |
+      | stage6c_gherkin_user.j2     |
 
   # SP3-RUN-10
   Scenario: SP3-RUN-10 module layout matches spec

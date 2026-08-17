@@ -15,7 +15,8 @@ from scenario_forge.stpa.infra.yaml_io import read_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model.control_structure import (
-    ConnectionSet,
+    ControlElementSet,
+    CoordinationAnalysis,
     RequirementSet,
     ResponsibilitySet,
     derive_control_structure,
@@ -25,7 +26,7 @@ from scenario_forge.stpa.system_model.heuristics import run_heuristics
 from scenario_forge.models.capability_profile import Stage1Profile
 from tests.stpa.sp1_helpers import (
     MockLLMClient,
-    valid_empty_connection_set_dict,
+    valid_empty_coordination_analysis_dict,
     valid_stage1_profile_dict,
 )
 
@@ -65,17 +66,23 @@ def _valid_resp_set_dict() -> dict:
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
                 ],
-                "control_actions": [
-                    {"ca_id": "CA-1-1", "description": "Execute action"}
-                ],
-                "feedback_channels": [
-                    {
-                        "fb_id": "FB-1-1",
-                        "description": "Action result",
-                        "updates": "PM-1-1",
-                        "source": {"type": "responsibility", "id": "RESP-1"},
-                    }
-                ],
+            }
+        ],
+    }
+
+
+def _valid_control_element_set_dict() -> dict:
+    """ControlElementSet matching _valid_resp_set_dict (RESP-1)."""
+    return {
+        "control_actions": [
+            {"ca_id": "CA-1-1", "description": "Execute action"}
+        ],
+        "feedback_channels": [
+            {
+                "fb_id": "FB-1-1",
+                "description": "Action result",
+                "updates": "PM-1-1",
+                "source": {"type": "responsibility", "id": "RESP-1"},
             }
         ],
         "controlled_processes": [],
@@ -143,7 +150,10 @@ class TestSP1FixtureIntegration:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_req_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_resp_set_dict())
-        client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+        client.set_response_for(ControlElementSet, _valid_control_element_set_dict())
+        client.set_response_for(
+            CoordinationAnalysis, valid_empty_coordination_analysis_dict()
+        )
 
         control_structure, _ = derive_control_structure(
             llm_client=client,

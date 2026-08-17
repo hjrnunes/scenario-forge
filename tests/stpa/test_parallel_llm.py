@@ -523,7 +523,7 @@ class TestParallelSP1Compatibility:
 
     # ParallelSP1-02
     def test_parallel_sp1_02_stage_execution_order_preserved(self, tmp_path):
-        """Stage 1a → 1b → 2 order preserved with max_workers=1."""
+        """Stage 1b → 1a → 2 order preserved with max_workers=1."""
         client = setup_sp1_mock_client()
         run_sp1(
             llm_client=client,
@@ -537,8 +537,9 @@ class TestParallelSP1Compatibility:
         assert "stage_1a" in stages
         assert "stage_1b" in stages
         assert "stage_2" in stages
-        assert stages.index("stage_1a") < stages.index("stage_1b")
-        assert stages.index("stage_1b") < stages.index("stage_2")
+        # New ordering: 1b before 1a before 2
+        assert stages.index("stage_1b") < stages.index("stage_1a")
+        assert stages.index("stage_1a") < stages.index("stage_2")
 
     # ParallelSP1-03
     def test_parallel_sp1_03_call_log_identical_with_max_workers_1(self, tmp_path):

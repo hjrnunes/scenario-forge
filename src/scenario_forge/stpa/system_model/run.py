@@ -3,7 +3,7 @@
 Orchestrates the full SP1 pipeline:
   Stage 1a: Loss analysis derivation
   Stage 1b: Capability profile inference (or load with --profile)
-  Stage 2: Control structure derivation (3 calls + heuristics + critic + revision)
+  Stage 2: Control structure derivation (4 calls + heuristics + critic + revision)
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 from scenario_forge.stpa.system_model.control_structure import (
+    STAGE_2_CALL_COUNT,
     derive_control_structure,
 )
 from scenario_forge.stpa.system_model.critic import (
@@ -83,7 +84,12 @@ def run_sp1(
     profile_name: str | None = None,
     max_workers: int = 1,
 ) -> SP1RunResult:
-    """Run the full SP1 pipeline: Stages 1a → 1b → 2.
+    """Run the full SP1 pipeline: Stages 1b → 1a → 2.
+
+    Pipeline ordering: Stage 1b (capability profile) runs first, then
+    Stage 1a (loss analysis, two calls: risk_derivation + gap_analysis).
+    Stage 1a-2 (gap analysis) receives the capability profile as input.
+    Stage 2 runs after both 1a and 1b complete.
 
     Args:
         llm_client: LLM client for making completion calls.
@@ -109,16 +115,16 @@ def run_sp1(
 
     stage_errors: list[str] = []
 
-    # --- Stage 1a: Loss Analysis ---
-    loss_analysis = _try_derive_loss_analysis(
-        llm_client, use_case_text, risk_cards, run_dir, loader, temperature,
-        stage_errors,
+    # --- Stage 1b: Capability Profile (runs BEFORE Stage 1a) ---
+    capability_profile = _try_derive_capability_profile(
+        llm_client, use_case_text, run_dir, loader, temperature,
+        profile_path, stage_errors,
     )
 
-    # --- Stage 1b: Capability Profile ---
-    capability_profile = _try_derive_capability_profile(
-        llm_client, use_case_text, loss_analysis, run_dir, loader, temperature,
-        profile_path, stage_errors,
+    # --- Stage 1a: Loss Analysis (two calls, receives capability profile) ---
+    loss_analysis = _try_derive_loss_analysis(
+        llm_client, use_case_text, risk_cards, run_dir, loader, temperature,
+        stage_errors, capability_profile,
     )
 
     # --- Stage 2: Control Structure + heuristics + critic + revision ---
@@ -178,8 +184,9 @@ def _try_derive_loss_analysis(
     loader: TemplateLoader,
     temperature: float,
     stage_errors: list[str],
+    capability_profile: CapabilityProfile | None = None,
 ) -> LossAnalysis | None:
-    """Run Stage 1a, recording errors on failure."""
+    """Run Stage 1a (two calls), recording errors on failure."""
     try:
         return derive_loss_analysis(
             llm_client=llm_client,
@@ -188,6 +195,7 @@ def _try_derive_loss_analysis(
             run_dir=run_dir,
             template_loader=loader,
             temperature=temperature,
+            capability_profile=capability_profile,
         )
     except StageError as exc:
         stage_errors.append(str(exc))
@@ -197,7 +205,6 @@ def _try_derive_loss_analysis(
 def _try_derive_capability_profile(
     llm_client: LLMClient,
     use_case_text: str,
-    loss_analysis: LossAnalysis | None,
     run_dir: Path,
     loader: TemplateLoader,
     temperature: float,
@@ -205,15 +212,12 @@ def _try_derive_capability_profile(
     stage_errors: list[str],
 ) -> CapabilityProfile | None:
     """Run Stage 1b (or load a pre-built profile), recording errors on failure."""
-    if loss_analysis is None:
-        return None
     if profile_path is not None:
         return load_capability_profile(profile_path)
     try:
         return derive_capability_profile(
             llm_client=llm_client,
             use_case_text=use_case_text,
-            loss_analysis=loss_analysis,
             run_dir=run_dir,
             template_loader=loader,
             temperature=temperature,
@@ -343,8 +347,8 @@ def _write_manifest(
     prompt_hashes = loader.hash_prompt_templates()
     critic_summary = _summarize_critic_findings(critic_findings)
     stage_1b_calls = 0 if profile_skipped else 1
-    _stage_1a_call_count = 1
-    _stage_2_call_count = 3
+    _stage_1a_call_count = 2
+    _stage_2_call_count = STAGE_2_CALL_COUNT
 
     model_config_dict: dict[str, Any] = {
         "model": llm_client.model,
@@ -377,5 +381,5 @@ def _write_manifest(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T22:00:26Z","module_hash":"f58c450cc9d6b7d6002731c0f387f178aa5ec4b067c5983470c95be30e8925e4","functions":[{"id":"func/run_sp1","name":"run_sp1","line":75,"end_line":157,"hash":"77e1bc86e75c51a5586e059c3b2227e37bd433d8f5899706bc95689e7d2a900b"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":173,"end_line":194,"hash":"35b7af56327e9e8c2de1af99f864c7347958fd616cca56da6aad550cbc479a0b"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":197,"end_line":223,"hash":"19c752474101460cda0fec84fc8ce8f3312684c5224af5e0bb02c9c2c4699a25"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":226,"end_line":306,"hash":"94e5849c052aa1f15ecddd7aa6a36632a9d3f8a665bdb5186aaad7660de7da06"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":309,"end_line":317,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":320,"end_line":324,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":327,"end_line":376,"hash":"be4e656263b39d4f4813f2264707da1516718602bf6f25af343e43aac0c89984"}]}
+# {"version":1,"tested_at":"2026-08-11T16:06:15Z","module_hash":"dc5be5a3c7b3e1bfd3c20d66370a2ccc457ce1dcfc32053bae58e747b808710b","functions":[{"id":"func/run_sp1","name":"run_sp1","line":76,"end_line":163,"hash":"751c68199a62a3b0b14e06518feb5c5c7f7b68ef6f6d9b1fb27bff6f778033a6"},{"id":"func/_try_derive_loss_analysis","name":"_try_derive_loss_analysis","line":179,"end_line":202,"hash":"b1795ba3b9e34725aac83d6c52e299ce98641aa62de59de074c6709bb2fc2119"},{"id":"func/_try_derive_capability_profile","name":"_try_derive_capability_profile","line":205,"end_line":227,"hash":"25e85ec2df3a6c1af9a1631cf37281017ad90c6b8b1b7488ea1715212afb85d4"},{"id":"func/_run_stage_2_block","name":"_run_stage_2_block","line":230,"end_line":310,"hash":"94e5849c052aa1f15ecddd7aa6a36632a9d3f8a665bdb5186aaad7660de7da06"},{"id":"func/_compute_input_hashes","name":"_compute_input_hashes","line":313,"end_line":321,"hash":"e6bdbd62d47427569dd6f476f0e301433f188035c685a7e38fa64960bd43b80c"},{"id":"func/_summarize_critic_findings","name":"_summarize_critic_findings","line":324,"end_line":328,"hash":"52f92e834950dffd8fbfbc258cbf55efcd8d6e9f51c7cfe4543c097d2d38b54d"},{"id":"func/_write_manifest","name":"_write_manifest","line":331,"end_line":380,"hash":"531f735de7511c069e142211401dcdafb5e2d810e9ddd2762661975e8da99224"}]}
 # mutate4py-manifest-end

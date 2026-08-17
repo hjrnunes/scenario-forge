@@ -48,6 +48,21 @@ class SecurityConstraint(BaseModel):
     related_hazards: list[str]  # hazard_id refs
 
 
+class LossAnalysisDraft(BaseModel):
+    """Intermediate loss analysis result from a single Stage 1a LLM call.
+
+    Unlike :class:`LossAnalysis`, allows empty hazards and security_constraints
+    for cases where no risk cards are provided (risk derivation) or no gaps
+    are found (gap analysis).  Cross-reference validation is deferred to the
+    merged :class:`LossAnalysis`.
+    """
+
+    risk_card_losses: list[Loss] = Field(default_factory=list)
+    use_case_losses: list[Loss] = Field(default_factory=list)
+    hazards: list[Hazard] = Field(default_factory=list)
+    security_constraints: list[SecurityConstraint] = Field(default_factory=list)
+
+
 class LossAnalysis(BaseModel):
     """Loss analysis artifact: losses, hazards, and security constraints."""
 

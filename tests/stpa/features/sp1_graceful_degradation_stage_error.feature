@@ -1,6 +1,6 @@
-# mutation-stamp: sha256=2ba0d3330482e428fb34879d727b13488b54f09ef035a1c0eb9f9a88db81c576
+# mutation-stamp: sha256=c66abeee8c1d0bf285d5395d75bb23623ead754fd30267ebe75f5da6828cfa61
 # acceptance-mutation-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T18:22:32.289547Z","feature_name":"SP1 — Stage failure raises StageError and run returns partial results","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_graceful_degradation_stage_error.feature","background_hash":"d764efea6f065a70d9294f99c588c6fa177f1dcd4982c88652b061ac822f7a71","implementation_hash":"unknown","scenarios":[{"index":0,"name":"SP1-GD-08 derivation stage failure raises StageError with context","scenario_hash":"65922bae67a1b7bda29878c74bdb118dd2bed2ce0e902285497a4101aad40303","mutation_count":15,"result":{"Total":15,"Killed":15,"Survived":0,"Errors":0},"tested_at":"2026-08-08T18:22:32.289547Z"}]}
+# {"version":1,"tested_at":"2026-08-11T21:23:09.561647Z","feature_name":"SP1 — Stage failure raises StageError and run returns partial results","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_graceful_degradation_stage_error.feature","background_hash":"d764efea6f065a70d9294f99c588c6fa177f1dcd4982c88652b061ac822f7a71","implementation_hash":"sha256:bff00c81cff5e263b4655482fc563863e41835e541af9a680c818eadf7451361","scenarios":[{"index":0,"name":"SP1-GD-08 derivation stage failure raises StageError with context","scenario_hash":"88b3febadc415f944654bd2c407244661572cec974375bc55c076c79386c3dc6","mutation_count":21,"result":{"Total":21,"Killed":21,"Survived":0,"Errors":0},"tested_at":"2026-08-11T21:23:09.561647Z"}]}
 # acceptance-mutation-manifest-end
 
 Feature: SP1 — Stage failure raises StageError and run returns partial results
@@ -11,6 +11,12 @@ Feature: SP1 — Stage failure raises StageError and run returns partial results
   the failure preserved, and remaining artifacts as None. The run
   manifest is still written with available info. The failed call is
   logged with success=false and an error message.
+
+  Stage 1b now runs BEFORE Stage 1a, so a Stage 1a failure preserves the
+  capability profile rather than nulling it. Stage 1a is two calls
+  (risk_derivation then gap_analysis), and Stage 2 is four
+  (call_1_requirements, call_2a_responsibilities, call_2b_control_elements,
+  call_3_coordination); each call reports its own step name.
 
   Background:
     Given the STPA system model run module is importable
@@ -27,26 +33,28 @@ Feature: SP1 — Stage failure raises StageError and run returns partial results
     And the failed call is logged with success=false
 
     Examples:
-      | stage          | stage_name | step_name               |
-      | stage_1a       | stage_1a   | loss_analysis           |
-      | stage_1b       | stage_1b   | capability_profile      |
-      | stage_2_call_1 | stage_2    | call_1_requirements     |
-      | stage_2_call_2 | stage_2    | call_2_responsibilities |
-      | stage_2_call_3 | stage_2    | call_3_connections      |
+      | stage           | stage_name | step_name                |
+      | stage_1a_risk   | stage_1a   | risk_derivation          |
+      | stage_1a_gap    | stage_1a   | gap_analysis             |
+      | stage_1b        | stage_1b   | capability_profile       |
+      | stage_2_call_1  | stage_2    | call_1_requirements      |
+      | stage_2_call_2a | stage_2    | call_2a_responsibilities |
+      | stage_2_call_2b | stage_2    | call_2b_control_elements |
+      | stage_2_call_3  | stage_2    | call_3_coordination      |
 
   # SP1-GD-09
-  Scenario: SP1-GD-09 Stage 1a failure produces partial result with all artifacts None
+  Scenario: SP1-GD-09 Stage 1a failure preserves the capability profile from Stage 1b
     Given an LLM that returns an invalid response for stage_1a
     When the full SP1 run is executed
     Then the run returns a partial SP1RunResult
     And the stage_errors list contains the stage_1a failure
     And loss_analysis is None
-    And capability_profile is None
+    And capability_profile is not None
     And control_structure is None
     And a run manifest is written
 
   # SP1-GD-10
-  Scenario: SP1-GD-10 Stage 1b failure preserves loss_analysis and sets profile to None
+  Scenario: SP1-GD-10 Stage 1b failure sets profile to None and skips Stage 2
     Given an LLM that returns valid responses for stage_1a
     And an LLM that returns an invalid response for stage_1b
     When the full SP1 run is executed
@@ -75,7 +83,7 @@ Feature: SP1 — Stage failure raises StageError and run returns partial results
     When the full SP1 run is executed
     Then a call log entry exists with success=false
     And the call log entry stage is stage_1a
-    And the call log entry step is loss_analysis
+    And the call log entry step is risk_derivation
     And the call log entry has an error message field
 
   # SP1-GD-13

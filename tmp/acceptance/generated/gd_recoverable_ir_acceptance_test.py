@@ -20,13 +20,13 @@ from acceptance_runtime import execute_ir
 
 def test_acceptance():
     """Run all acceptance scenarios from the IR."""
-    ir_path = Path(r"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/gd_recoverable_ir.json")
+    ir_path = Path(r"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/gd_recoverable_ir.json")
     passed, output = execute_ir(str(ir_path))
     assert passed, f"Acceptance tests failed:\n{output}"
 
 
 if __name__ == "__main__":
-    ir_path = Path(r"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/gd_recoverable_ir.json")
+    ir_path = Path(r"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/gd_recoverable_ir.json")
     passed, output = execute_ir(str(ir_path))
     print(output)
     sys.exit(0 if passed else 1)

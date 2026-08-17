@@ -1,6 +1,6 @@
-# mutation-stamp: sha256=c6e0b3a1b28487b681eb722b454f81413b4ee56f1927a9e2c3d54fb59b117b64
+# mutation-stamp: sha256=670f138d024e351c2236e8cbb26cf88f14d73c7cdbc0a2bf0a33430f0b8f921d
 # acceptance-mutation-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T00:47:13.666443Z","feature_name":"SP2 — Run orchestration","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp2_run_orchestration.feature","background_hash":"1563755e4e2524464cf2f71f549f69d5210644131eb79fec82e3484105e20250","implementation_hash":"unknown","scenarios":[]}
+# {"version":1,"tested_at":"2026-08-11T21:23:10.394462Z","feature_name":"SP2 — Run orchestration","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp2_run_orchestration.feature","background_hash":"1563755e4e2524464cf2f71f549f69d5210644131eb79fec82e3484105e20250","implementation_hash":"sha256:51baa3854bde6dc41bcc77049674483ee5e9c4aa2dad678e95e04b8467e6b21a","scenarios":[{"index":8,"name":"SP2-RUN-09 prompt templates exist for Stage 3","scenario_hash":"2659a384fff158c94a29d226003aa64331eed190d5bab62413743caa6faeabf2","mutation_count":2,"result":{"Total":2,"Killed":2,"Survived":0,"Errors":0},"tested_at":"2026-08-11T21:23:10.394462Z"}]}
 # acceptance-mutation-manifest-end
 
 Feature: SP2 — Run orchestration
@@ -73,9 +73,12 @@ Feature: SP2 — Run orchestration
     And the run manifest records catalog correspondence
 
   # SP2-RUN-09
-  Scenario: SP2-RUN-09 prompt templates exist for Stage 3
+  Scenario Outline: SP2-RUN-09 prompt templates exist for Stage 3
     Given the SP2 prompt templates directory
-    Then the following template files exist:
+    Then the SP2 prompts directory contains `<template>`
+
+    Examples:
+      | template         |
       | stage3_system.j2 |
       | stage3_user.j2   |
 

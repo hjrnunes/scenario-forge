@@ -1,0 +1,183 @@
+{
+  "name" : "SP1 — Graceful degradation for recoverable LLM failures",
+  "scenarios" : [ {
+    "name" : "SP1-GD-01 revision validation failure returns pre-revision CS with warning",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns an invalid ControlStructure JSON with cross-reference violations"
+    }, {
+      "keyword" : "And",
+      "text" : "critic findings with unjustified gaps"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the pre-revision ControlStructure is returned"
+    }, {
+      "keyword" : "And",
+      "text" : "the returned warnings include a revision failure message"
+    }, {
+      "keyword" : "And",
+      "text" : "the pipeline does not crash"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-GD-02 revision failure logs the failed call with success=false",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns an invalid ControlStructure JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "critic findings with unjustified gaps"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a call log entry is appended with stage stage_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is revision"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry success is false"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry has an error message field"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-GD-03 revision LLM exception returns pre-revision CS with warning",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that raises a RuntimeError during the revision call"
+    }, {
+      "keyword" : "And",
+      "text" : "critic findings with unjustified gaps"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the pre-revision ControlStructure is returned"
+    }, {
+      "keyword" : "And",
+      "text" : "the returned warnings include a revision failure message"
+    }, {
+      "keyword" : "And",
+      "text" : "a call log entry is appended with stage stage_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is revision"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry success is false"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry has an error message field"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-GD-04 critic validation failure returns empty CriticFindings",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns an invalid CriticFindings JSON"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "an empty CriticFindings model is returned"
+    }, {
+      "keyword" : "And",
+      "text" : "the gaps list is empty"
+    }, {
+      "keyword" : "And",
+      "text" : "the checklist_results dict is empty"
+    }, {
+      "keyword" : "And",
+      "text" : "the taxonomy_probe_results dict is empty"
+    }, {
+      "keyword" : "And",
+      "text" : "the pipeline does not crash"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-GD-05 critic failure logs the failed call with success=false",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns an invalid CriticFindings JSON"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a call log entry is appended with stage stage_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is critic"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry success is false"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry has an error message field"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-GD-06 critic failure does not trigger revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns an invalid CriticFindings JSON"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "revision is not triggered"
+    }, {
+      "keyword" : "And",
+      "text" : "no revision call is made"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-GD-07 critic LLM exception returns empty CriticFindings",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that raises a RuntimeError during the critic call"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "an empty CriticFindings model is returned"
+    }, {
+      "keyword" : "And",
+      "text" : "a call log entry is appended with stage stage_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is critic"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry success is false"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry has an error message field"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model critic module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure that passed Call 3 validation is available"
+  }, {
+    "keyword" : "And",
+    "text" : "a capability profile and use-case text are available"
+  }, {
+    "keyword" : "And",
+    "text" : "a run directory for call logging"
+  } ]
+}

@@ -1,10 +1,10 @@
 {
-  "name" : "SP1 — Inject capability profile into Stage 2 Call 2 user prompt",
+  "name" : "SP1 — Inject capability profile into Stage 2 Call 2a user prompt",
   "scenarios" : [ {
-    "name" : "CapProfInject-01 _call_2_responsibilities accepts a capability_profile parameter",
+    "name" : "CapProfInject-01 _call_2a_responsibilities accepts a capability_profile parameter",
     "steps" : [ {
       "keyword" : "Given",
-      "text" : "the _call_2_responsibilities function signature is inspected"
+      "text" : "the _call_2a_responsibilities function signature is inspected"
     }, {
       "keyword" : "Then",
       "text" : "the function accepts a capability_profile parameter of type CapabilityProfile"
@@ -34,10 +34,10 @@
     } ],
     "examples" : [ ]
   }, {
-    "name" : "CapProfInject-04 stage2_call2_user.j2 contains a Capability Profile Context section",
+    "name" : "CapProfInject-04 stage2_call2a_user.j2 contains a Capability Profile Context section",
     "steps" : [ {
       "keyword" : "Given",
-      "text" : "the template stage2_call2_user.j2 is loaded"
+      "text" : "the template stage2_call2a_user.j2 is loaded"
     }, {
       "keyword" : "Then",
       "text" : "the template text contains \"Capability Profile Context\""
@@ -56,13 +56,13 @@
     } ],
     "examples" : [ ]
   }, {
-    "name" : "CapProfInject-05 rendered Call 2 user prompt contains actual capability profile data",
+    "name" : "CapProfInject-05 rendered Call 2a user prompt contains actual capability profile data",
     "steps" : [ {
       "keyword" : "Given",
       "text" : "a capability profile with zones_active input,reasoning,tool_execution and multi_agent true and hitl true"
     }, {
       "keyword" : "When",
-      "text" : "the Call 2 user prompt is rendered with the capability profile"
+      "text" : "the Call 2a user prompt is rendered with the capability profile"
     }, {
       "keyword" : "Then",
       "text" : "the rendered text contains \"input, reasoning, tool_execution\""
@@ -75,13 +75,13 @@
     } ],
     "examples" : [ ]
   }, {
-    "name" : "CapProfInject-06 rendered Call 2 user prompt reflects inactive zones",
+    "name" : "CapProfInject-06 rendered Call 2a user prompt reflects inactive zones",
     "steps" : [ {
       "keyword" : "Given",
       "text" : "a capability profile with zones_active input,reasoning and multi_agent false and hitl false and has_persistent_memory false"
     }, {
       "keyword" : "When",
-      "text" : "the Call 2 user prompt is rendered with the capability profile"
+      "text" : "the Call 2a user prompt is rendered with the capability profile"
     }, {
       "keyword" : "Then",
       "text" : "the rendered text contains \"input, reasoning\""
@@ -97,10 +97,10 @@
     } ],
     "examples" : [ ]
   }, {
-    "name" : "CapProfInject-07 existing Call 2 user prompt sections remain present",
+    "name" : "CapProfInject-07 existing Call 2a user prompt sections remain present",
     "steps" : [ {
       "keyword" : "Given",
-      "text" : "the template stage2_call2_user.j2 is loaded"
+      "text" : "the template stage2_call2a_user.j2 is loaded"
     }, {
       "keyword" : "Then",
       "text" : "the template text contains \"<section_header>\"",
@@ -114,10 +114,10 @@
       "section_header" : "## Your Task"
     } ]
   }, {
-    "name" : "CapProfInject-08 stage2_call2_user.j2 renders without errors with capability profile",
+    "name" : "CapProfInject-08 stage2_call2a_user.j2 renders without errors with capability profile",
     "steps" : [ {
       "keyword" : "Given",
-      "text" : "the template stage2_call2_user.j2 is loaded"
+      "text" : "the template stage2_call2a_user.j2 is loaded"
     }, {
       "keyword" : "When",
       "text" : "the template is rendered with use_case_text, requirements, and capability_profile"

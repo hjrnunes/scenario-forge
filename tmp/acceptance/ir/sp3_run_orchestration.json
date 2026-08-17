@@ -162,9 +162,26 @@
       "text" : "the SP3 prompt templates directory"
     }, {
       "keyword" : "Then",
-      "text" : "the following template files exist:"
+      "text" : "the SP3 prompts directory contains `<template>`",
+      "parameters" : [ "template" ]
     } ],
-    "examples" : [ ]
+    "examples" : [ {
+      "template" : "stage5_system.j2"
+    }, {
+      "template" : "stage5_user.j2"
+    }, {
+      "template" : "stage6a_narrative_system.j2"
+    }, {
+      "template" : "stage6a_narrative_user.j2"
+    }, {
+      "template" : "stage6b_tree_system.j2"
+    }, {
+      "template" : "stage6b_tree_user.j2"
+    }, {
+      "template" : "stage6c_gherkin_system.j2"
+    }, {
+      "template" : "stage6c_gherkin_user.j2"
+    } ]
   }, {
     "name" : "SP3-RUN-10 module layout matches spec",
     "steps" : [ {

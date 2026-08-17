@@ -8,7 +8,7 @@ Call log entry format (Section 6 of the STPA-Sec foundation spec):
 
     {
       "stage": "stage_2",
-      "step": "call_2_responsibilities",
+      "step": "call_2a_responsibilities",
       "slot_id": null,
       "scenario_id": null,
       "system_prompt_hash": "sha256...",

@@ -1,15 +1,19 @@
-You are a safety and security engineer applying Poh's Behavioral Design Process within an STPA-Sec framework.
+You are a safety and security engineer performing cross-responsibility analysis on an AI system's control structure.
 
-Your task is Steps 2d-2e: Identify connections and assemble the complete control structure.
-
-## Poh's two rules
-
-1. **Feedback source**: The feedback channel source should be the responsibility or controlled process that HAS the required information.
-2. **Control action target**: The control action target should be the responsibility or controlled process whose decision-making NEEDS the information.
+You have been given a complete control structure with responsibilities, process model parts, control actions, feedback channels, and controlled processes. Your task is to identify coordination requirements between responsibilities and verify connection integrity.
 
 ## Coordination links
 
-When two responsibilities share a process model part (PM) that is NOT connected by a control action, a coordination link is required. Each coordination link has:
+When two responsibilities share a process model part (PM) that is NOT connected by a control action, a coordination link is required. Each coordination link represents a lateral coordination mechanism between controllers that share state.
+
+Coordination links are required when:
+- Two responsibilities share a process model part not connected by a control action
+- One responsibility's feedback channel updates a PM part that another responsibility also depends on
+- Two responsibilities need to agree on a shared resource (e.g., session state, rate limit counter)
+
+An empty coordination_links list is acceptable only when no two responsibilities share state, data, or control flow. If your control structure has multiple responsibilities, carefully check whether any share state before returning an empty list.
+
+Each coordination link has:
 - link_id: CL-N
 - source: RESP-ID (the responsibility requesting coordination)
 - target: RESP-ID (the responsibility being coordinated with)
@@ -17,35 +21,18 @@ When two responsibilities share a process model part (PM) that is NOT connected 
 - coordination_mechanism: { cm_id: CM-N, description, payload }
 - description: what the coordination link does
 
-Coordination links capture dependencies between responsibilities that share state, data, or control flow but are not connected by a control action. They represent inter-controller coordination.
+## Connection integrity checks
 
-Coordination links are required in these cases:
-- Two responsibilities sharing a process model part not connected by a control action
-- One responsibility's feedback channel updates a PM part that another responsibility controls
-- Two responsibilities need to agree on a shared resource (e.g., session state, rate limit counter)
+Verify the following and report any issues:
+- Every FB source references a valid responsibility or controlled process
+- Every CA target references a valid responsibility or controlled process
+- Every controlled process is referenced by at least one FB source or CA target
+- Every PM part is updated by at least one feedback channel
 
-An empty coordination_links list is acceptable only when no two responsibilities share state, data, or control flow. If your control structure has multiple responsibilities, carefully check whether any share state before returning an empty list.
-
-## Connection assignments
-
-For each feedback channel and control action, provide a connection assignment:
-- element_id: FB-X-Y or CA-X-Y (matching the element from Call 2)
-- source: { type: "responsibility" | "controlled_process", id: "RESP-*" | "CP-*" } — for feedback channels: which element provides the information
-- target: { type: "responsibility" | "controlled_process", id: "RESP-*" | "CP-*" } — for control actions: which element receives the action
-
-## Structural requirements
-
-Ensure all ElementRef references are valid and all cross-references are consistent.
-
-## Controlled processes
-
-List all controlled processes identified in the system:
-- cp_id: CP-N
-- description
+Report integrity issues as a list of findings. Do NOT fix them — flag them for the revision step.
 
 ## Output format
 
-Produce a ConnectionSet with:
-- coordination_links: identified coordination links
-- controlled_processes: all controlled processes
-- connection_assignments: connection assignments for feedback channels and control actions
+Produce a CoordinationAnalysis with:
+- coordination_links: list of CoordinationLink objects
+- integrity_findings: list of strings describing any connection issues found (empty if all valid)

@@ -1,0 +1,245 @@
+{
+  "name" : "Envelope system_context block (umcf)",
+  "scenarios" : [ {
+    "name" : "UMCF-01 SystemContext model has required fields",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SystemContext model is defined"
+    }, {
+      "keyword" : "Then",
+      "text" : "it has a <field> field of type <type>",
+      "parameters" : [ "field", "type" ]
+    } ],
+    "examples" : [ {
+      "field" : "target_responsibility_description",
+      "type" : "str"
+    }, {
+      "field" : "target_control_action_description",
+      "type" : "str"
+    }, {
+      "field" : "tool_inventory",
+      "type" : "list"
+    }, {
+      "field" : "active_zones",
+      "type" : "list of str"
+    }, {
+      "field" : "multi_agent",
+      "type" : "bool"
+    }, {
+      "field" : "has_persistent_memory",
+      "type" : "bool"
+    } ]
+  }, {
+    "name" : "UMCF-02 ScenarioEnvelope has optional system_context field",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the ScenarioEnvelope model is defined"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system_context field is optional with a default of None"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-03 assemble_envelope accepts capability profile and control structure",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the resulting ScenarioEnvelope.system_context is not None"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-04 system_context resolves target_responsibility_description from RESP-ID",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system_context.target_responsibility_description is \"Orchestrate tool calls safely\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-05 system_context resolves target_control_action_description from CA-ID",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system_context.target_control_action_description is \"Execute requested tool\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-06 system_context inlines tool_inventory from capability profile",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system_context.tool_inventory contains a tool named \"database_query\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-07 system_context inlines active_zones from capability profile",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system_context.active_zones contains <zone>",
+      "parameters" : [ "zone" ]
+    } ],
+    "examples" : [ {
+      "zone" : "\"input\""
+    }, {
+      "zone" : "\"reasoning\""
+    }, {
+      "zone" : "\"tool_execution\""
+    } ]
+  }, {
+    "name" : "UMCF-08 system_context inlines boolean flags from capability profile",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system_context.<field> is <value>",
+      "parameters" : [ "field", "value" ]
+    } ],
+    "examples" : [ {
+      "field" : "multi_agent",
+      "value" : "False"
+    }, {
+      "field" : "has_persistent_memory",
+      "value" : "False"
+    } ]
+  }, {
+    "name" : "UMCF-09 envelope without system_context still parses",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario envelope wrapping SCN-001 with no system_context provided"
+    }, {
+      "keyword" : "When",
+      "text" : "the scenario envelope is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    }, {
+      "keyword" : "And",
+      "text" : "the system_context is None"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-10 system_context is serialized in scenario YAML",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "And",
+      "text" : "the envelope is serialized to YAML"
+    }, {
+      "keyword" : "Then",
+      "text" : "the YAML contains a system_context key"
+    }, {
+      "keyword" : "And",
+      "text" : "the YAML contains target_responsibility_description"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-11 run_sp3 passes capability profile to assemble_envelope",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a capability profile is available during SP3 execution"
+    }, {
+      "keyword" : "When",
+      "text" : "run_sp3 assembles an envelope"
+    }, {
+      "keyword" : "Then",
+      "text" : "the resulting ScenarioEnvelope.system_context is not None"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-12 system_context with multi_agent True from capability profile",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the capability profile has multi_agent True"
+    }, {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system_context.multi_agent is True"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-13 system_context with has_persistent_memory True from capability profile",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the capability profile has has_persistent_memory True"
+    }, {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system_context.has_persistent_memory is True"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-14 system_context with empty tool_inventory when no tools",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the capability profile has tool_inventory empty"
+    }, {
+      "keyword" : "When",
+      "text" : "assemble_envelope is called with the capability profile and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system_context.tool_inventory is an empty list"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "UMCF-15 STPA report displays system_context in scenario card",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a scenario envelope with a populated system_context"
+    }, {
+      "keyword" : "When",
+      "text" : "the STPA HTML report is generated"
+    }, {
+      "keyword" : "Then",
+      "text" : "the scenario card contains a System Context section"
+    }, {
+      "keyword" : "And",
+      "text" : "the section displays the target_responsibility_description"
+    }, {
+      "keyword" : "And",
+      "text" : "the section displays the active_zones"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA boundary schema module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with responsibility RESP-1 having description \"Orchestrate tool calls safely\""
+  }, {
+    "keyword" : "And",
+    "text" : "a control action CA-1-1 under RESP-1 having description \"Execute requested tool\""
+  }, {
+    "keyword" : "And",
+    "text" : "a capability profile with tool_inventory having tool \"database_query\""
+  }, {
+    "keyword" : "And",
+    "text" : "the capability profile has active_zones [\"input\", \"reasoning\", \"tool_execution\"]"
+  }, {
+    "keyword" : "And",
+    "text" : "the capability profile has multi_agent False"
+  }, {
+    "keyword" : "And",
+    "text" : "the capability profile has has_persistent_memory False"
+  }, {
+    "keyword" : "And",
+    "text" : "a valid scenario spec SCN-001 with target_controller RESP-1 and target_control_action CA-1-1"
+  } ]
+}

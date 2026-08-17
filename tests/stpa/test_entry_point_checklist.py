@@ -1,15 +1,12 @@
-"""Tests for entry point category checklist in stage1b_system.j2 — EPCL-01 through EPCL-08.
+"""Tests for entry point identification in stage1b_system.j2 — revised for KC-driven approach.
 
-Verifies that the stage1b_system.j2 template contains a 5-category entry point
-checklist with concrete examples, controllability/direction annotations,
-and notes about indirect ingress and dual-listing.
+The old 5-category entry point checklist was replaced with a KC-driven
+approach. These tests verify the new structure: KC taxonomy drives entry
+point identification, the rigid checklist is absent, and KC-based examples
+are present.
 """
 
 from __future__ import annotations
-
-
-import pytest
-from jinja2 import Environment, FileSystemLoader
 
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
 
@@ -20,175 +17,58 @@ def _load_template_text() -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _render_template() -> str:
-    """Render stage1b_system.j2 with no variables."""
-    env = Environment(
-        loader=FileSystemLoader(str(PROMPTS_DIR)),
-        keep_trailing_newline=True,
-    )
-    template = env.get_template("stage1b_system.j2")
-    return template.render()
+class TestEntryPointIdentification:
+    """Verify the revised stage1b_system.j2 entry point section."""
 
-
-# ---------------------------------------------------------------------------
-# EPCL-01: template contains entry point category checklist
-# ---------------------------------------------------------------------------
-
-
-class TestEPCL01ChecklistPresent:
-    """EPCL-01: stage1b_system.j2 contains entry point category checklist."""
-
-    def test_template_contains_checklist(self):
+    def test_template_contains_entry_point_section(self):
+        """The template contains an Entry Points section."""
         text = _load_template_text()
-        assert "entry point" in text.lower()
-        assert "checklist" in text.lower()
+        assert "## Entry Points" in text
 
-
-# ---------------------------------------------------------------------------
-# EPCL-02: all five entry point categories with examples
-# ---------------------------------------------------------------------------
-
-
-class TestEPCL02AllCategoriesWithExamples:
-    """EPCL-02: stage1b_system.j2 contains all five entry point categories with examples."""
-
-    @pytest.mark.parametrize(
-        "category_name, example_text",
-        [
-            ("User input surfaces", "chat interface"),
-            ("RAG/retrieval data sources", "knowledge base"),
-            ("Tool execution results", "API call"),
-            ("External data feeds", "third-party"),
-            ("Admin/config interfaces", "admin dashboard"),
-        ],
-        ids=[
-            "user_input_surfaces",
-            "rag_retrieval",
-            "tool_execution",
-            "external_data_feeds",
-            "admin_config",
-        ],
-    )
-    def test_template_contains_category_and_example(self, category_name, example_text):
+    def test_template_does_not_contain_checklist(self):
+        """The template does not contain the old entry point category checklist."""
         text = _load_template_text()
-        assert category_name in text
-        assert example_text in text
+        assert "Entry point category checklist" not in text
+        assert "User input surfaces" not in text
 
-
-# ---------------------------------------------------------------------------
-# EPCL-03: each category specifies controllability
-# ---------------------------------------------------------------------------
-
-
-class TestEPCL03ControllabilitySpecified:
-    """EPCL-03: each category specifies controllability."""
-
-    @pytest.mark.parametrize(
-        "category_name, controllability",
-        [
-            ("User input surfaces", "direct"),
-            ("RAG/retrieval data sources", "indirect"),
-            ("Tool execution results", "indirect"),
-            ("External data feeds", "indirect"),
-            ("Admin/config interfaces", "direct"),
-        ],
-        ids=[
-            "user_input_direct",
-            "rag_indirect",
-            "tool_indirect",
-            "external_indirect",
-            "admin_direct",
-        ],
-    )
-    def test_category_has_controllability(self, category_name, controllability):
+    def test_template_uses_kc_driven_examples(self):
+        """The template uses KC codes to illustrate entry point identification."""
         text = _load_template_text()
-        assert category_name in text
-        assert controllability in text
+        assert "KC6.3.3" in text  # RAG example
+        assert "KC6.1.2" in text  # API example
+        assert "KC4.3" in text    # cross-session memory example
+        assert "KC2.3" in text    # multi-agent example
 
-
-# ---------------------------------------------------------------------------
-# EPCL-04: RAG retrieval category notes indirect ingress via poisoned content
-# ---------------------------------------------------------------------------
-
-
-class TestEPCL04RagIndirectIngress:
-    """EPCL-04: RAG retrieval category notes indirect ingress via poisoned content."""
-
-    def test_rag_category_notes_indirect_ingress(self):
-        text = _load_template_text()
-        assert "RAG/retrieval data sources" in text
-        assert "indirect ingress" in text.lower()
-        assert "poisoned" in text.lower()
-
-
-# ---------------------------------------------------------------------------
-# EPCL-05: template notes component can appear in both tool_inventory and entry_points
-# ---------------------------------------------------------------------------
-
-
-class TestEPCL05DualListing:
-    """EPCL-05: template notes component can appear in both tool_inventory and entry_points."""
-
-    def test_template_notes_dual_listing(self):
+    def test_template_preserves_dual_listing_note(self):
+        """The template notes a component can appear in both inventories."""
         text = _load_template_text()
         assert "both" in text.lower()
         assert "tool_inventory" in text
         assert "entry_points" in text
 
-
-# ---------------------------------------------------------------------------
-# EPCL-06: template renders without errors with checklist content
-# ---------------------------------------------------------------------------
-
-
-class TestEPCL06RendersWithoutErrors:
-    """EPCL-06: template renders without errors with checklist content."""
-
-    def test_template_renders_with_categories(self):
-        rendered = _render_template()
-        assert "User input surfaces" in rendered
-        assert "RAG/retrieval data sources" in rendered
-        assert "Tool execution results" in rendered
-        assert "External data feeds" in rendered
-        assert "Admin/config interfaces" in rendered
-
-
-# ---------------------------------------------------------------------------
-# EPCL-07: checklist preserves existing template sections
-# ---------------------------------------------------------------------------
-
-
-class TestEPCL07PreservesExistingSections:
-    """EPCL-07: checklist preserves existing template sections."""
-
-    @pytest.mark.parametrize(
-        "section_header",
-        [
-            "## Schneider zones",
-            "## Rules",
-            "## Emphasis",
-            "## Quality requirements",
-        ],
-        ids=["schneider_zones", "rules", "emphasis", "quality_requirements"],
-    )
-    def test_existing_sections_preserved(self, section_header):
+    def test_template_does_not_contain_old_categories(self):
+        """None of the old 5-category names are present."""
         text = _load_template_text()
-        assert section_header in text
+        for old_category in (
+            "RAG/retrieval data sources",
+            "Tool execution results",
+            "External data feeds",
+            "Admin/config interfaces",
+        ):
+            assert old_category not in text, f"Old category still present: {old_category}"
 
-
-# ---------------------------------------------------------------------------
-# EPCL-08: checklist section appears after Rules section
-# ---------------------------------------------------------------------------
-
-
-class TestEPCL08ChecklistAfterRules:
-    """EPCL-08: checklist section appears after the Rules section."""
-
-    def test_checklist_after_rules(self):
+    def test_template_does_not_have_schneider_zones_section(self):
+        """The template does not have the old Schneider zones section."""
         text = _load_template_text()
-        rules_pos = text.find("## Rules")
-        assert rules_pos != -1, "## Rules section not found"
-        # The entry point checklist should appear after the Rules section
-        after_rules = text[rules_pos:]
-        assert "entry point" in after_rules.lower()
-        assert "checklist" in after_rules.lower()
+        assert "## Schneider zones" not in text
+
+    def test_template_does_not_have_emphasis_section(self):
+        """The template does not have the old Emphasis section."""
+        text = _load_template_text()
+        assert "## Emphasis" not in text
+
+    def test_template_has_rules_section(self):
+        """The template has a Rules section with grounding instructions."""
+        text = _load_template_text()
+        assert "## Rules" in text
+        assert "Grounding" in text

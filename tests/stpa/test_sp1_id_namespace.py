@@ -227,7 +227,7 @@ class TestValidControlStructure:
 
 
 class TestPromptConstraint:
-    """IDNS-07: stage2_call2_system prompt contains negative RC vs PM constraint."""
+    """IDNS-07: stage2_call2a_system prompt contains negative RC vs PM constraint."""
 
     def test_idns_07_prompt_contains_rc_constraint(self):
         """IDNS-07: prompt text contains the constraint that rc_id must start with RC."""
@@ -235,7 +235,7 @@ class TestPromptConstraint:
         from scenario_forge.stpa.infra.templates import TemplateLoader
 
         loader = TemplateLoader(PROMPTS_DIR)
-        prompt_text = loader.render_prompt("stage2_call2_system.j2")
+        prompt_text = loader.render_prompt("stage2_call2a_system.j2")
         assert "RC-" in prompt_text
         assert "rc_id" in prompt_text.lower() or "rc_id" in prompt_text
 
@@ -245,7 +245,7 @@ class TestPromptConstraint:
         from scenario_forge.stpa.infra.templates import TemplateLoader
 
         loader = TemplateLoader(PROMPTS_DIR)
-        prompt_text = loader.render_prompt("stage2_call2_system.j2")
+        prompt_text = loader.render_prompt("stage2_call2a_system.j2")
         assert "PM" in prompt_text
         # Check for negative constraint about not copying PM as RC
         lower = prompt_text.lower()

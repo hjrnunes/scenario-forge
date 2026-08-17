@@ -328,15 +328,28 @@ def run_revision(
         return control_structure, ["Revision failed: unexpected None response"]
 
     # Merge the delta into the existing ControlStructure
-    revised_cs = _merge_revision_delta(control_structure, revision_delta)
+    try:
+        revised_cs, merge_warnings = _merge_revision_delta(
+            control_structure, revision_delta
+        )
+    except Exception as exc:
+        warning = (
+            f"Revision delta merge degraded: {type(exc).__name__}: {exc}"
+        )
+        return control_structure, [warning]
+
+    # Warnings are accumulated in chronological order: merge → strip →
+    # heuristics, so consumers see the earliest root-cause first.
+    post_warnings = list(merge_warnings)
 
     # Strip empty responsibilities as a safety net
     revised_cs, strip_warnings = strip_empty_responsibilities(revised_cs)
+    post_warnings.extend(strip_warnings)
 
     # Re-run structural heuristics after revision
     post_revision = run_heuristics(revised_cs, loss_analysis)
-    post_warnings = list(post_revision.errors) + list(post_revision.warnings)
-    post_warnings.extend(strip_warnings)
+    post_warnings.extend(post_revision.errors)
+    post_warnings.extend(post_revision.warnings)
 
     return revised_cs, post_warnings
 
@@ -412,17 +425,66 @@ def _replace_modified_resps(
     ]
 
 
+def _next_free_cm_id(used_cm_ids: set[str]) -> str:
+    """Return the next ``CM-N`` not already in *used_cm_ids*."""
+    nums = [n for n in (_extract_num(cm_id) for cm_id in used_cm_ids) if n is not None]
+    return f"CM-{max(nums, default=0) + 1}"
+
+
+def _renumber_colliding_cm_ids(
+    existing_links: list[CoordinationLink],
+    merged_links: list[CoordinationLink],
+) -> tuple[list[CoordinationLink], list[str]]:
+    """Renumber cm_id collisions in newly added coordination links.
+
+    Existing links (identified by ``link_id`` membership) keep their
+    cm_ids.  New links whose cm_id collides with any already-used cm_id
+    are renumbered to the next free ``CM-N``.
+
+    Identifying new links by ``link_id`` rather than by list position
+    avoids an implicit ordering contract with ``_add_new_items``.
+
+    Returns the merged list (with renumbered cm_ids) and renumber warnings.
+    Each warning mentions both the colliding cm_id and the link_id.
+    """
+    warnings: list[str] = []
+    existing_link_ids = {cl.link_id for cl in existing_links}
+    used_cm_ids = {cl.coordination_mechanism.cm_id for cl in existing_links}
+
+    for cl in merged_links:
+        if cl.link_id in existing_link_ids:
+            continue
+        cm_id = cl.coordination_mechanism.cm_id
+        if cm_id in used_cm_ids:
+            new_cm_id = _next_free_cm_id(used_cm_ids)
+            cl.coordination_mechanism = cl.coordination_mechanism.model_copy(
+                update={"cm_id": new_cm_id}
+            )
+            used_cm_ids.add(new_cm_id)
+            warnings.append(
+                f"Renumber cm_id: collision on {cm_id} from link {cl.link_id}, "
+                f"renumbered to {new_cm_id}."
+            )
+        else:
+            used_cm_ids.add(cm_id)
+
+    return merged_links, warnings
+
+
 def _merge_revision_delta(
     cs: ControlStructure,
     delta: RevisionDelta,
-) -> ControlStructure:
+) -> tuple[ControlStructure, list[str]]:
     """Merge a RevisionDelta into an existing ControlStructure.
 
     - Replaces ``modified_responsibilities`` by resp_id.
     - Adds ``new_responsibilities`` (skipping duplicate resp_ids).
     - Adds ``new_controlled_processes`` (skipping duplicate cp_ids).
     - Adds ``new_coordination_links`` (skipping duplicate link_ids).
+    - Renumbers any new link whose ``cm_id`` collides with an existing one.
     - Validates the merged ControlStructure.
+
+    Returns a tuple of (merged ControlStructure, renumber warnings).
     """
     existing_resp_ids = {r.resp_id for r in cs.responsibilities}
     existing_cp_ids = {cp.cp_id for cp in cs.controlled_processes}
@@ -446,11 +508,15 @@ def _merge_revision_delta(
         existing_cl_ids, lambda cl: cl.link_id,
     )
 
+    merged_cls, cm_warnings = _renumber_colliding_cm_ids(
+        cs.coordination_links, merged_cls
+    )
+
     return ControlStructure(
         responsibilities=merged_resps,
         controlled_processes=merged_cps,
         coordination_links=merged_cls,
-    )
+    ), cm_warnings
 
 
 # ---------------------------------------------------------------------------
@@ -576,5 +642,5 @@ def _build_taxonomy_probes(profile: CapabilityProfile) -> list[str]:
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-09T21:53:49Z","module_hash":"c23fbd93e522d3b3da9c94e3c7f97a9a46e77ce864d01cba4355def1bbf3d3fa","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":86,"end_line":143,"hash":"02ee0d6f8dd93f9f1f4ac45260e050c1d2c2eb2e571904d3a1c0026e65d838ae"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":146,"end_line":157,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/_is_conforming_id","name":"_is_conforming_id","line":194,"end_line":196,"hash":"1ad03e656f0626dc204c14cd04cc350212dc439d0e7bc8631bc80fb98661429f"},{"id":"func/_replace_non_conforming_ids","name":"_replace_non_conforming_ids","line":199,"end_line":215,"hash":"3c97a30df2ec4c066d4ccf69f9c7c582bc226fba6fa638ed7c624440a29116fe"},{"id":"func/sanitize_critic_ids","name":"sanitize_critic_ids","line":218,"end_line":254,"hash":"ee00b50b683dc682db74997ec31b54f41aa39e0beb9a89283d5db6115b5b6f82"},{"id":"func/run_revision","name":"run_revision","line":262,"end_line":341,"hash":"0b604cd556b9cd93a1f645c93a84765a148624217c28bda86b5f70bcd3c760b6"},{"id":"func/_compute_next_ids","name":"_compute_next_ids","line":344,"end_line":356,"hash":"81a219ed24c1f3c420e4e47b0df9c72460d06c11c65398935fd419320b2f9e89"},{"id":"func/_next_num_from","name":"_next_num_from","line":359,"end_line":367,"hash":"7604f4ce687e1ec1d459143ec2b37c8b317573cbfd7b3eee0aaf78075c5cbe2a"},{"id":"func/_extract_num","name":"_extract_num","line":370,"end_line":376,"hash":"5762f14fc8d7f27355617700b71ae9cc6dfed5ee691c3315c44ca384557315d3"},{"id":"func/_add_new_items","name":"_add_new_items","line":379,"end_line":397,"hash":"7b74c64c23b3e02748224a960fc7e5475a3d38781676e87d6e5785e242fb7004"},{"id":"func/_replace_modified_resps","name":"_replace_modified_resps","line":400,"end_line":412,"hash":"a7c3f7893c5e003f2a8bbcff960066069363b6a1ef59e4837a93adccf815f728"},{"id":"func/_merge_revision_delta","name":"_merge_revision_delta","line":415,"end_line":453,"hash":"cd3df3b2870c18cae0a822f4b185fb8959e228945b6a9c1261e943ebdcc62c6f"},{"id":"func/_is_responsibility_empty","name":"_is_responsibility_empty","line":461,"end_line":465,"hash":"f0e3af6c54ff18f8eb0421cb7c1166cfc694589549bba28429d7791561eb4551"},{"id":"func/strip_empty_responsibilities","name":"strip_empty_responsibilities","line":468,"end_line":511,"hash":"0d28f4118b8fe01b7675c720794f49fb3d9425b3bf0afcb045e96e6521c7f336"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":542,"end_line":547,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":550,"end_line":553,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":556,"end_line":575,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
+# {"version":1,"tested_at":"2026-08-10T22:59:53Z","module_hash":"142deffe85ffafef42535b9cb226b8dddde23d77f16a887c0f6681e5077b38b1","functions":[{"id":"func/run_completeness_critic","name":"run_completeness_critic","line":86,"end_line":143,"hash":"02ee0d6f8dd93f9f1f4ac45260e050c1d2c2eb2e571904d3a1c0026e65d838ae"},{"id":"func/has_unjustified_gaps","name":"has_unjustified_gaps","line":146,"end_line":157,"hash":"76f218e93aab136e25ece616eec638dc88c7f8470197c6367a99ddf7da3df23d"},{"id":"func/_is_conforming_id","name":"_is_conforming_id","line":194,"end_line":196,"hash":"1ad03e656f0626dc204c14cd04cc350212dc439d0e7bc8631bc80fb98661429f"},{"id":"func/_replace_non_conforming_ids","name":"_replace_non_conforming_ids","line":199,"end_line":215,"hash":"3c97a30df2ec4c066d4ccf69f9c7c582bc226fba6fa638ed7c624440a29116fe"},{"id":"func/sanitize_critic_ids","name":"sanitize_critic_ids","line":218,"end_line":254,"hash":"ee00b50b683dc682db74997ec31b54f41aa39e0beb9a89283d5db6115b5b6f82"},{"id":"func/run_revision","name":"run_revision","line":262,"end_line":354,"hash":"991c2b2d402a4a1f4900c7f9c8be9641e1c6df54eaaa03661113c6d5df456ded"},{"id":"func/_compute_next_ids","name":"_compute_next_ids","line":357,"end_line":369,"hash":"81a219ed24c1f3c420e4e47b0df9c72460d06c11c65398935fd419320b2f9e89"},{"id":"func/_next_num_from","name":"_next_num_from","line":372,"end_line":380,"hash":"7604f4ce687e1ec1d459143ec2b37c8b317573cbfd7b3eee0aaf78075c5cbe2a"},{"id":"func/_extract_num","name":"_extract_num","line":383,"end_line":389,"hash":"5762f14fc8d7f27355617700b71ae9cc6dfed5ee691c3315c44ca384557315d3"},{"id":"func/_add_new_items","name":"_add_new_items","line":392,"end_line":410,"hash":"7b74c64c23b3e02748224a960fc7e5475a3d38781676e87d6e5785e242fb7004"},{"id":"func/_replace_modified_resps","name":"_replace_modified_resps","line":413,"end_line":425,"hash":"a7c3f7893c5e003f2a8bbcff960066069363b6a1ef59e4837a93adccf815f728"},{"id":"func/_next_free_cm_id","name":"_next_free_cm_id","line":428,"end_line":431,"hash":"ac1bf1f8d51b4e906d3b92ff5e2dfe0aa039db848e63dcf4898497cdb6826e3c"},{"id":"func/_renumber_colliding_cm_ids","name":"_renumber_colliding_cm_ids","line":434,"end_line":471,"hash":"cf924fa525bb6168c869bf46d2ddf6ea9dc02928e2a8878dfe7d2d0a56ef3874"},{"id":"func/_merge_revision_delta","name":"_merge_revision_delta","line":474,"end_line":519,"hash":"b8ce19f8aaac756084016206dfba72a8e6b4be2cd4b10ca13eb9092dd741a0c1"},{"id":"func/_is_responsibility_empty","name":"_is_responsibility_empty","line":527,"end_line":531,"hash":"f0e3af6c54ff18f8eb0421cb7c1166cfc694589549bba28429d7791561eb4551"},{"id":"func/strip_empty_responsibilities","name":"strip_empty_responsibilities","line":534,"end_line":577,"hash":"0d28f4118b8fe01b7675c720794f49fb3d9425b3bf0afcb045e96e6521c7f336"},{"id":"func/_needs_rag_probe","name":"_needs_rag_probe","line":608,"end_line":613,"hash":"21a1da1f408fbabedfcb35fdc68747a0d4fdd19ad3842eba865b650245f6c655"},{"id":"func/_needs_tool_probe","name":"_needs_tool_probe","line":616,"end_line":619,"hash":"e77a0b8f2d8e69fc6b955acd6055b0ad45817d5082dce6c4b4fc03010fd7e8fe"},{"id":"func/_build_taxonomy_probes","name":"_build_taxonomy_probes","line":622,"end_line":641,"hash":"5704e40354a3852b42874470d153d96f5524ef91ba324800c90cf2cdc3d6a699"}]}
 # mutate4py-manifest-end

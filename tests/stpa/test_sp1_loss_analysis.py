@@ -1,74 +1,33 @@
-"""Tests for SP1 Stage 1a — Loss Analysis derivation.
+"""Tests for SP1 Stage 1a — Loss Analysis derivation (two-call split).
 
-Covers SP1-LA-01 through SP1-LA-12 from the Gherkin feature file.
+Covers the risk_derivation + gap_analysis split, ID continuation,
+cross-reference validity, and call-log recording.
 """
 
 from __future__ import annotations
 
+import json
 
 import pytest
 from pydantic import ValidationError
 
+from scenario_forge.models.capability_profile import (
+    CapabilityProfile,
+    Stage1Profile,
+)
 from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm_helpers import StageError
 from scenario_forge.stpa.models.loss_analysis import (
     LossAnalysis,
+    LossAnalysisDraft,
     LossProvenance,
 )
 from scenario_forge.stpa.system_model.loss_analysis import derive_loss_analysis
-from tests.stpa.sp1_helpers import MockLLMClient
-
-
-def _valid_loss_analysis_dict() -> dict:
-    """Build a valid LossAnalysis dict for LLM mock responses."""
-    return {
-        "risk_card_losses": [
-            {
-                "loss_id": "L-1",
-                "description": "Unauthorized financial transaction",
-                "provenance": "risk_card",
-                "source_risk_cards": ["atlas-001"],
-            },
-            {
-                "loss_id": "L-2",
-                "description": "Data exposure",
-                "provenance": "risk_card",
-                "source_risk_cards": ["atlas-002"],
-            },
-        ],
-        "use_case_losses": [
-            {
-                "loss_id": "L-3",
-                "description": "Loss of customer trust",
-                "provenance": "use_case",
-                "source_risk_cards": [],
-            },
-        ],
-        "hazards": [
-            {
-                "hazard_id": "H-1",
-                "description": "Agent executes unintended payment",
-                "related_losses": ["L-1", "L-3"],
-            },
-            {
-                "hazard_id": "H-2",
-                "description": "Agent exposes data",
-                "related_losses": ["L-2"],
-            },
-        ],
-        "security_constraints": [
-            {
-                "constraint_id": "SC-1",
-                "description": "Must confirm before payment",
-                "related_hazards": ["H-1"],
-            },
-            {
-                "constraint_id": "SC-2",
-                "description": "Must not expose data",
-                "related_hazards": ["H-2"],
-            },
-        ],
-    }
+from tests.stpa.sp1_helpers import (
+    MockLLMClient,
+    valid_gap_draft_dict,
+    valid_risk_draft_dict,
+)
 
 
 def _make_risk_cards() -> list[RiskCard]:
@@ -84,13 +43,27 @@ def _make_risk_cards() -> list[RiskCard]:
     ]
 
 
+def _make_capability_profile() -> CapabilityProfile:
+    return Stage1Profile(
+        entry_points=[
+            {"name": "User chat", "direction": "input", "controllability": "direct"},
+        ],
+        confidence="medium",
+        kc_subcodes=["KC1.1", "KC5.1", "KC6.1.1"],
+        tool_inventory=[{"name": "tool1", "description": "A tool"}],
+    ).to_capability_profile()
+
+
 class TestStage1aLossAnalysis:
-    """SP1 Stage 1a loss analysis derivation."""
+    """SP1 Stage 1a loss analysis derivation (two-call split)."""
 
     def test_la_01_valid_response_produces_valid_loss_analysis(self, tmp_path):
-        """SP1-LA-01: valid LLM response produces a valid LossAnalysis."""
+        """A valid two-call response produces a valid LossAnalysis."""
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), valid_gap_draft_dict()],
+        )
         result = derive_loss_analysis(
             llm_client=client,
             use_case_text="Test use case",
@@ -98,14 +71,16 @@ class TestStage1aLossAnalysis:
             run_dir=tmp_path,
         )
         assert isinstance(result, LossAnalysis)
-        # Passes foundation validation (no exception raised by construction)
-        assert len(result.risk_card_losses) == 2
+        assert len(result.risk_card_losses) == 1
         assert len(result.use_case_losses) == 1
 
     def test_la_02_risk_card_losses_have_correct_provenance(self, tmp_path):
-        """SP1-LA-02: risk-card-derived losses have correct provenance."""
+        """Risk-card-derived losses have correct provenance."""
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), valid_gap_draft_dict()],
+        )
         result = derive_loss_analysis(
             llm_client=client,
             use_case_text="Test use case",
@@ -117,9 +92,12 @@ class TestStage1aLossAnalysis:
             assert len(loss.source_risk_cards) > 0
 
     def test_la_03_use_case_losses_have_correct_provenance(self, tmp_path):
-        """SP1-LA-03: use-case-derived losses have correct provenance."""
+        """Use-case-derived losses have correct provenance."""
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), valid_gap_draft_dict()],
+        )
         result = derive_loss_analysis(
             llm_client=client,
             use_case_text="Test use case",
@@ -131,11 +109,14 @@ class TestStage1aLossAnalysis:
             assert len(loss.source_risk_cards) == 0
 
     def test_la_04_invalid_hazard_reference_fails(self, tmp_path):
-        """SP1-LA-04: hazard referencing non-existent loss fails."""
-        bad = _valid_loss_analysis_dict()
-        bad["hazards"][0]["related_losses"] = ["L-99"]
+        """Hazard referencing non-existent loss fails."""
+        bad_risk = valid_risk_draft_dict()
+        bad_risk["hazards"][0]["related_losses"] = ["L-99"]
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, bad)
+        client.set_response_for(
+            LossAnalysisDraft,
+            [bad_risk, valid_gap_draft_dict()],
+        )
         with pytest.raises((ValidationError, ValueError, StageError), match="related_losses"):
             derive_loss_analysis(
                 llm_client=client,
@@ -145,11 +126,14 @@ class TestStage1aLossAnalysis:
             )
 
     def test_la_04b_invalid_constraint_reference_fails(self, tmp_path):
-        """SP1-LA-04: constraint referencing non-existent hazard fails."""
-        bad = _valid_loss_analysis_dict()
-        bad["security_constraints"][0]["related_hazards"] = ["H-99"]
+        """Constraint referencing non-existent hazard fails."""
+        bad_risk = valid_risk_draft_dict()
+        bad_risk["security_constraints"][0]["related_hazards"] = ["H-99"]
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, bad)
+        client.set_response_for(
+            LossAnalysisDraft,
+            [bad_risk, valid_gap_draft_dict()],
+        )
         with pytest.raises((ValidationError, ValueError, StageError), match="related_hazards"):
             derive_loss_analysis(
                 llm_client=client,
@@ -159,11 +143,14 @@ class TestStage1aLossAnalysis:
             )
 
     def test_la_05_risk_card_loss_missing_source_fails(self, tmp_path):
-        """SP1-LA-05: risk-card loss with empty source_risk_cards fails."""
-        bad = _valid_loss_analysis_dict()
-        bad["risk_card_losses"][0]["source_risk_cards"] = []
+        """Risk-card loss with empty source_risk_cards fails."""
+        bad_risk = valid_risk_draft_dict()
+        bad_risk["risk_card_losses"][0]["source_risk_cards"] = []
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, bad)
+        client.set_response_for(
+            LossAnalysisDraft,
+            [bad_risk, valid_gap_draft_dict()],
+        )
         with pytest.raises((ValidationError, ValueError, StageError), match="source_risk_cards"):
             derive_loss_analysis(
                 llm_client=client,
@@ -173,11 +160,14 @@ class TestStage1aLossAnalysis:
             )
 
     def test_la_06_use_case_loss_with_source_fails(self, tmp_path):
-        """SP1-LA-06: use-case loss having source_risk_cards fails."""
-        bad = _valid_loss_analysis_dict()
-        bad["use_case_losses"][0]["source_risk_cards"] = ["atlas-001"]
+        """Use-case loss having source_risk_cards fails."""
+        bad_gap = valid_gap_draft_dict()
+        bad_gap["use_case_losses"][0]["source_risk_cards"] = ["atlas-001"]
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, bad)
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), bad_gap],
+        )
         with pytest.raises((ValidationError, ValueError, StageError), match="source_risk_cards"):
             derive_loss_analysis(
                 llm_client=client,
@@ -186,24 +176,48 @@ class TestStage1aLossAnalysis:
                 run_dir=tmp_path,
             )
 
-    def test_la_07_duplicate_loss_ids_fails(self, tmp_path):
-        """SP1-LA-07: duplicate loss IDs fail."""
-        bad = _valid_loss_analysis_dict()
-        bad["risk_card_losses"][1]["loss_id"] = "L-1"
+    def test_la_07_renumbering_handles_non_sequential_ids(self, tmp_path):
+        """Non-sequential or duplicate input IDs are renumbered to sequential."""
+        # Risk draft uses L-5, L-10 (non-sequential)
+        risk = valid_risk_draft_dict()
+        risk["risk_card_losses"][0]["loss_id"] = "L-5"
+        risk["hazards"][0]["related_losses"] = ["L-5"]
+        risk["hazards"][0]["hazard_id"] = "H-7"
+        risk["security_constraints"][0]["related_hazards"] = ["H-7"]
+        risk["security_constraints"][0]["constraint_id"] = "SC-3"
+        # Gap draft uses L-3, H-2 (also non-sequential)
+        gap = valid_gap_draft_dict()
+        gap["use_case_losses"][0]["loss_id"] = "L-3"
+        gap["hazards"][0]["related_losses"] = ["L-3"]
+        gap["hazards"][0]["hazard_id"] = "H-2"
+        gap["security_constraints"][0]["related_hazards"] = ["H-2"]
+        gap["security_constraints"][0]["constraint_id"] = "SC-9"
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, bad)
-        with pytest.raises((ValidationError, ValueError, StageError), match="(?i)duplicate"):
-            derive_loss_analysis(
-                llm_client=client,
-                use_case_text="Test use case",
-                risk_cards=_make_risk_cards(),
-                run_dir=tmp_path,
-            )
+        client.set_response_for(LossAnalysisDraft, [risk, gap])
+        result = derive_loss_analysis(
+            llm_client=client,
+            use_case_text="Test use case",
+            risk_cards=_make_risk_cards(),
+            run_dir=tmp_path,
+        )
+        # After renumbering: L-1, L-2 / H-1, H-2 / SC-1, SC-2
+        all_losses = result.risk_card_losses + result.use_case_losses
+        assert [l.loss_id for l in all_losses] == ["L-1", "L-2"]
+        assert [h.hazard_id for h in result.hazards] == ["H-1", "H-2"]
+        assert [sc.constraint_id for sc in result.security_constraints] == ["SC-1", "SC-2"]
+        # Cross-references updated
+        assert result.hazards[0].related_losses == ["L-1"]
+        assert result.hazards[1].related_losses == ["L-2"]
+        assert result.security_constraints[0].related_hazards == ["H-1"]
+        assert result.security_constraints[1].related_hazards == ["H-2"]
 
-    def test_la_08_call_logged_with_stage_1a(self, tmp_path):
-        """SP1-LA-08: call log entry has stage stage_1a and step loss_analysis."""
+    def test_la_08_two_call_log_entries_recorded(self, tmp_path):
+        """Two call-log entries are recorded with correct stage and step."""
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), valid_gap_draft_dict()],
+        )
         derive_loss_analysis(
             llm_client=client,
             use_case_text="Test use case",
@@ -212,19 +226,22 @@ class TestStage1aLossAnalysis:
         )
         calls_file = tmp_path / "calls.jsonl"
         assert calls_file.exists()
-        import json as _json
-
-        entries = [_json.loads(line) for line in calls_file.read_text().splitlines()]
-        assert len(entries) == 1
+        entries = [json.loads(line) for line in calls_file.read_text().splitlines()]
+        assert len(entries) == 2
         assert entries[0]["stage"] == "stage_1a"
-        assert entries[0]["step"] == "loss_analysis"
+        assert entries[0]["step"] == "risk_derivation"
+        assert entries[1]["stage"] == "stage_1a"
+        assert entries[1]["step"] == "gap_analysis"
 
     def test_la_09_loss_analysis_written_to_yaml(self, tmp_path):
-        """SP1-LA-09: loss-analysis.yaml exists and contains valid model."""
+        """loss-analysis.yaml exists and contains valid model."""
         from scenario_forge.stpa.infra.yaml_io import read_yaml
 
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), valid_gap_draft_dict()],
+        )
         derive_loss_analysis(
             llm_client=client,
             use_case_text="Test use case",
@@ -235,21 +252,33 @@ class TestStage1aLossAnalysis:
         assert yaml_file.exists()
         loaded = read_yaml(yaml_file, LossAnalysis)
         assert isinstance(loaded, LossAnalysis)
-        assert len(loaded.risk_card_losses) == 2
+        assert len(loaded.risk_card_losses) == 1
 
     def test_la_10_both_loss_types_coexist(self, tmp_path):
-        """SP1-LA-10: both risk-card and use-case losses can coexist."""
-        client = MockLLMClient()
-        data = _valid_loss_analysis_dict()
-        data["use_case_losses"].append(
+        """Both risk-card and use-case losses coexist after merge."""
+        risk_draft = valid_risk_draft_dict()
+        risk_draft["risk_card_losses"].append(
             {
-                "loss_id": "L-4",
+                "loss_id": "L-2",
+                "description": "Data exposure",
+                "provenance": "risk_card",
+                "source_risk_cards": ["atlas-002"],
+            }
+        )
+        gap_draft = valid_gap_draft_dict()
+        gap_draft["use_case_losses"].append(
+            {
+                "loss_id": "L-3",
                 "description": "Regulatory non-compliance",
                 "provenance": "use_case",
                 "source_risk_cards": [],
             }
         )
-        client.set_response_for(LossAnalysis, data)
+        client = MockLLMClient()
+        client.set_response_for(
+            LossAnalysisDraft,
+            [risk_draft, gap_draft],
+        )
         result = derive_loss_analysis(
             llm_client=client,
             use_case_text="Test use case",
@@ -258,29 +287,35 @@ class TestStage1aLossAnalysis:
         )
         assert len(result.risk_card_losses) == 2
         assert len(result.use_case_losses) == 2
-        loss_ids = {loss.loss_id for loss in result.risk_card_losses + result.use_case_losses}
-        assert {"L-1", "L-2", "L-3", "L-4"} == loss_ids
 
     def test_la_11_every_hazard_links_to_loss(self, tmp_path):
-        """SP1-LA-11: every hazard links to at least one loss."""
+        """Every hazard links to at least one loss."""
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), valid_gap_draft_dict()],
+        )
         result = derive_loss_analysis(
             llm_client=client,
             use_case_text="Test use case",
             risk_cards=_make_risk_cards(),
             run_dir=tmp_path,
         )
-        all_loss_ids = {loss.loss_id for loss in result.risk_card_losses + result.use_case_losses}
+        all_loss_ids = {
+            loss.loss_id for loss in result.risk_card_losses + result.use_case_losses
+        }
         for hazard in result.hazards:
             assert len(hazard.related_losses) >= 1
             for ref in hazard.related_losses:
                 assert ref in all_loss_ids
 
     def test_la_12_every_constraint_links_to_hazard(self, tmp_path):
-        """SP1-LA-12: every security constraint links to at least one hazard."""
+        """Every security constraint links to at least one hazard."""
         client = MockLLMClient()
-        client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), valid_gap_draft_dict()],
+        )
         result = derive_loss_analysis(
             llm_client=client,
             use_case_text="Test use case",
@@ -292,3 +327,89 @@ class TestStage1aLossAnalysis:
             assert len(sc.related_hazards) >= 1
             for ref in sc.related_hazards:
                 assert ref in all_hazard_ids
+
+    def test_la_13_ids_are_sequential_after_merge(self, tmp_path):
+        """Loss, hazard, and SC IDs are sequential with no duplicates after merge."""
+        client = MockLLMClient()
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), valid_gap_draft_dict()],
+        )
+        result = derive_loss_analysis(
+            llm_client=client,
+            use_case_text="Test use case",
+            risk_cards=_make_risk_cards(),
+            run_dir=tmp_path,
+        )
+        all_losses = result.risk_card_losses + result.use_case_losses
+        loss_ids = [l.loss_id for l in all_losses]
+        assert loss_ids == ["L-1", "L-2"]
+
+        hazard_ids = [h.hazard_id for h in result.hazards]
+        assert hazard_ids == ["H-1", "H-2"]
+
+        sc_ids = [sc.constraint_id for sc in result.security_constraints]
+        assert sc_ids == ["SC-1", "SC-2"]
+
+    def test_la_14_gap_call_receives_kc_subcodes(self, tmp_path):
+        """Gap analysis user prompt includes kc_subcodes from capability profile."""
+        client = MockLLMClient()
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), valid_gap_draft_dict()],
+        )
+        profile = _make_capability_profile()
+        derive_loss_analysis(
+            llm_client=client,
+            use_case_text="Test use case",
+            risk_cards=_make_risk_cards(),
+            run_dir=tmp_path,
+            capability_profile=profile,
+        )
+        # The gap call is the second call
+        gap_call = client.calls[1]
+        assert "kc_subcodes" in gap_call.user_prompt
+        assert "KC1.1" in gap_call.user_prompt
+
+    def test_la_15_empty_risk_cards_produces_empty_risk_losses(self, tmp_path):
+        """Risk-grounded call with no risk cards produces empty risk_card_losses."""
+        empty_risk = {
+            "risk_card_losses": [],
+            "use_case_losses": [],
+            "hazards": [],
+            "security_constraints": [],
+        }
+        client = MockLLMClient()
+        client.set_response_for(
+            LossAnalysisDraft,
+            [empty_risk, valid_gap_draft_dict()],
+        )
+        result = derive_loss_analysis(
+            llm_client=client,
+            use_case_text="Test use case",
+            risk_cards=[],
+            run_dir=tmp_path,
+        )
+        assert len(result.risk_card_losses) == 0
+        assert len(result.use_case_losses) == 1
+
+    def test_la_16_gap_hazard_can_reference_existing_loss(self, tmp_path):
+        """Gap analysis hazards can reference existing loss IDs from risk call."""
+        gap = valid_gap_draft_dict()
+        # Gap hazard references L-1 (from risk call) in addition to its own L-2
+        gap["hazards"][0]["related_losses"] = ["L-2", "L-1"]
+        client = MockLLMClient()
+        client.set_response_for(
+            LossAnalysisDraft,
+            [valid_risk_draft_dict(), gap],
+        )
+        result = derive_loss_analysis(
+            llm_client=client,
+            use_case_text="Test use case",
+            risk_cards=_make_risk_cards(),
+            run_dir=tmp_path,
+        )
+        # After renumbering, L-1 stays L-1 and L-2 stays L-2
+        gap_hazard = result.hazards[1]
+        assert "L-1" in gap_hazard.related_losses
+        assert "L-2" in gap_hazard.related_losses

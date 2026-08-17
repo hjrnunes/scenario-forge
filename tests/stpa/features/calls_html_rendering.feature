@@ -17,7 +17,7 @@ Feature: HTML rendering of calls.jsonl
       | stage    | step                    | model              | prompt_tokens | completion_tokens | duration_ms | success | error           |
       | stage_1a | call_1a_losses          | gemma-4-26b-a4b-it | 4500          | 1200              | 8500        | true    |                 |
       | stage_1b | call_1b_profile         | gemma-4-26b-a4b-it | 3200          | 800               | 4200        | true    |                 |
-      | stage_2  | call_2_responsibilities | gemma-4-26b-a4b-it | 5100          | 1500              | 9800        | true    |                 |
+      | stage_2  | call_2a_responsibilities | gemma-4-26b-a4b-it | 5100          | 1500              | 9800        | true    |                 |
       | stage_2  | call_2_requirements     | gemma-4-26b-a4b-it | 4800          | 1300              | 7600        | false   | timeout exceeded |
 
   # CH-01

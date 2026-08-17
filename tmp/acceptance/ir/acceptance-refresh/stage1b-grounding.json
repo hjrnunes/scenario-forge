@@ -1,0 +1,124 @@
+{
+  "name" : "Stage 1b Grounding Without Loss Analysis Context",
+  "scenarios" : [ {
+    "name" : "stage1b-grounding-01 stage1b_user.j2 carries no loss-analysis context",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_user.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text does not contain \"<retired_context>\"",
+      "parameters" : [ "retired_context" ]
+    } ],
+    "examples" : [ {
+      "retired_context" : "Security Constraints"
+    }, {
+      "retired_context" : "Loss Analysis"
+    }, {
+      "retired_context" : "loss_analysis"
+    }, {
+      "retired_context" : "all_losses"
+    } ]
+  }, {
+    "name" : "stage1b-grounding-02 stage1b_user.j2 provides only the use-case text",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_user.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"<section_header>\"",
+      "parameters" : [ "section_header" ]
+    } ],
+    "examples" : [ {
+      "section_header" : "## Use-Case Description"
+    }, {
+      "section_header" : "{{ use_case_text }}"
+    }, {
+      "section_header" : "## Your Task"
+    } ]
+  }, {
+    "name" : "stage1b-grounding-03 stage1b_system.j2 states the grounding rules",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"<grounding_rule>\"",
+      "parameters" : [ "grounding_rule" ]
+    } ],
+    "examples" : [ {
+      "grounding_rule" : "every KC code, entry point, and tool must be traceable to a specific capability described in the use-case text"
+    }, {
+      "grounding_rule" : "Do not infer capabilities speculatively"
+    } ]
+  }, {
+    "name" : "stage1b-grounding-04 stage1b_system.j2 constrains the tool inventory to described tools",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"<tool_rule>\"",
+      "parameters" : [ "tool_rule" ]
+    } ],
+    "examples" : [ {
+      "tool_rule" : "every tool must be explicitly mentioned or directly implied by the use-case description"
+    }, {
+      "tool_rule" : "Do not invent tools based on what a system like this might have"
+    } ]
+  }, {
+    "name" : "stage1b-grounding-05 the retired security-constraint caveat text is absent",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text does not contain \"<retired_caveat>\"",
+      "parameters" : [ "retired_caveat" ]
+    } ],
+    "examples" : [ {
+      "retired_caveat" : "Security constraints describe what SHOULD exist, not what DOES exist"
+    }, {
+      "retired_caveat" : "Do not infer tools from security constraints"
+    } ]
+  }, {
+    "name" : "stage1b-grounding-06 stage1b_user.j2 renders from the use-case text alone",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_user.j2 is loaded"
+    }, {
+      "keyword" : "When",
+      "text" : "the template is rendered with use_case_text \"A patient chatbot integrated with EHR systems\""
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendered text contains \"A patient chatbot integrated with EHR systems\""
+    }, {
+      "keyword" : "And",
+      "text" : "the rendered text does not contain \"Security Constraints\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "stage1b-grounding-07 stage1b_system.j2 renders with no unresolved placeholders",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_system.j2 is loaded"
+    }, {
+      "keyword" : "When",
+      "text" : "the template is rendered with no variables"
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendered text contains \"Do not invent tools based on what a system like this might have\""
+    }, {
+      "keyword" : "And",
+      "text" : "the rendered text does not contain \"{{\""
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model prompts directory is available"
+  }, {
+    "keyword" : "And",
+    "text" : "the TemplateLoader can load templates from the prompts directory"
+  } ]
+}

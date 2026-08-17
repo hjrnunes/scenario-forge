@@ -20,8 +20,8 @@ from scenario_forge.stpa.system_model.run import run_sp1
 from tests.stpa.sp1_helpers import (
     MockLLMClient,
     make_risk_cards,
-    valid_empty_connection_set_dict,
-    valid_loss_analysis_dict,
+    valid_control_element_set_dict,
+    valid_empty_coordination_analysis_dict,
     valid_requirement_set_dict,
     valid_responsibility_set_dict,
     valid_stage1_profile_dict,
@@ -73,8 +73,12 @@ def _setup_mock_client(
     """Set up a mock LLM client with valid responses for all stages."""
     client = MockLLMClient()
 
-    # Stage 1a: LossAnalysis
-    client.set_response_for(LossAnalysis, valid_loss_analysis_dict())
+    # Stage 1a: two calls (risk_derivation + gap_analysis) both use LossAnalysisDraft
+    from scenario_forge.stpa.models.loss_analysis import LossAnalysisDraft
+    from tests.stpa.sp1_helpers import valid_risk_draft_dict, valid_gap_draft_dict
+    client.set_response_for(
+        LossAnalysisDraft, [valid_risk_draft_dict(), valid_gap_draft_dict()],
+    )
 
     # Stage 1b: Stage1Profile
     from scenario_forge.models.capability_profile import Stage1Profile as S1P
@@ -83,19 +87,24 @@ def _setup_mock_client(
 
     # Stage 2 Call 1: RequirementSet
     from scenario_forge.stpa.system_model.control_structure import (
+        ControlElementSet,
+        CoordinationAnalysis,
         RequirementSet,
         ResponsibilitySet,
     )
 
     client.set_response_for(RequirementSet, valid_requirement_set_dict())
 
-    # Stage 2 Call 2: ResponsibilitySet
+    # Stage 2 Call 2a: ResponsibilitySet
     client.set_response_for(ResponsibilitySet, valid_responsibility_set_dict())
 
-    # Stage 2 Call 3: ConnectionSet
-    from scenario_forge.stpa.system_model.control_structure import ConnectionSet
+    # Stage 2 Call 2b: ControlElementSet
+    client.set_response_for(ControlElementSet, valid_control_element_set_dict())
 
-    client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
+    # Stage 2 Call 3: CoordinationAnalysis
+    client.set_response_for(
+        CoordinationAnalysis, valid_empty_coordination_analysis_dict()
+    )
 
     # Critic: CriticFindings
     if critic_findings is not None:
@@ -141,7 +150,7 @@ class TestRunOrchestration:
         assert (tmp_path / "control-structure.yaml").exists()
 
     def test_run_02_stages_execute_in_order(self, tmp_path):
-        """SP1-RUN-02: stages execute in order 1a then 1b then 2."""
+        """SP1-RUN-02: stages execute in order 1b then 1a then 2."""
         client = _setup_mock_client()
         result = run_sp1(
             llm_client=client,
@@ -159,10 +168,10 @@ class TestRunOrchestration:
         assert "stage_1a" in stages
         assert "stage_1b" in stages
         assert "stage_2" in stages
-        # Stage 1a should come before stage_1b
-        assert stages.index("stage_1a") < stages.index("stage_1b")
-        # Stage 1b should come before stage_2
-        assert stages.index("stage_1b") < stages.index("stage_2")
+        # Stage 1b should come before stage_1a (reversed ordering)
+        assert stages.index("stage_1b") < stages.index("stage_1a")
+        # Stage 1a should come before stage_2
+        assert stages.index("stage_1a") < stages.index("stage_2")
 
     def test_run_03_all_calls_logged(self, tmp_path):
         """SP1-RUN-03: all LLM calls logged to calls.jsonl."""
@@ -264,7 +273,7 @@ class TestRunOrchestration:
 
         manifest = yaml.safe_load(manifest_file.read_text())
         assert "prompt_hashes" in manifest
-        assert "stage1a_system.j2" in manifest["prompt_hashes"]
+        assert "stage1a_risk_system.j2" in manifest["prompt_hashes"]
         assert "critic_system.j2" in manifest["prompt_hashes"]
 
     def test_run_08_stage_2_receives_loss_analysis_and_profile(self, tmp_path):
@@ -286,20 +295,29 @@ class TestRunOrchestration:
         assert "SC-1" in call1.user_prompt
 
     def test_run_09_prompt_templates_exist(self):
-        """SP1-RUN-09: all 14 prompt template files exist."""
+        """SP1-RUN-09: all prompt template files exist (updated for stage1a split)."""
         from scenario_forge.stpa.system_model import PROMPTS_DIR
 
         expected = [
-            "stage1a_system.j2", "stage1a_user.j2",
+            "stage1a_risk_system.j2", "stage1a_risk_user.j2",
+            "stage1a_gap_system.j2", "stage1a_gap_user.j2",
             "stage1b_system.j2", "stage1b_user.j2",
             "stage2_call1_system.j2", "stage2_call1_user.j2",
-            "stage2_call2_system.j2", "stage2_call2_user.j2",
+            "stage2_call2a_system.j2", "stage2_call2a_user.j2",
+            "stage2_call2b_system.j2", "stage2_call2b_user.j2",
             "stage2_call3_system.j2", "stage2_call3_user.j2",
             "critic_system.j2", "critic_user.j2",
             "revision_system.j2", "revision_user.j2",
         ]
         for name in expected:
             assert (PROMPTS_DIR / name).exists(), f"Missing template: {name}"
+
+    def test_run_09b_old_stage1a_templates_absent(self):
+        """Old stage1a templates are absent after the split."""
+        from scenario_forge.stpa.system_model import PROMPTS_DIR
+
+        assert not (PROMPTS_DIR / "stage1a_system.j2").exists()
+        assert not (PROMPTS_DIR / "stage1a_user.j2").exists()
 
     def test_run_10_module_layout(self):
         """SP1-RUN-10: all modules exist and are importable."""
@@ -337,9 +355,6 @@ class TestRunOrchestration:
         """SP1-RUN-12: run with profile flag skips Stage 1b LLM call."""
         # Write a pre-built profile
         profile = Stage1Profile(
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 {"name": "User chat", "direction": "input", "controllability": "direct"},
             ],

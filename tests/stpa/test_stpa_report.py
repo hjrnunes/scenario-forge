@@ -357,27 +357,29 @@ class TestApplyGherkinKeywordHighlight:
 class TestHighlightGherkin:
     def test_given(self):
         result = _highlight_gherkin("Given the system is running")
-        assert "gherkin-keyword" in result
+        assert "step-given" in result
+        assert "step-keyword" in result
 
     def test_then(self):
         result = _highlight_gherkin("Then the response should be valid")
-        assert "gherkin-keyword" in result
+        assert "step-then" in result
+        assert "step-keyword" in result
 
     def test_comment(self):
         result = _highlight_gherkin("# a comment")
-        assert "gherkin-comment" in result
+        assert "gherkin-comment-line" in result
 
     def test_tag(self):
         result = _highlight_gherkin("@some-tag")
-        assert "gherkin-tag" in result
+        assert "gherkin-tag-line" in result
 
     def test_docstring_delimiter(self):
-        result = _highlight_gherkin('    """')
-        assert "gherkin-string" in result
+        result = _highlight_gherkin('Given a step\n"""\ndocstring\n"""')
+        assert "step-docstring" in result
 
     def test_plain_line(self):
         result = _highlight_gherkin("just text")
-        assert result == "just text"
+        assert "just text" in result
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +505,7 @@ class TestRenderTreeChild:
     def test_leaf_without_details(self):
         child = {"label": "Leaf node"}
         result = _render_tree_child(child)
-        assert any("LEAF" in r for r in result)
+        assert any("tree-leaf" in r for r in result)
 
     def test_with_children(self):
         child = {"label": "Parent", "children": [{"label": "Child1"}]}
@@ -515,12 +517,12 @@ class TestBuildTreeBranchNode:
     def test_with_category(self):
         branch = {"category": "controller_side", "label": "Test", "children": []}
         result = _build_tree_branch_node(branch)
-        assert any("cat-controller_side" in r for r in result)
+        assert any("controller_side" in r for r in result)
 
     def test_without_category(self):
         branch = {"category": "", "label": "Test", "children": []}
         result = _build_tree_branch_node(branch)
-        assert any("AND" in r for r in result)
+        assert any("gate-and" in r for r in result)
 
     def test_with_children(self):
         branch = {
@@ -543,7 +545,7 @@ class TestAttackTreeVisual:
 
     def test_tree_with_root_only(self):
         html = _build_attack_tree_visual({"root": "Goal"})
-        assert "OR" in html
+        assert "gate-or" in html
         assert "Goal" in html
 
     def test_tree_with_branches(self):
@@ -561,7 +563,8 @@ class TestAttackTreeVisual:
     def test_tree_with_leaves(self):
         tree = {"leaves": ["leaf-1", "leaf-2"]}
         html = _build_attack_tree_visual(tree)
-        assert "LEAF" in html
+        assert "tree-leaf" in html
+        assert "leaf-1" in html
         assert "leaf-1" in html
 
     def test_tree_with_nested_children(self):
@@ -810,7 +813,7 @@ class TestBuildSp2IcaSection:
         ica = _make_ica_enumeration(slots=[_make_ica_slot("S-1", "Provided")])
         html = _build_sp2_ica_section(ica)
         assert "S-1" in html
-        assert "Provided" in html
+        assert "ICAs" in html
 
     def test_na_slot(self):
         ica = _make_ica_enumeration(slots=[_make_ica_slot("S-2", "N/A", is_na=True)])

@@ -135,9 +135,14 @@
       "text" : "the SP2 prompt templates directory"
     }, {
       "keyword" : "Then",
-      "text" : "the following template files exist:"
+      "text" : "the SP2 prompts directory contains `<template>`",
+      "parameters" : [ "template" ]
     } ],
-    "examples" : [ ]
+    "examples" : [ {
+      "template" : "stage3_system.j2"
+    }, {
+      "template" : "stage3_user.j2"
+    } ]
   }, {
     "name" : "SP2-RUN-10 module layout matches spec",
     "steps" : [ {

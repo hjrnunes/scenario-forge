@@ -11,7 +11,7 @@ Covers three feature areas:
    optional token cap to ``llm_client.complete`` only when provided;
    omits it (passes None) when not.
 
-3. **Capability profile conditional rendering** — ``stage2_call2_user.j2``
+3. **Capability profile conditional rendering** — ``stage2_call2a_user.j2``
    renders the "Capability Profile Context" section when a profile is
    provided and omits it when ``None``.
 """
@@ -466,7 +466,7 @@ class TestMaxCompletionTokensThreading:
 
 
 # ---------------------------------------------------------------------------
-# Capability profile conditional rendering in stage2_call2_user.j2
+# Capability profile conditional rendering in stage2_call2a_user.j2
 # ---------------------------------------------------------------------------
 
 
@@ -529,7 +529,7 @@ class TestCapabilityProfileRendering:
         loader = TemplateLoader(PROMPTS_DIR)
 
         rendered = loader.render_prompt(
-            "stage2_call2_user.j2",
+            "stage2_call2a_user.j2",
             use_case_text="Test use case",
             requirements=req_set.requirements,
             capability_profile=profile,
@@ -547,7 +547,7 @@ class TestCapabilityProfileRendering:
         loader = TemplateLoader(PROMPTS_DIR)
 
         rendered = loader.render_prompt(
-            "stage2_call2_user.j2",
+            "stage2_call2a_user.j2",
             use_case_text="Test use case",
             requirements=req_set.requirements,
             capability_profile=None,
@@ -573,7 +573,7 @@ class TestCapabilityProfileRendering:
         loader = TemplateLoader(PROMPTS_DIR)
 
         rendered = loader.render_prompt(
-            "stage2_call2_user.j2",
+            "stage2_call2a_user.j2",
             use_case_text="Test use case",
             requirements=req_set.requirements,
             capability_profile=profile,
@@ -601,7 +601,7 @@ class TestCapabilityProfileRendering:
         loader = TemplateLoader(PROMPTS_DIR)
 
         rendered = loader.render_prompt(
-            "stage2_call2_user.j2",
+            "stage2_call2a_user.j2",
             use_case_text="Test use case",
             requirements=req_set.requirements,
             capability_profile=profile,

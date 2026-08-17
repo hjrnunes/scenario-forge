@@ -1,3 +1,8 @@
+# mutation-stamp: sha256=25000e787e58e793e0d13b990c274f0530dd96c5593e04261b8338bd87db763f
+# acceptance-mutation-manifest-begin
+# {"version":1,"tested_at":"2026-08-11T21:22:22.206365Z","feature_name":"SP1 — Run orchestration","feature_path":"/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tests/stpa/features/sp1_run_orchestration.feature","background_hash":"93a4ff32b850b092ffae476f5b2cf2ed3be0d0926c0e21bf8b7b001706738bd9","implementation_hash":"sha256:41587085eef4c3d4b30f0520d1fae1ca4de0de3e1e2fbe563d189e929f80188f","scenarios":[{"index":8,"name":"SP1-RUN-09 prompt templates exist for all stages","scenario_hash":"f14610730a1eb7310adfa91a71a567b9be0eee3c820ee5bd5c1d6938106b5e92","mutation_count":18,"result":{"Total":18,"Killed":18,"Survived":0,"Errors":0},"tested_at":"2026-08-11T21:22:22.206365Z"},{"index":9,"name":"SP1-RUN-09b templates retired by the Stage 1 and Stage 2 restructures are absent","scenario_hash":"4874b28276a023828cfe26f57e31252a0ff94115a9d8b6757b5e7d6eb4b81631","mutation_count":4,"result":{"Total":4,"Killed":4,"Survived":0,"Errors":0},"tested_at":"2026-08-11T21:21:13.721816Z"},{"index":11,"name":"SP1-RUN-11 internal models are defined","scenario_hash":"e92a54a218f0074708a5dfb436c471b82bbe015dd6635844c5e54445e6bb4ca9","mutation_count":5,"result":{"Total":5,"Killed":5,"Survived":0,"Errors":0},"tested_at":"2026-08-11T21:21:13.721816Z"}]}
+# acceptance-mutation-manifest-end
+
 Feature: SP1 — Run orchestration
   The SP1 run orchestrates Stages 1a, 1b, and 2 in sequence. Stage 1a produces
   LossAnalysis, Stage 1b produces CapabilityProfile (or loads a pre-built one
@@ -19,11 +24,11 @@ Feature: SP1 — Run orchestration
     And a file control-structure.yaml exists in the run directory
 
   # SP1-RUN-02
-  Scenario: SP1-RUN-02 stages execute in order 1a then 1b then 2
+  Scenario: SP1-RUN-02 stages execute in order 1b then 1a then 2
     Given an LLM that returns valid responses for all stages
     When the full SP1 run is executed
-    Then Stage 1a loss analysis is produced first
-    And Stage 1b capability profile is produced second
+    Then Stage 1b capability profile is produced first
+    And Stage 1a loss analysis is produced second
     And Stage 2 control structure is produced third
 
   # SP1-RUN-03
@@ -69,23 +74,42 @@ Feature: SP1 — Run orchestration
     And Stage 2 receives the capability profile for the critic
 
   # SP1-RUN-09
-  Scenario: SP1-RUN-09 prompt templates exist for all stages
+  Scenario Outline: SP1-RUN-09 prompt templates exist for all stages
     Given the SP1 prompt templates directory
-    Then the following template files exist:
-      | stage1a_system.j2         |
-      | stage1a_user.j2           |
-      | stage1b_system.j2         |
-      | stage1b_user.j2           |
-      | stage2_call1_system.j2    |
-      | stage2_call1_user.j2      |
-      | stage2_call2_system.j2    |
-      | stage2_call2_user.j2      |
-      | stage2_call3_system.j2    |
-      | stage2_call3_user.j2      |
-      | critic_system.j2          |
-      | critic_user.j2            |
-      | revision_system.j2        |
-      | revision_user.j2          |
+    Then the prompts directory contains `<template>`
+
+    Examples:
+      | template                 |
+      | stage1a_risk_system.j2   |
+      | stage1a_risk_user.j2     |
+      | stage1a_gap_system.j2    |
+      | stage1a_gap_user.j2      |
+      | stage1b_system.j2        |
+      | stage1b_user.j2          |
+      | stage2_call1_system.j2   |
+      | stage2_call1_user.j2     |
+      | stage2_call2a_system.j2  |
+      | stage2_call2a_user.j2    |
+      | stage2_call2b_system.j2  |
+      | stage2_call2b_user.j2    |
+      | stage2_call3_system.j2   |
+      | stage2_call3_user.j2     |
+      | critic_system.j2         |
+      | critic_user.j2           |
+      | revision_system.j2       |
+      | revision_user.j2         |
+
+  # SP1-RUN-09b
+  Scenario Outline: SP1-RUN-09b templates retired by the Stage 1 and Stage 2 restructures are absent
+    Given the SP1 prompt templates directory
+    Then the prompts directory does not contain `<retired_template>`
+
+    Examples:
+      | retired_template       |
+      | stage1a_system.j2      |
+      | stage1a_user.j2        |
+      | stage2_call2_system.j2 |
+      | stage2_call2_user.j2   |
 
   # SP1-RUN-10
   Scenario: SP1-RUN-10 module layout matches spec
@@ -100,15 +124,17 @@ Feature: SP1 — Run orchestration
       | run.py              |
 
   # SP1-RUN-11
-  Scenario: SP1-RUN-11 internal models are defined
+  Scenario Outline: SP1-RUN-11 internal models are defined
     Given the STPA system model module
-    Then the following internal models are defined:
-      | model              |
-      | RequirementSet     |
-      | Requirement        |
-      | ResponsibilitySet |
-      | CriticFindings     |
-      | CriticGap          |
+    Then the control_structure module exports `<model>`
+
+    Examples:
+      | model                |
+      | Requirement          |
+      | RequirementSet       |
+      | ResponsibilitySet    |
+      | ControlElementSet    |
+      | CoordinationAnalysis |
 
   # SP1-RUN-12
   Scenario: SP1-RUN-12 run with profile flag skips Stage 1b LLM call
