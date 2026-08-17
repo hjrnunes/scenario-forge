@@ -18,6 +18,7 @@ Feature: Stage 2 Assembly and Manifest
 
   # stage2-assembly-call-log-entries
   Scenario Outline: Stage 2 call log contains all four call entries
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `calls.jsonl` contains a call entry with `stage` `stage_2` and `step` `<step>`
@@ -30,6 +31,7 @@ Feature: Stage 2 Assembly and Manifest
 
   # stage2-assembly-old-step-names-absent
   Scenario Outline: Old Stage 2 call log step names are absent
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `calls.jsonl` does not contain a call entry with `stage` `stage_2` and `step` `<step>`
@@ -40,6 +42,7 @@ Feature: Stage 2 Assembly and Manifest
 
   # stage2-assembly-call-ordering
   Scenario: Stage 2 calls appear in the correct order in the call log
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And in `calls.jsonl` the `stage_2` `call_1_requirements` call appears before the `stage_2` `call_2a_responsibilities` call
@@ -48,6 +51,7 @@ Feature: Stage 2 Assembly and Manifest
 
   # stage2-assembly-manifest-call-count
   Scenario: Run manifest records four Stage 2 calls
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `run-manifest.yaml` has `stage_summary.stage_2.call_count` equal to `4`
@@ -70,6 +74,7 @@ Feature: Stage 2 Assembly and Manifest
 
   # stage2-assembly-control-structure-valid
   Scenario: Assembled control structure has all element types
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `control-structure.yaml` contains a non-empty `responsibilities` list

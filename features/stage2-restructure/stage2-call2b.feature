@@ -26,18 +26,21 @@ Feature: Stage 2 Call 2b Control Actions Feedback and Constraints
 
   # stage2-call2b-call-log-entry
   Scenario: Call 2b produces a call-log entry with step call_2b_control_elements
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `calls.jsonl` contains a call entry with `stage` `stage_2` and `step` `call_2b_control_elements`
 
   # stage2-call2b-pm-fb-invariant
   Scenario: Every process model part has at least one feedback channel updating it
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And every `pm_id` in `control-structure.yaml` appears in at least one `updates` field of a feedback channel
 
   # stage2-call2b-fb-count-gte-pm-count
   Scenario: Each responsibility has at least as many feedback channels as process model parts
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And for every responsibility in `control-structure.yaml` the feedback channel count is greater than or equal to the process model part count

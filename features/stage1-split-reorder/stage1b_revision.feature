@@ -21,6 +21,7 @@ Feature: Stage 1b Capability Profile Revision
 
   # stage1b-revision-no-loss-context
   Scenario: Capability profile is produced without loss-analysis dependency
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And the output directory contains `capability-profile.yaml`
@@ -28,6 +29,7 @@ Feature: Stage 1b Capability Profile Revision
 
   # stage1b-revision-kc-subcodes-present
   Scenario: Capability profile contains KC sub-codes
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `capability-profile.yaml` has a non-empty `kc_subcodes` list
@@ -35,12 +37,14 @@ Feature: Stage 1b Capability Profile Revision
 
   # stage1b-revision-zones-computed
   Scenario: Zones are computed from KC sub-codes, not LLM-inferred
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `capability-profile.yaml` has a `zones_active` list containing `input` and `reasoning`
 
   # stage1b-revision-computed-bool-flags
   Scenario: Boolean flags are computed from KC sub-codes, not LLM fields
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `capability-profile.yaml` has `has_persistent_memory` consistent with `kc_subcodes`
@@ -55,6 +59,7 @@ Feature: Stage 1b Capability Profile Revision
 
   # stage1b-revision-entry-points-present
   Scenario: Capability profile contains entry points
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `capability-profile.yaml` has a non-empty `entry_points` list
@@ -62,6 +67,7 @@ Feature: Stage 1b Capability Profile Revision
 
   # stage1b-revision-tool-inventory
   Scenario: Capability profile contains tool inventory when tool_execution zone is active
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And if `capability-profile.yaml` has `tool_execution` in `zones_active` then `tool_inventory` is non-empty

@@ -20,12 +20,14 @@ Feature: Stage 2 Call 3 Coordination and Integrity
 
   # stage2-call3-call-log-entry
   Scenario: Call 3 produces a call-log entry with step call_3_coordination
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `calls.jsonl` contains a call entry with `stage` `stage_2` and `step` `call_3_coordination`
 
   # stage2-call3-old-step-name-absent
   Scenario: Old call_3_connections step name is absent from the call log
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `calls.jsonl` does not contain a call entry with `stage` `stage_2` and `step` `call_3_connections`
@@ -51,6 +53,7 @@ Feature: Stage 2 Call 3 Coordination and Integrity
 
   # stage2-call3-coordination-links-present
   Scenario: Control structure contains a coordination links list
+    Given live LLM acceptance is enabled with SCENARIO_FORGE_QA_PIPELINE "1"
     When I run `scenario-forge stpa-run --use-case <use_case> --risk-extraction <risk_file> --output-dir <dir>`
     Then the command exits with code 0
     And `control-structure.yaml` contains a `coordination_links` list
