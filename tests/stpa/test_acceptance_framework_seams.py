@@ -269,6 +269,22 @@ def test_runtime_world_stays_independent_of_production_models() -> None:
     assert world.control_structure is None
 
 
+def test_shadow_cleanup_reuses_revision_no_crash_handler() -> None:
+    from runtime_features.shadow_cleanup import _h_sc_returns_true_unconditional
+    from runtime_features.sp1_revision import _h_gd_pipeline_no_crash
+
+    world = World()
+    passed, error = _h_sc_returns_true_unconditional(
+        world, "the handler returns true unconditionally", {}
+    )
+    assert passed
+    assert error == ""
+    assert _h_gd_pipeline_no_crash(world, "the pipeline does not crash", {}) == (
+        True,
+        "",
+    )
+
+
 @given(
     first_tag=st.sampled_from(("alpha", "beta")),
     other_tag=st.sampled_from(("alpha", "beta", None)),

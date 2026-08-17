@@ -534,7 +534,7 @@ def _h_sc_returns_true_unconditional(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     """Handle: the handler returns true unconditionally."""
-    from runtime_features.sp1 import _h_gd_pipeline_no_crash
+    from runtime_features.sp1_revision import _h_gd_pipeline_no_crash
 
     result = _h_gd_pipeline_no_crash(world, "the pipeline does not crash", {})
     if not result[0]:
