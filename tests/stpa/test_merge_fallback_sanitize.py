@@ -191,6 +191,26 @@ class TestSanitize01NullifyUnresolvable:
             assert resp_out.feedback_channels[0].source is None
 
 
+class TestSanitize02DropUnresolvableFeedbackUpdates:
+    """The fallback drops a feedback channel with an unresolved local PM."""
+
+    def test_fallback_drops_invalid_updates_and_reports_missing_id(self, tmp_path):
+        resp = _make_resp()
+        resp.feedback_channels[0].updates = "absent-feedback-updates"
+
+        cs, warnings = _assemble_with_fallback(
+            _make_resp_set([resp]),
+            _empty_control_element_set(),
+            tmp_path,
+            "test-model",
+        )
+
+        assert cs.responsibilities[0].feedback_channels == []
+        warning_text = " ".join(warnings)
+        assert "updates" in warning_text
+        assert "absent-feedback-updates" in warning_text
+
+
 # ---------------------------------------------------------------------------
 # Sanitize-04: valid ElementRefs are preserved during sanitization
 # ---------------------------------------------------------------------------

@@ -514,7 +514,7 @@ print('All SP3 input fixtures validated')
 
 **Command:**
 ```bash
-uv run pytest tmp/acceptance/generated/sp3_*_acceptance_test.py -v
+uv run pytest build/acceptance/generated/sp3_*_acceptance_test.py -v
 ```
 
 ## 12. Full Test Suite Execution

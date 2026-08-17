@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.11"
 
 [options]
-exclude-newer = "2026-08-01T11:46:03.775417Z"
+exclude-newer = "2026-08-06T09:40:16.134806Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -952,6 +952,7 @@ dev = [
 dev = [
     { name = "hypothesis" },
     { name = "pytest-cov" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -971,6 +972,7 @@ provides-extras = ["dev"]
 dev = [
     { name = "hypothesis", specifier = ">=6.164.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "ruff" },
 ]
 
 [[package]]

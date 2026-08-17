@@ -36,10 +36,33 @@ from scenario_forge.stpa.models.control_structure import (
 )
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model._constants import PROMPTS_DIR
+from scenario_forge.stpa.system_model.id_normalization import (
+    normalize_control_structure_payload,
+    validate_normalized_control_structure,
+)
 
 STAGE = "stage_2"
 STAGE_2_CALL_COUNT = 4
 DEFAULT_TEMPERATURE = 0.4
+
+
+def _assembly_source_id_maps(
+    responsibility_set: ResponsibilitySet,
+    control_element_set: ControlElementSet,
+) -> dict[str, dict[str, str]]:
+    """Capture source-ID maps before the assembled structure is canonicalized."""
+    raw_payload = {
+        "responsibilities": [
+            resp.model_dump(mode="python", exclude_none=False)
+            for resp in responsibility_set.responsibilities
+        ],
+        "controlled_processes": [
+            process.model_dump(mode="python", exclude_none=False)
+            for process in control_element_set.controlled_processes
+        ],
+        "coordination_links": [],
+    }
+    return normalize_control_structure_payload(raw_payload).mappings
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +126,9 @@ def _assign_elements_to_responsibilities(
     id_attr: str,
     resp_by_num: dict[int, Responsibility],
     target_attr: str,
-) -> None:
+    *,
+    return_unmatched: bool = False,
+) -> list | None:
     """Assign elements (CAs or FBs) to their parent responsibility by ID prefix.
 
     For each element, extracts the numeric prefix from its ``id_attr``
@@ -111,41 +136,133 @@ def _assign_elements_to_responsibilities(
     ``target_attr`` list. Elements with no matching responsibility are
     silently dropped, matching the original assembly behavior.
     """
+    unmatched = []
     for element in elements:
         resp = resp_by_num.get(_extract_resp_num(getattr(element, id_attr)))
         if resp is not None:
             getattr(resp, target_attr).append(element)
+        else:
+            unmatched.append(element)
+    return unmatched if return_unmatched else None
+
+
+def _assign_unmatched_elements_by_order(
+    elements: list,
+    responsibilities: list[Responsibility],
+    target_attr: str,
+) -> None:
+    """Preserve elements with non-addressable source IDs by ordered partition."""
+    if not elements or not responsibilities:
+        return
+    base_count, extra = divmod(len(elements), len(responsibilities))
+    offset = 0
+    for resp_index, responsibility in enumerate(responsibilities):
+        count = base_count + (1 if resp_index < extra else 0)
+        assigned = elements[offset : offset + count]
+        getattr(responsibility, target_attr).extend(assigned)
+        offset += count
+
+
+def _enrich_responsibilities(
+    responsibility_set: ResponsibilitySet,
+    control_element_set: ControlElementSet,
+    *,
+    normalize_ids: bool = False,
+) -> list[Responsibility]:
+    """Deep-copy responsibilities and assign Call 2b CAs/FBs onto them by ID prefix.
+
+    Returns a deep-copied list of the Call 2a responsibilities with the
+    Call 2b ``control_actions`` and ``feedback_channels`` appended to the
+    matching responsibility by ID prefix (CA-X-Y → RESP-X, FB-X-Y → RESP-X).
+
+    ``resp_by_num`` keeps the FIRST occurrence of each responsibility number.
+    This is only observable on the fallback strip tier (which deduplicates
+    by resp_id keeping the first occurrence); the normal assembly path
+    rejects duplicate resp_ids during ControlStructure validation, so the
+    assignment destination is discarded before any result is returned.
+    """
+    enriched = copy.deepcopy(responsibility_set.responsibilities)
+    resp_by_num: dict[int, Responsibility] = {}
+    for resp in enriched:
+        resp_by_num.setdefault(_extract_resp_num(resp.resp_id), resp)
+    unmatched_cas = _assign_elements_to_responsibilities(
+        control_element_set.control_actions,
+        "ca_id",
+        resp_by_num,
+        "control_actions",
+        return_unmatched=normalize_ids,
+    )
+    unmatched_fbs = _assign_elements_to_responsibilities(
+        control_element_set.feedback_channels,
+        "fb_id",
+        resp_by_num,
+        "feedback_channels",
+        return_unmatched=normalize_ids,
+    )
+    if normalize_ids:
+        _assign_unmatched_elements_by_order(
+            unmatched_cas or [], enriched, "control_actions"
+        )
+        _assign_unmatched_elements_by_order(
+            unmatched_fbs or [], enriched, "feedback_channels"
+        )
+    return enriched
 
 
 def _assemble_control_structure(
     responsibility_set: ResponsibilitySet,
     control_element_set: ControlElementSet,
+    *,
+    normalize_ids: bool = False,
 ) -> ControlStructure:
     """Merge Call 2a (responsibilities + RCs + PMs) and Call 2b (CAs + FBs + CPs).
 
     Matches CAs and FBs to responsibilities by ID prefix (CA-X-Y → RESP-X,
     FB-X-Y → RESP-X). Produces and validates the final ControlStructure.
     """
-    responsibilities = copy.deepcopy(responsibility_set.responsibilities)
-    resp_by_num = {
-        _extract_resp_num(resp.resp_id): resp for resp in responsibilities
-    }
-
-    _assign_elements_to_responsibilities(
-        control_element_set.control_actions,
-        "ca_id",
-        resp_by_num,
-        "control_actions",
+    responsibilities = _enrich_responsibilities(
+        responsibility_set,
+        control_element_set,
+        normalize_ids=normalize_ids,
     )
-    _assign_elements_to_responsibilities(
-        control_element_set.feedback_channels,
-        "fb_id",
-        resp_by_num,
-        "feedback_channels",
-    )
-
     controlled_processes = copy.deepcopy(control_element_set.controlled_processes)
 
+    return _build_control_structure(
+        responsibilities,
+        controlled_processes,
+        normalize_ids=normalize_ids,
+    )
+
+
+def _control_structure_payload(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+) -> dict[str, Any]:
+    """Build a dictionary payload from assembled control-structure elements."""
+    return {
+        "responsibilities": [
+            resp.model_dump(mode="python", exclude_none=False)
+            for resp in responsibilities
+        ],
+        "controlled_processes": [
+            process.model_dump(mode="python", exclude_none=False)
+            for process in controlled_processes
+        ],
+        "coordination_links": [],
+    }
+
+
+def _build_control_structure(
+    responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+    *,
+    normalize_ids: bool,
+) -> ControlStructure:
+    """Construct a control structure, optionally normalizing its IDs."""
+    if normalize_ids:
+        return validate_normalized_control_structure(
+            _control_structure_payload(responsibilities, controlled_processes)
+        )
     return ControlStructure(
         responsibilities=responsibilities,
         controlled_processes=controlled_processes,
@@ -201,6 +318,24 @@ def _nullify_invalid_refs_in_resp(
     return warnings
 
 
+def _drop_invalid_feedback_updates(resp: Responsibility) -> list[str]:
+    """Drop feedback channels whose required local PM reference is unresolved."""
+    pm_ids = {pm.pm_id for pm in resp.process_model_parts}
+    valid_channels: list[FeedbackChannel] = []
+    warnings: list[str] = []
+    for channel in resp.feedback_channels:
+        if channel.updates in pm_ids:
+            valid_channels.append(channel)
+            continue
+        warnings.append(
+            f"Stripped invalid feedback channel {channel.fb_id}: updates "
+            f"'{channel.updates}' does not reference a process model part "
+            f"in responsibility {resp.resp_id}."
+        )
+    resp.feedback_channels = valid_channels
+    return warnings
+
+
 def _sanitize_for_fallback(
     responsibilities: list[Responsibility],
     controlled_processes: list[ControlledProcess],
@@ -229,6 +364,7 @@ def _sanitize_for_fallback(
 
     for resp in sanitized_resps:
         warnings.extend(_nullify_invalid_refs_in_resp(resp, resp_ids, cp_ids))
+        warnings.extend(_drop_invalid_feedback_updates(resp))
 
     return sanitized_resps, sanitized_cps, warnings
 
@@ -243,6 +379,7 @@ def _strip_all_refs_in_resp(resp: Responsibility) -> list[str]:
                 f"Further-degraded: stripped {field_name} from {element_label}."
             )
             setattr(item, field_name, None)
+    warnings.extend(_drop_invalid_feedback_updates(resp))
     return warnings
 
 
@@ -293,11 +430,53 @@ def _strip_all_element_refs(
     return stripped_resps, stripped_cps, warnings
 
 
+def _fallback_control_structure(
+    enriched_responsibilities: list[Responsibility],
+    controlled_processes: list[ControlledProcess],
+    *,
+    normalize_ids: bool,
+) -> tuple[ControlStructure, list[str]]:
+    """Build the sanitized fallback, degrading to stripped refs if needed."""
+    warnings: list[str] = []
+    try:
+        sanitized_resps, sanitized_cps, sanitize_warnings = (
+            _sanitize_for_fallback(
+                enriched_responsibilities,
+                controlled_processes,
+            )
+        )
+        warnings.extend(sanitize_warnings)
+        return (
+            _build_control_structure(
+                sanitized_resps,
+                sanitized_cps,
+                normalize_ids=normalize_ids,
+            ),
+            warnings,
+        )
+    except Exception:
+        stripped_resps, stripped_cps, strip_warnings = _strip_all_element_refs(
+            enriched_responsibilities,
+            controlled_processes,
+        )
+        warnings.extend(strip_warnings)
+        return (
+            _build_control_structure(
+                stripped_resps,
+                stripped_cps,
+                normalize_ids=normalize_ids,
+            ),
+            warnings,
+        )
+
+
 def _assemble_with_fallback(
     responsibility_set: ResponsibilitySet,
     control_element_set: ControlElementSet,
     run_dir: Path,
     model: str,
+    *,
+    normalize_ids: bool = False,
 ) -> tuple[ControlStructure, list[str]]:
     """Assemble ControlStructure from Call 2a + Call 2b, falling back on failure.
 
@@ -305,7 +484,10 @@ def _assemble_with_fallback(
     the failure is logged to ``calls.jsonl`` and a fallback ControlStructure
     is built from the ResponsibilitySet alone (without coordination links).
 
-    The fallback path first sanitizes invalid ElementRefs via
+    Before falling back, the Call 2b control actions and feedback channels
+    are assigned onto the Call 2a responsibilities via
+    ``_enrich_responsibilities`` so they are preserved on the degraded
+    path. The fallback path then sanitizes invalid ElementRefs via
     ``_sanitize_for_fallback``. If sanitization still fails (e.g. duplicate
     IDs), a further-degraded path strips ALL ElementRefs.
 
@@ -317,13 +499,22 @@ def _assemble_with_fallback(
         control_element_set: CAs, FBs, and CPs from Call 2b.
         run_dir: Directory for failure logging.
         model: LLM model name (used in the call-log entry).
+        normalize_ids: If true, assign canonical IDs and retain otherwise
+            unaddressable Call 2b elements by ordered partition.
 
     Returns:
         A tuple of (ControlStructure, assembly_warnings). The warning list
         is empty when the assembly succeeds.
     """
     try:
-        return _assemble_control_structure(responsibility_set, control_element_set), []
+        return (
+            _assemble_control_structure(
+                responsibility_set,
+                control_element_set,
+                normalize_ids=normalize_ids,
+            ),
+            [],
+        )
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
         log_llm_call_failure(
@@ -335,34 +526,25 @@ def _assemble_with_fallback(
         )
         warnings = [f"{STAGE}/assemble_control_structure: {error_msg}"]
 
-        # First fallback: sanitize invalid ElementRefs
-        try:
-            sanitized_resps, sanitized_cps, sanitize_warnings = (
-                _sanitize_for_fallback(
-                    responsibility_set.responsibilities,
-                    control_element_set.controlled_processes,
-                )
-            )
-            warnings.extend(sanitize_warnings)
-            fallback = ControlStructure(
-                responsibilities=sanitized_resps,
-                controlled_processes=sanitized_cps,
-            )
-            return fallback, warnings
-        except Exception:
-            # Further-degraded fallback: strip ALL ElementRefs
-            stripped_resps, stripped_cps, strip_warnings = (
-                _strip_all_element_refs(
-                    responsibility_set.responsibilities,
-                    control_element_set.controlled_processes,
-                )
-            )
-            warnings.extend(strip_warnings)
-            fallback = ControlStructure(
-                responsibilities=stripped_resps,
-                controlled_processes=stripped_cps,
-            )
-            return fallback, warnings
+        # Enrich Call 2a responsibilities with Call 2b control actions and
+        # feedback channels before sanitization/stripping. Without this, the
+        # fallback tiers silently discard all CAs and FBs (the
+        # ``responsibility_set.responsibilities`` passed in only carry RCs
+        # and PM parts). The enriched list is built once and reused for both
+        # tiers; each tier deep-copies it internally, so there is no risk of
+        # cross-tier mutation.
+        enriched_resps = _enrich_responsibilities(
+            responsibility_set,
+            control_element_set,
+            normalize_ids=normalize_ids,
+        )
+        fallback, fallback_warnings = _fallback_control_structure(
+            enriched_resps,
+            control_element_set.controlled_processes,
+            normalize_ids=normalize_ids,
+        )
+        warnings.extend(fallback_warnings)
+        return fallback, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +557,7 @@ def _add_coordination_links_with_fallback(
     coordination_analysis: CoordinationAnalysis,
     run_dir: Path,
     model: str,
+    source_id_mappings: dict[str, dict[str, str]] | None = None,
 ) -> tuple[ControlStructure, list[str]]:
     """Add coordination links from Call 3 to the ControlStructure.
 
@@ -395,11 +578,15 @@ def _add_coordination_links_with_fallback(
         return control_structure, []
 
     try:
-        return ControlStructure(
-            responsibilities=control_structure.responsibilities,
-            controlled_processes=control_structure.controlled_processes,
-            coordination_links=coordination_analysis.coordination_links,
-        ), []
+        payload = control_structure.model_dump(mode="python", exclude_none=False)
+        links = [
+            link.model_dump(mode="python", exclude_none=False)
+            for link in coordination_analysis.coordination_links
+        ]
+        if source_id_mappings is not None:
+            _rewrite_coordination_link_source_ids(links, source_id_mappings)
+        payload["coordination_links"] = links
+        return validate_normalized_control_structure(payload), []
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
         log_llm_call_failure(
@@ -411,6 +598,40 @@ def _add_coordination_links_with_fallback(
         )
         warnings = [f"{STAGE}/add_coordination_links: {error_msg}"]
         return control_structure, warnings
+
+
+def _rewrite_coordination_link_source_ids(
+    links: list[dict[str, Any]],
+    source_id_mappings: dict[str, dict[str, str]],
+) -> None:
+    """Rewrite Call 3 references using the maps captured from Calls 2a/2b."""
+    resp_map = source_id_mappings.get("responsibility", {})
+    pm_map = source_id_mappings.get("process_model_part", {})
+    canonical_ids = set(resp_map.values()) | set(pm_map.values())
+    reference_maps = (
+        ("source", resp_map),
+        ("target", resp_map),
+        ("shared_pm", pm_map),
+    )
+    for link in links:
+        if isinstance(link, dict):
+            _rewrite_coordination_link(link, reference_maps, canonical_ids)
+
+
+def _rewrite_coordination_link(
+    link: dict[str, Any],
+    reference_maps: tuple[tuple[str, dict[str, str]], ...],
+    canonical_ids: set[str],
+) -> None:
+    """Rewrite source IDs in one Call 3 coordination link."""
+    for field_name, source_map in reference_maps:
+        old_id = link.get(field_name)
+        if (
+            isinstance(old_id, str)
+            and old_id not in canonical_ids
+            and old_id in source_map
+        ):
+            link[field_name] = source_map[old_id]
 
 
 # ---------------------------------------------------------------------------
@@ -600,8 +821,15 @@ def derive_control_structure(
     )
 
     # Assembly: merge Call 2a + Call 2b → ControlStructure (with fallback)
+    assembly_source_id_maps = _assembly_source_id_maps(
+        responsibility_set, control_element_set
+    )
     control_structure, assembly_warnings = _assemble_with_fallback(
-        responsibility_set, control_element_set, run_dir, llm_client.model,
+        responsibility_set,
+        control_element_set,
+        run_dir,
+        llm_client.model,
+        normalize_ids=True,
     )
 
     # Repair orphan PMs — auto-generate stub FB channels before Call 3
@@ -619,7 +847,11 @@ def derive_control_structure(
 
     # Add coordination links to the ControlStructure (with fallback)
     control_structure, coord_warnings = _add_coordination_links_with_fallback(
-        control_structure, coordination_analysis, run_dir, llm_client.model,
+        control_structure,
+        coordination_analysis,
+        run_dir,
+        llm_client.model,
+        assembly_source_id_maps,
     )
 
     write_yaml(control_structure, run_dir / "control-structure.yaml")
@@ -645,6 +877,7 @@ def _run_stage2_llm_call(
     user_prompt_kwargs: dict[str, Any],
     response_format: type[_Stage2ModelT],
     step: str,
+    allow_unvalidated: bool = False,
 ) -> _Stage2ModelT:
     """Render prompts, call the LLM, validate, and raise StageError on failure.
 
@@ -665,6 +898,7 @@ def _run_stage2_llm_call(
         stage=STAGE,
         step=step,
         temperature=temperature,
+        allow_unvalidated=allow_unvalidated,
     )
     if error_msg is not None:
         raise StageError(stage=STAGE, step=step, message=error_msg)
@@ -740,6 +974,7 @@ def _call_2a_responsibilities(
         },
         response_format=ResponsibilitySet,
         step="call_2a_responsibilities",
+        allow_unvalidated=True,
     )
 
 
@@ -775,6 +1010,7 @@ def _call_2b_control_elements(
         },
         response_format=ControlElementSet,
         step="call_2b_control_elements",
+        allow_unvalidated=True,
     )
 
 
@@ -814,9 +1050,10 @@ def _call_3_coordination(
         },
         response_format=CoordinationAnalysis,
         step="call_3_coordination",
+        allow_unvalidated=True,
     )
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-11T16:03:07Z","module_hash":"e518b5ffed843b99f5f929769de84688bb71e3daae035f9517687ce558ad3dc2","functions":[{"id":"func/_extract_resp_num","name":"_extract_resp_num","line":95,"end_line":98,"hash":"8a82453efa2fa3f0884536e7e2e61333144799a6d4c1692fb68fb11454f9d656"},{"id":"func/_assign_elements_to_responsibilities","name":"_assign_elements_to_responsibilities","line":101,"end_line":117,"hash":"d0608f13ddfd48a6b5075bc63d1727a38cd77cd0c4e1211d81120831df034e8f"},{"id":"func/_assemble_control_structure","name":"_assemble_control_structure","line":120,"end_line":152,"hash":"f2e0e94060201393f25f40a9a80900d1350e311a09f203876c6dc5103ffcd8e2"},{"id":"func/_iter_resp_ref_fields","name":"_iter_resp_ref_fields","line":160,"end_line":179,"hash":"21d182b1d761a480a796f41095d59725a6220a8e29ffecd32c99498ac49ec687"},{"id":"func/_nullify_invalid_refs_in_resp","name":"_nullify_invalid_refs_in_resp","line":182,"end_line":201,"hash":"e65b30e4d03db7268047d722a7779cb10c44e502d4751a97d71b86116fac0563"},{"id":"func/_sanitize_for_fallback","name":"_sanitize_for_fallback","line":204,"end_line":233,"hash":"ee3e40aa1934e75d876d3420f39f423a25bb8797569c1d0b30167b4f3ca9ae62"},{"id":"func/_strip_all_refs_in_resp","name":"_strip_all_refs_in_resp","line":236,"end_line":246,"hash":"14f54711c6202a0ef276c6c0c7f6b5f27a33e3f4125758cb98fa94f78ea2bccf"},{"id":"func/_strip_all_element_refs","name":"_strip_all_element_refs","line":249,"end_line":293,"hash":"14f48de3852ad03fb33765514e83f3d9e7c13e260dd799212082098fff75709f"},{"id":"func/_assemble_with_fallback","name":"_assemble_with_fallback","line":296,"end_line":365,"hash":"a81899463940d1607b39a8ce3f043ee77b836800affe4bd66b46394a9b9fd9da"},{"id":"func/_add_coordination_links_with_fallback","name":"_add_coordination_links_with_fallback","line":373,"end_line":413,"hash":"ad5e25850d4f3c8d40efaf91958590ee891b7b111b7569e62ee1af32a7a391f7"},{"id":"func/_next_fb_num","name":"_next_fb_num","line":421,"end_line":432,"hash":"9cb65fc906923ba464247da1827ef99279c6681dc8bd9a336a2a7b50817c86c8"},{"id":"func/_find_orphan_pms","name":"_find_orphan_pms","line":435,"end_line":441,"hash":"0e41d0d10fcfc7d0b5b6d7ac81657b077239b0a2a6b6b5b13924221a1f5e3b18"},{"id":"func/_create_stub_fb","name":"_create_stub_fb","line":444,"end_line":473,"hash":"78fc6869e1c08b137ede0c35ca809bae8b70ab9ef4fcca809688233f60c57d4b"},{"id":"func/repair_orphan_pms","name":"repair_orphan_pms","line":476,"end_line":526,"hash":"90812445d8e9fa58728948f8c453f8db9a05a1e6ce944b223fef1b5e096d9a1c"},{"id":"func/derive_control_structure","name":"derive_control_structure","line":534,"end_line":626,"hash":"feba85533cc201cc3defcf115ad795f755895c9481316a93feaaf04475e63b97"},{"id":"func/_run_stage2_llm_call","name":"_run_stage2_llm_call","line":637,"end_line":671,"hash":"dd937af7790507a48c4b39a9513d78c069c1994b40795cc2b29e17854c0326ed"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":679,"end_line":706,"hash":"007c8d20fe7df856c98b2a2bf227737196834122b9d747074868cb46401b083e"},{"id":"func/_call_2a_responsibilities","name":"_call_2a_responsibilities","line":714,"end_line":743,"hash":"6a319304b5e3c14f3042a1fdb6f09ef882e8a8f8c90a75bb4931acc5d4f31c33"},{"id":"func/_call_2b_control_elements","name":"_call_2b_control_elements","line":751,"end_line":778,"hash":"a2cb61eadb73753fcac4ae3f227155d88a00c112a69241c56a05bddb45cedf1e"},{"id":"func/_call_3_coordination","name":"_call_3_coordination","line":786,"end_line":817,"hash":"8dc150351cc054d6aa6383a7c3ef70e12c75ae6e1d82c97a4a4255d27dc86719"}]}
+# {"version":1,"tested_at":"2026-08-13T15:39:07Z","module_hash":"93254ad0720df3e2e586585e709b1287563ad5a197de551ba84e4b5f0a12afa4","functions":[{"id":"func/_assembly_source_id_maps","name":"_assembly_source_id_maps","line":49,"end_line":65,"hash":"1e89372225376fd85bb0a06f109bc07022d2a5e5693c140823282323d5a96000"},{"id":"func/_extract_resp_num","name":"_extract_resp_num","line":118,"end_line":121,"hash":"8a82453efa2fa3f0884536e7e2e61333144799a6d4c1692fb68fb11454f9d656"},{"id":"func/_assign_elements_to_responsibilities","name":"_assign_elements_to_responsibilities","line":124,"end_line":146,"hash":"9a62deaa1e541c09484f132d43f9292ca0c2d2e226c9fe7b6fe7fa99c2246304"},{"id":"func/_assign_unmatched_elements_by_order","name":"_assign_unmatched_elements_by_order","line":149,"end_line":163,"hash":"70af02a855330e62f85ef9c7bde16688cc1b42aece5483f74ce45ee207134ffc"},{"id":"func/_enrich_responsibilities","name":"_enrich_responsibilities","line":166,"end_line":209,"hash":"b54184ede13d7155928e5c3b952ec72a71b5aa3efc2c8ed4eefa6402b6964eb8"},{"id":"func/_assemble_control_structure","name":"_assemble_control_structure","line":212,"end_line":234,"hash":"882e269791408d7b5358737281df90088aad923b47a7e31a5020b8eb11182a5e"},{"id":"func/_control_structure_payload","name":"_control_structure_payload","line":237,"end_line":252,"hash":"3c125c3badc8f91984b8ddd8c7a89105d19b1446796834ba9d8c862700a36d2a"},{"id":"func/_build_control_structure","name":"_build_control_structure","line":255,"end_line":269,"hash":"f030091af14de3f09d33b265deb96363bd0a7eb7f01496637a4823d009c0c716"},{"id":"func/_iter_resp_ref_fields","name":"_iter_resp_ref_fields","line":277,"end_line":296,"hash":"21d182b1d761a480a796f41095d59725a6220a8e29ffecd32c99498ac49ec687"},{"id":"func/_nullify_invalid_refs_in_resp","name":"_nullify_invalid_refs_in_resp","line":299,"end_line":318,"hash":"e65b30e4d03db7268047d722a7779cb10c44e502d4751a97d71b86116fac0563"},{"id":"func/_drop_invalid_feedback_updates","name":"_drop_invalid_feedback_updates","line":321,"end_line":336,"hash":"97cd679cad84a6d66dfac30831ab573e53311db378bd99b68072a0bdab163c15"},{"id":"func/_sanitize_for_fallback","name":"_sanitize_for_fallback","line":339,"end_line":369,"hash":"f2465f8273ef49afb880eeb7a0a3b63c8b347310200a52b5383d93ae77a2a368"},{"id":"func/_strip_all_refs_in_resp","name":"_strip_all_refs_in_resp","line":372,"end_line":383,"hash":"4852e64735266b9dd9cbbfebe669028283f850158de69a0a72bebcd541251a56"},{"id":"func/_strip_all_element_refs","name":"_strip_all_element_refs","line":386,"end_line":430,"hash":"14f48de3852ad03fb33765514e83f3d9e7c13e260dd799212082098fff75709f"},{"id":"func/_fallback_control_structure","name":"_fallback_control_structure","line":433,"end_line":470,"hash":"77bd63cc6eb47a0b9a663797b3372947817a22d76b325cdfffca44d87a659a8b"},{"id":"func/_assemble_with_fallback","name":"_assemble_with_fallback","line":473,"end_line":547,"hash":"5139b84c2cb7fbe365510fcc280af28004093c0d93cf7b996e835a10fd9ecfc9"},{"id":"func/_add_coordination_links_with_fallback","name":"_add_coordination_links_with_fallback","line":555,"end_line":600,"hash":"dbfa818d9c21e629f6334eb6b9ee2acf9be7d6f0c01b0d01133ef2ca5dd4872c"},{"id":"func/_rewrite_coordination_link_source_ids","name":"_rewrite_coordination_link_source_ids","line":603,"end_line":618,"hash":"7164a5e015b13e9d86713abff1758e26386e4fd5c122d72dee14fc101692552b"},{"id":"func/_rewrite_coordination_link","name":"_rewrite_coordination_link","line":621,"end_line":634,"hash":"7f169c76971dd8bd109bf86a901a2f62b1c0b570439a95f7438df5eb5c22215d"},{"id":"func/_next_fb_num","name":"_next_fb_num","line":642,"end_line":653,"hash":"9cb65fc906923ba464247da1827ef99279c6681dc8bd9a336a2a7b50817c86c8"},{"id":"func/_find_orphan_pms","name":"_find_orphan_pms","line":656,"end_line":662,"hash":"0e41d0d10fcfc7d0b5b6d7ac81657b077239b0a2a6b6b5b13924221a1f5e3b18"},{"id":"func/_create_stub_fb","name":"_create_stub_fb","line":665,"end_line":694,"hash":"78fc6869e1c08b137ede0c35ca809bae8b70ab9ef4fcca809688233f60c57d4b"},{"id":"func/repair_orphan_pms","name":"repair_orphan_pms","line":697,"end_line":747,"hash":"90812445d8e9fa58728948f8c453f8db9a05a1e6ce944b223fef1b5e096d9a1c"},{"id":"func/derive_control_structure","name":"derive_control_structure","line":755,"end_line":858,"hash":"9736d8b86852c397033e51cb90d105d9de96ae6017ce847f92456e545a1d75e9"},{"id":"func/_run_stage2_llm_call","name":"_run_stage2_llm_call","line":869,"end_line":905,"hash":"8efebfb25328879a099e7e1a6bff6988f35712e31697da4a0b4fbd6bd3edb443"},{"id":"func/_call_1_requirements","name":"_call_1_requirements","line":913,"end_line":940,"hash":"007c8d20fe7df856c98b2a2bf227737196834122b9d747074868cb46401b083e"},{"id":"func/_call_2a_responsibilities","name":"_call_2a_responsibilities","line":948,"end_line":978,"hash":"69c3304a6d62541d310d9c5ba272b1a342a23155d8b20f95c6a0b79ff798b493"},{"id":"func/_call_2b_control_elements","name":"_call_2b_control_elements","line":986,"end_line":1014,"hash":"6fb646c9239426d3e01a2a0354c12878b77c07e8ce2e9e1ed923a5e91762c311"},{"id":"func/_call_3_coordination","name":"_call_3_coordination","line":1022,"end_line":1054,"hash":"82bd9ba523d59b666fb2d5882f85951c5608aeeab034f03f1ab5d23de074cf53"}]}
 # mutate4py-manifest-end

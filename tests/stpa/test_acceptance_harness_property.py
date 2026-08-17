@@ -5,9 +5,9 @@ infrastructure itself — the registration system, IR coverage, and
 handler resolution.  They catch the bug classes that produced the
 original acceptance staleness failures:
 
-1. **No pattern shadowing**: No two registered patterns in the same
-   feature scope match the same step text from any IR file.  If they
-   do, the first match wins and the second handler is dead code — a
+1. **No pattern shadowing**: No two registrations in the same feature
+   scope use the same raw pattern string with different handlers.  If
+   they do, the first match wins and the second handler is dead code — a
    silent shadowing bug.
 
 2. **IR-entry-point coverage**: Every IR file has exactly one generated
@@ -34,10 +34,8 @@ import pytest
 # Paths
 # ---------------------------------------------------------------------------
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_ACCEPTANCE_DIR = _PROJECT_ROOT / "tmp" / "acceptance"
-_IR_DIR = _ACCEPTANCE_DIR / "ir"
-_GENERATED_DIR = _ACCEPTANCE_DIR / "generated"
+_PROJECT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+_ACCEPTANCE_DIR = _PROJECT_ROOT / "acceptance"
 
 # Ensure the acceptance runtime is importable.
 sys.path.insert(0, str(_ACCEPTANCE_DIR))
@@ -47,6 +45,11 @@ from acceptance_runtime import (  # noqa: E402
     _derive_feature_tag,
     find_pattern_conflicts,
 )
+from snapshot import snapshot_layout  # noqa: E402
+
+_LAYOUT = snapshot_layout()
+_IR_DIR = _PROJECT_ROOT / _LAYOUT.ir_dir
+_GENERATED_DIR = _PROJECT_ROOT / _LAYOUT.generated_dir
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +74,9 @@ def _entry_point_ir_refs(entry_point: Path) -> list[str]:
     import re
 
     body = entry_point.read_text(encoding="utf-8")
+    relative = re.findall(r'_PROJECT_ROOT / "([^"]+\.json)"', body)
+    if relative:
+        return [str(_PROJECT_ROOT / rel) for rel in relative]
     return re.findall(r'Path\(r"([^"]+\.json)"\)', body)
 
 
@@ -135,13 +141,12 @@ def _resolve_step(text: str, feature_tag: str | None) -> bool:
 
 
 class TestNoPatternShadowing:
-    """No two same-scope patterns match the same step text from any IR.
+    """No same-scope raw pattern has conflicting handlers.
 
-    This is the invariant that prevents the shadowing bug class: a broad
-    pattern registered globally silently shadows a more specific pattern
-    registered later.  The feature-tag scoping mechanism prevents
-    cross-feature shadowing, but within-scope shadowing is still possible
-    if two patterns in the same scope match the same text.
+    This is the invariant that prevents duplicate-registration shadowing:
+    a raw pattern registered with a different handler would make the later
+    handler dead. The feature-tag scoping mechanism prevents cross-feature
+    conflicts.
 
     These tests use the actual step texts from the IR corpus as witnesses.
 
@@ -160,14 +165,9 @@ class TestNoPatternShadowing:
     _LLM_BLOCKED = frozenset({
         "stage1_ordering", "stage1a_split", "stage1b_revision",
         "stage2_assembly", "stage2_call2a", "stage2_call2b", "stage2_call3",
+        "stage2-assembly", "stage2-call2a", "stage2-call2b", "stage2-call3",
     })
 
-    @pytest.mark.xfail(
-        reason="30 pre-existing same-scope shadowing duplicates in "
-               "acceptance_runtime.py; follow-up bead needed to clean up "
-               "dead second registrations",
-        strict=False,
-    )
     def test_no_global_pattern_conflicts_on_ir_steps(self):
         """No two global (untagged) patterns match the same IR step text."""
         step_texts = _all_ir_step_texts()
@@ -184,17 +184,11 @@ class TestNoPatternShadowing:
                 f"First {min(10, len(conflicts))}:\n{detail}"
             )
 
-    @pytest.mark.xfail(
-        reason="Pre-existing same-scope shadowing duplicates; "
-               "follow-up bead needed",
-        strict=False,
-    )
     def test_no_global_pattern_conflicts_on_synthetic_steps(self):
-        """No two global patterns match a set of synthetic step texts.
+        """No duplicate raw global patterns conflict on synthetic witnesses.
 
-        Uses common step prefixes to check for broad-pattern conflicts
-        that might not appear in the current IR corpus but could trigger
-        on future features.
+        Uses common step prefixes as witnesses for duplicate registrations
+        that might not appear in the current IR corpus.
         """
         synthetic_texts = [
             "the control structure has responsibilities",
@@ -258,11 +252,11 @@ class TestIREntryPointCoverage:
         )
 
     def test_every_entry_point_references_canonical_ir_location(self):
-        """Every entry point references IR in tmp/acceptance/ir/.
+        """Every entry point references IR in the configured snapshot IR dir.
 
-        Non-canonical IR locations (tmp/, tmp/acceptance/) are how IR drift
-        stayed hidden in the original staleness incident.  This test ensures
-        all IR is consolidated under the canonical directory.
+        Non-canonical IR locations (tmp/, leftover acceptance/ir/) are how
+        IR drift stayed hidden in the original staleness incident.  This
+        test ensures all IR is consolidated under the generated output dir.
         """
         non_canonical = []
         for ep in _entry_points():
@@ -291,6 +285,7 @@ class TestHandlerResolution:
     _LLM_BLOCKED = frozenset({
         "stage1_ordering", "stage1a_split", "stage1b_revision",
         "stage2_assembly", "stage2_call2a", "stage2_call2b", "stage2_call3",
+        "stage2-assembly", "stage2-call2a", "stage2-call2b", "stage2-call3",
     })
 
     def test_every_ir_step_resolves(self):

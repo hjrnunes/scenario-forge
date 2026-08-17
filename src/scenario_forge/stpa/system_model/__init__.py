@@ -13,6 +13,10 @@ from scenario_forge.stpa.system_model.control_structure import (  # noqa: E402
     ResponsibilitySet,
     derive_control_structure,
 )
+from scenario_forge.stpa.system_model.id_normalization import (  # noqa: E402
+    ControlStructureNormalization,
+    normalize_control_structure_payload,
+)
 from scenario_forge.stpa.system_model.critic import (  # noqa: E402
     CriticFindings,
     CriticGap,
@@ -39,6 +43,7 @@ __all__ = [
     "ResponsibilitySet",
     "ControlElementSet",
     "CoordinationAnalysis",
+    "ControlStructureNormalization",
     "CriticFindings",
     "CriticGap",
     "RevisionDelta",
@@ -48,6 +53,7 @@ __all__ = [
     "derive_loss_analysis",
     "derive_capability_profile",
     "derive_control_structure",
+    "normalize_control_structure_payload",
     "run_completeness_critic",
     "run_revision",
     "run_heuristics",

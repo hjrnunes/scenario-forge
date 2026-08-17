@@ -6,18 +6,154 @@ These improve coverage of the infra helpers extracted during cleanup.
 from __future__ import annotations
 
 import json
+from enum import Enum
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError, field_validator
 
 from scenario_forge.stpa.infra.llm import LLMResult
-from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
+from scenario_forge.stpa.infra.llm_helpers import (
+    log_llm_call,
+    parse_llm_result,
+    parse_llm_result_unvalidated,
+    safe_llm_call,
+    safe_llm_call_raw,
+)
 
 
 class _SampleModel(BaseModel):
     name: str
     value: int = 0
+
+
+class _NestedModel(BaseModel):
+    """Nested model with a validator that rejects one source ID."""
+
+    item_id: str
+
+    @field_validator("item_id")
+    @classmethod
+    def reject_malformed(cls, value: str) -> str:
+        if value == "malformed":
+            raise ValueError("malformed source ID")
+        return value
+
+
+class _ContainerModel(BaseModel):
+    """Container used to verify tolerant nested construction."""
+
+    items: list[_NestedModel]
+
+
+class _Mode(str, Enum):
+    READY = "ready"
+
+
+class _CollectionModel(BaseModel):
+    """Model covering collection, enum, and union tolerant decoding."""
+
+    labels: set[str]
+    checkpoints: tuple[str, ...]
+    mode: _Mode
+    note: str | None = None
+
+
+class _MissingRequiredFieldsModel(BaseModel):
+    """Model covering every scalar and collection missing-field sentinel."""
+
+    text: str
+    count: int
+    ratio: float
+    enabled: bool
+    labels: list[str]
+    checkpoints: tuple[str, ...]
+    tags: set[str]
+    metadata: dict[str, int]
+
+
+class _RequiredNestedContainer(BaseModel):
+    """Container whose omitted nested model must not be fabricated."""
+
+    nested: _NestedModel
+
+
+class _RequiredUnionFieldsModel(BaseModel):
+    """Model covering Optional and non-optional Union sentinels."""
+
+    optional_text: str | None
+    text_or_count: str | int
+
+
+class _TolerantClient:
+    """Minimal client exposing the raw structured-response escape hatch."""
+
+    model = "test-model"
+
+    def __init__(self) -> None:
+        self.allow_unvalidated = False
+
+    def complete(
+        self,
+        *,
+        system_prompt,
+        user_prompt,
+        response_format,
+        temperature,
+        max_completion_tokens=None,
+        allow_unvalidated=False,
+    ):
+        self.allow_unvalidated = allow_unvalidated
+        return LLMResult(
+            content={"items": [{"item_id": "malformed"}]},
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+
+class _LegacyClient:
+    """Minimal client without the optional compatibility argument."""
+
+    model = "legacy-model"
+
+    def complete(
+        self,
+        *,
+        system_prompt,
+        user_prompt,
+        response_format,
+        temperature,
+        max_completion_tokens=None,
+    ):
+        return LLMResult(
+            content={"name": "legacy"},
+            prompt_tokens=1,
+            completion_tokens=2,
+            duration_ms=3,
+        )
+
+
+class _RawClient:
+    """Minimal client returning configurable raw-call content."""
+
+    model = "raw-model"
+
+    def __init__(self, content=None, error=None) -> None:
+        self.content = content
+        self.error = error
+        self.kwargs = None
+
+    def complete(self, **kwargs):
+        self.kwargs = kwargs
+        if self.error is not None:
+            raise self.error
+        return LLMResult(
+            content=self.content,
+            prompt_tokens=1,
+            completion_tokens=2,
+            duration_ms=3,
+        )
 
 
 class TestParseLlmResult:
@@ -58,6 +194,223 @@ class TestParseLlmResult:
         )
         with pytest.raises(TypeError, match="Unexpected LLM result content type"):
             parse_llm_result(result, _SampleModel)
+
+    def test_unvalidated_parser_preserves_nested_invalid_source_id(self):
+        """Tolerant decoding defers nested validation to post-processing."""
+        result = LLMResult(
+            content={"items": [{"item_id": "malformed"}]},
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+        parsed = parse_llm_result_unvalidated(result, _ContainerModel)
+
+        assert parsed.items[0].item_id == "malformed"
+
+    def test_unvalidated_parser_fills_nested_missing_required_fields(self):
+        """Nested model construction also supplies required-field sentinels."""
+        result = LLMResult(
+            content={"items": [{}]},
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+        parsed = parse_llm_result_unvalidated(result, _ContainerModel)
+
+        assert parsed.items[0].item_id == ""
+
+    def test_unvalidated_parser_constructs_collections_and_enums(self):
+        """Tolerant decoding preserves supported nested annotation shapes."""
+        result = LLMResult(
+            content={
+                "labels": ["one", "two"],
+                "checkpoints": ["first", "second"],
+                "mode": "ready",
+                "note": "optional",
+            },
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+        parsed = parse_llm_result_unvalidated(result, _CollectionModel)
+
+        assert parsed.labels == {"one", "two"}
+        assert parsed.checkpoints == ("first", "second")
+        assert parsed.mode is _Mode.READY
+        assert parsed.note == "optional"
+
+    def test_unvalidated_parser_fills_missing_required_fields_with_sentinels(self):
+        """Missing required fields remain attribute-safe with typed sentinels."""
+        parsed = parse_llm_result_unvalidated(
+            LLMResult(
+                content={},
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0,
+            ),
+            _MissingRequiredFieldsModel,
+        )
+
+        assert parsed.text == ""
+        assert parsed.count == 0
+        assert parsed.ratio == 0.0
+        assert parsed.enabled is False
+        assert parsed.labels == []
+        assert parsed.checkpoints == ()
+        assert parsed.tags == set()
+        assert parsed.metadata == {}
+
+    def test_unvalidated_parser_does_not_fabricate_missing_nested_models(self):
+        """Missing required nested models become None for later validation."""
+        parsed = parse_llm_result_unvalidated(
+            LLMResult(
+                content={},
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0,
+            ),
+            _RequiredNestedContainer,
+        )
+
+        assert parsed.nested is None
+        with pytest.raises(ValidationError, match="nested"):
+            _RequiredNestedContainer.model_validate(parsed.model_dump())
+
+    def test_unvalidated_parser_uses_union_sentinels(self):
+        """Optional unions use None and other unions use their first member."""
+        parsed = parse_llm_result_unvalidated(
+            LLMResult(
+                content={},
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0,
+            ),
+            _RequiredUnionFieldsModel,
+        )
+
+        assert parsed.optional_text is None
+        assert parsed.text_or_count == ""
+
+    def test_unvalidated_parser_accepts_json_and_model_content(self):
+        """Tolerant decoding handles JSON strings and Pydantic content."""
+        content = {"name": "decoded"}
+        for encoded in (json.dumps(content), _SampleModel(**content)):
+            parsed = parse_llm_result_unvalidated(
+                LLMResult(
+                    content=encoded,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0,
+                ),
+                _SampleModel,
+            )
+            assert parsed.name == "decoded"
+
+    def test_unvalidated_parser_rejects_non_mapping_content(self):
+        """Tolerant decoding still requires a mapping-shaped response."""
+        result = LLMResult(
+            content=["not", "a", "mapping"],
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+        with pytest.raises(
+            TypeError,
+            match="Unexpected LLM result content type",
+        ):
+            parse_llm_result_unvalidated(result, _SampleModel)
+
+        result.content = json.dumps(["not", "a", "mapping"])
+        with pytest.raises(TypeError, match="Expected a mapping"):
+            parse_llm_result_unvalidated(result, _SampleModel)
+
+    def test_safe_call_passes_tolerant_mode_and_defers_validation(self, tmp_path):
+        """safe_llm_call exposes malformed nested IDs to post-processing."""
+        client = _TolerantClient()
+
+        parsed, _, error = safe_llm_call(
+            llm_client=client,
+            system_prompt="system",
+            user_prompt="user",
+            response_format=_ContainerModel,
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+            allow_unvalidated=True,
+        )
+
+        assert error is None
+        assert client.allow_unvalidated is True
+        assert parsed.items[0].item_id == "malformed"
+
+    def test_safe_call_retries_for_legacy_client(self, tmp_path):
+        """safe_llm_call falls back when a client rejects the optional flag."""
+        parsed, result, error = safe_llm_call(
+            llm_client=_LegacyClient(),
+            system_prompt="system",
+            user_prompt="user",
+            response_format=_SampleModel,
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+            allow_unvalidated=True,
+        )
+
+        assert error is None
+        assert result is not None
+        assert parsed.name == "legacy"
+
+    def test_safe_raw_call_stringifies_content(self, tmp_path):
+        """Raw calls return stringified non-string response content."""
+        client = _RawClient(content={"answer": "ok"})
+
+        content, result, error = safe_llm_call_raw(
+            llm_client=client,
+            system_prompt="system",
+            user_prompt="user",
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+            max_completion_tokens=10,
+        )
+
+        assert error is None
+        assert result is not None
+        assert content == "{'answer': 'ok'}"
+        assert client.kwargs["max_completion_tokens"] == 10
+
+    def test_safe_raw_call_converts_none_content_to_empty_string(self, tmp_path):
+        """Raw calls turn an empty response into an empty string."""
+        content, _, error = safe_llm_call_raw(
+            llm_client=_RawClient(content=None),
+            system_prompt="system",
+            user_prompt="user",
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+        )
+
+        assert error is None
+        assert content == ""
+
+    def test_safe_raw_call_logs_and_returns_failures(self, tmp_path):
+        """Raw calls return an error tuple when the client fails."""
+        content, result, error = safe_llm_call_raw(
+            llm_client=_RawClient(error=RuntimeError("offline")),
+            system_prompt="system",
+            user_prompt="user",
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+        )
+
+        assert content is None
+        assert result is None
+        assert error == "RuntimeError: offline"
 
 
 class TestLogLlmCall:

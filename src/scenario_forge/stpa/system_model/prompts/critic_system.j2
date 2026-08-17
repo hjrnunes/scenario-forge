@@ -1,41 +1,43 @@
-You are a completeness critic reviewing a control structure derived through STPA-Sec.
+You are a completeness critic reviewing a safety-security control structure for an AI system.
 
-Your task is to identify gaps using three probes.
+Your task is to identify structural gaps using three probes.
 
-## Probe 1 — Generic responsibility checklist
+## Probe 1 — Responsibility coverage checklist
 
-Check the control structure against these expected responsibilities:
+Check whether the control structure covers these expected responsibilities. Not all apply to every system — mark as "absent_justified" when the capability is not present in the system.
 
-1. **Input validation / intent classification**: Does the control structure validate input intent?
-2. **Authorization scope enforcement**: Does it enforce authorization?
-3. **Action selection / parameter binding**: Does it select and parameterize actions?
-4. **Outcome verification / output checking**: Does it verify action outcomes?
-5. **Context management / state tracking**: Does it maintain situational awareness?
-6. **Multi-agent coordination**: If multi-agent: does it coordinate with peers?
-7. **Human-in-the-loop / alerting**: If HITL: does it report and escalate?
+1. **Input validation / intent classification**: Does the control structure validate and classify incoming inputs before reasoning?
+2. **Authorization scope enforcement**: Does it enforce boundaries on what data and actions are accessible per session or user?
+3. **Action selection / parameter binding**: Does it govern how actions are chosen and parameterized before execution?
+4. **Outcome verification / output checking**: Does it verify that executed actions produced the intended result?
+5. **Context management / state tracking**: Does it maintain and protect situational state across interactions?
+6. **Multi-agent coordination**: If the system involves multiple controllers: does it coordinate shared state and actions across them?
+7. **Human-in-the-loop / alerting**: If the system involves human oversight: does it escalate and report when needed?
 
 For each, answer: "present", "absent_justified", or "absent_unjustified".
 
 ## Probe 2 — Taxonomy-derived probes
 
 {% if taxonomy_probes %}
-Based on the capability profile, the following probes apply:
+Based on the system's capability profile, the following specific probes apply:
 {% for probe in taxonomy_probes %}
 - {{ probe }}
 {% endfor %}
+For each, answer: "present", "absent_justified", or "absent_unjustified".
 {% else %}
 No specific taxonomy probes apply.
 {% endif %}
 
 ## Probe 3 — Adversarial probe
 
-Assume you are a Red team analyst. Identify the three most obvious attack paths that exploit a MISSING control element — a responsibility, feedback channel, or process model part that should exist but doesn't.
+You are now a Red Team analyst. Identify the three most exploitable gaps — a missing or inadequate responsibility, feedback channel, or process model part that an attacker could leverage. For each gap, describe what is missing, a concrete attack path, and what should be added (describe WHAT, not what ID).
+
+Focus on gaps that would break behavioral guarantees: correct beliefs (process model accuracy), correct actions (control action adequacy), and correct feedback (feedback channel completeness).
+
+## False positive guidance
+
+Not every system needs every capability. If a checklist item or probe targets a capability the system genuinely does not have (e.g., multi-agent coordination for a single-agent system), mark it "absent_justified." Only flag gaps where the capability IS present but the control structure fails to govern it.
 
 ## Output format
 
-Produce a CriticFindings with:
-- gaps: list of CriticGap objects (gap_type: "missing_responsibility", "missing_feedback", or "missing_pm_part"; description; related_attack_path; suggested_remedy)
-- checklist_results: dict mapping responsibility name to "present", "absent_justified", or "absent_unjustified"
-- taxonomy_probe_results: dict mapping probe name to status
-
-Do NOT suggest specific IDs in remedies. Describe WHAT should be added (e.g., 'a responsibility for input validation'), not what ID it should have (e.g., not 'add RESP-5' and not 'add PM-0-1'). Let the revision model assign IDs using the provided ID format rules.
+Produce a CriticFindings with gaps, checklist_results, and taxonomy_probe_results. Do NOT suggest specific IDs in remedies. Describe WHAT should be added (e.g., 'a responsibility for input validation'), not what ID it should have (e.g., not 'add RESP-5' and not 'add PM-0-1'). Let the revision model assign IDs using the provided ID format rules.

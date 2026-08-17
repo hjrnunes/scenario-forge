@@ -421,14 +421,14 @@ print('All SP3 input fixtures validated')
 # --- 11. Acceptance Tests ---
 
 check "QA-SP3-ACCEPT-01: SP3 Gherkin acceptance tests pass" \
-    uv run pytest tmp/acceptance/generated/sp3_attack_tree_acceptance_test.py \
-                  tmp/acceptance/generated/sp3_bdi_generation_acceptance_test.py \
-                  tmp/acceptance/generated/sp3_coverage_gaps_acceptance_test.py \
-                  tmp/acceptance/generated/sp3_eval_metrics_acceptance_test.py \
-                  tmp/acceptance/generated/sp3_gherkin_acceptance_test.py \
-                  tmp/acceptance/generated/sp3_narrative_acceptance_test.py \
-                  tmp/acceptance/generated/sp3_run_orchestration_acceptance_test.py \
-                  tmp/acceptance/generated/sp3_validators_acceptance_test.py \
+    uv run pytest build/acceptance/generated/sp3_attack_tree_acceptance_test.py \
+                  build/acceptance/generated/sp3_bdi_generation_acceptance_test.py \
+                  build/acceptance/generated/sp3_coverage_gaps_acceptance_test.py \
+                  build/acceptance/generated/sp3_eval_metrics_acceptance_test.py \
+                  build/acceptance/generated/sp3_gherkin_acceptance_test.py \
+                  build/acceptance/generated/sp3_narrative_acceptance_test.py \
+                  build/acceptance/generated/sp3_run_orchestration_acceptance_test.py \
+                  build/acceptance/generated/sp3_validators_acceptance_test.py \
                   -q --tb=short
 
 # --- 12. Full Test Suite Execution ---

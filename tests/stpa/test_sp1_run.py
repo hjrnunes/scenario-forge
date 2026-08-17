@@ -241,6 +241,9 @@ class TestRunOrchestration:
         manifest = yaml.safe_load(manifest_file.read_text())
         assert "critic_findings" in manifest
         assert len(manifest["critic_findings"]) == 2
+        assert manifest["revised"] is True
+        assert len(manifest["post_revision_warnings"]) == 1
+        assert manifest["post_revision_warnings"][0].startswith("Revision failed:")
 
     def test_run_06_manifest_records_input_hashes(self, tmp_path):
         """SP1-RUN-06: run manifest records input hashes."""
@@ -377,6 +380,34 @@ class TestRunOrchestration:
         entries = [json.loads(line) for line in calls_file.read_text().splitlines()]
         stage_1b_entries = [e for e in entries if e["stage"] == "stage_1b"]
         assert len(stage_1b_entries) == 0
+
+    def test_run_with_external_profile_publishes_capability_artifact(self, tmp_path):
+        """A pre-built profile outside the run directory is copied to outputs."""
+        profile = Stage1Profile(
+            entry_points=[
+                {"name": "User chat", "direction": "input", "controllability": "direct"},
+            ],
+            confidence="medium",
+            kc_subcodes=["KC1.1", "KC5.1", "KC6.1.1"],
+            tool_inventory=[{"name": "tool1", "description": "A tool"}],
+        ).to_capability_profile()
+        input_dir = tmp_path / "inputs"
+        input_dir.mkdir()
+        profile_path = input_dir / "capability-profile.yaml"
+        write_yaml(profile, profile_path)
+        run_dir = tmp_path / "output"
+
+        result = run_sp1(
+            llm_client=_setup_mock_client(),
+            use_case_text="Test use case",
+            risk_cards=make_risk_cards(),
+            run_dir=run_dir,
+            profile_path=profile_path,
+        )
+
+        artifact = run_dir / "capability-profile.yaml"
+        assert artifact.exists()
+        assert result.capability_profile == profile
 
     def test_run_13_temperature_is_0_4(self, tmp_path):
         """SP1-RUN-13: all Stage 2 LLM calls use temperature 0.4."""

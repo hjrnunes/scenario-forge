@@ -308,7 +308,7 @@ print('PQF-11 OK')
 
 **Command:**
 ```bash
-uv run pytest tmp/acceptance/generated/sp1_prompt_quality_fixes_acceptance_test.py -v --tb=short -q
+uv run pytest build/acceptance/generated/sp1_prompt_quality_fixes_acceptance_test.py -v --tb=short -q
 ```
 
 ## 4. Regression Verification

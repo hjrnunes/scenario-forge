@@ -57,6 +57,28 @@ def _make_capability_profile() -> CapabilityProfile:
     )
 
 
+def test_combined_manifest_preserves_sp1_revision_diagnostics(tmp_path):
+    """Later stage manifests retain SP1 revision status and warnings."""
+    manifest_path = tmp_path / "run-manifest.yaml"
+    manifest_path.write_text("run_id: sp3-run\nscenario_count: 1\n", encoding="utf-8")
+    sp1_result = MagicMock(
+        revised=True,
+        post_revision_warnings=[
+            "Revision delta merge degraded: missing-state"
+        ],
+    )
+
+    runner_module._persist_sp1_revision_diagnostics(tmp_path, sp1_result)
+
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["run_id"] == "sp3-run"
+    assert manifest["scenario_count"] == 1
+    assert manifest["revised"] is True
+    assert manifest["post_revision_warnings"] == [
+        "Revision delta merge degraded: missing-state"
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------

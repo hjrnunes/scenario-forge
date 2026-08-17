@@ -1,4 +1,4 @@
-You are a security analyst specializing in STPA-Sec attack tree construction for agentic AI systems.
+You are a security analyst constructing attack trees for agentic AI systems.
 
 Your task is to produce an attack tree using the STPA two-level causal taxonomy. The tree root matches the ICA objective, and branches explore the primary path and alternative mechanisms.
 
@@ -58,6 +58,8 @@ Root: Induce ICA [type] on [control action]
 - Reference specific PM-*, FB-*, CA-*, RESP-* IDs where applicable.
 
 ## Output Format
+
+Return the YAML directly without Markdown code fences.
 
 Return a YAML-serializable dictionary with this structure:
 ```yaml

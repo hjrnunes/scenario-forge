@@ -1,7 +1,7 @@
 """Unit tests for SP1 orphan PM repair and PM-FB correspondence.
 
 Covers SP1-PMFB-01 through SP1-PMFB-13 from the Gherkin feature file:
-  tests/stpa/features/sp1_orphan_pm_repair.feature
+  features/sp1_orphan_pm_repair.feature
 
 Tests verify that:
 - The Call 2a system and user prompts enforce 1:1 PM-FB correspondence.

@@ -18,15 +18,6 @@
 
 ---
 
-## Valid Loss and Hazard IDs
-
-Reference ONLY the following Loss and Hazard IDs. Do not invent new IDs.
-
-**Valid Loss IDs:** {{ valid_loss_ids }}
-**Valid Hazard IDs:** {{ valid_hazard_ids }}
-
----
-
 ## Your Task
 
 Produce a Gherkin behavior specification using the should/but structure defined in the system prompt.
@@ -34,6 +25,7 @@ Produce a Gherkin behavior specification using the should/but structure defined 
 1. The "Given" steps must reference process model states (PM-* IDs or descriptions).
 2. The "should" clause must reflect the security constraint.
 3. The "But" clause must reference the ICA type and control action.
-4. Include a loss reference in the consequences using only the valid Loss IDs listed above.
+4. Include a loss reference in the consequences using only the following valid Loss IDs: {{ valid_loss_ids }}.
+   Use only L-* loss IDs. Do not use H-* hazard IDs.
 
 Return a YAML object with fields: feature, scenario, given (list), when (list), then_expected (list), then_actual (list).

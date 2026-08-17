@@ -179,6 +179,7 @@ class TestNoImportCycles:
             "scenario_forge.stpa.infra",
             "scenario_forge.stpa.infra.llm",
             "scenario_forge.stpa.infra.llm_helpers",
+            "scenario_forge.stpa.infra.unvalidated_decode",
             "scenario_forge.stpa.infra.call_log",
             "scenario_forge.stpa.infra.calls_html",
             "scenario_forge.stpa.infra.model_profiles",
@@ -339,6 +340,7 @@ class TestModelsDoNotImportHigherLayers:
 # A module at layer N may import from modules at layer <= N.
 _SYSTEM_MODEL_LAYERS: dict[str, int] = {
     "_constants": 0,
+    "id_normalization": 0,
     "heuristics": 1,
     "loss_analysis": 1,
     "profile": 1,
@@ -438,6 +440,7 @@ class TestSystemModelNoImportCycles:
         [
             "scenario_forge.stpa.system_model",
             "scenario_forge.stpa.system_model._constants",
+            "scenario_forge.stpa.system_model.id_normalization",
             "scenario_forge.stpa.system_model.loss_analysis",
             "scenario_forge.stpa.system_model.profile",
             "scenario_forge.stpa.system_model.control_structure",
@@ -455,8 +458,8 @@ class TestSystemModelNoImportCycles:
 class TestSystemModelDependencyDirection:
     """Higher-level system_model modules must not import lower-level ones in reverse.
 
-    Dependency layers (lower = closer to IO/constants):
-      0: _constants     (leaf — no imports)
+    Dependency layers (lower = leaf / fewer inbound dependencies):
+      0: _constants, id_normalization  (leaves — no sibling imports)
       1: heuristics, loss_analysis, profile, control_structure  (stages)
       2: critic         (uses heuristics)
       3: run            (orchestrator — uses all)
@@ -533,6 +536,58 @@ class TestSystemModelDependencyDirection:
         assert not imports, (
             f"heuristics.py imports system_model modules: {imports}"
         )
+
+    def test_id_normalization_is_leaf(self, system_model_files):
+        """id_normalization.py is high-level policy — no sibling or infra imports."""
+        path = system_model_files.get("id_normalization")
+        assert path is not None, "id_normalization.py not found"
+        sibling_imports = _system_model_internal_imports(path)
+        assert not sibling_imports, (
+            f"id_normalization.py imports system_model modules: {sibling_imports}"
+        )
+        infra_imports = [
+            imp
+            for imp in _extract_imports(path)
+            if imp.startswith("scenario_forge.stpa.infra")
+        ]
+        assert not infra_imports, (
+            "id_normalization.py imports infra (IO-near) modules: "
+            f"{infra_imports}"
+        )
+
+    def test_infra_does_not_import_id_normalization(self):
+        """Tolerant LLM parsing stays in infra; ID policy is not pulled downward."""
+        violations: list[str] = []
+        for path in sorted(INFRA_DIR.glob("*.py")):
+            for imp in _extract_imports(path):
+                if (
+                    imp == "scenario_forge.stpa.system_model.id_normalization"
+                    or imp.startswith(
+                        "scenario_forge.stpa.system_model.id_normalization."
+                    )
+                ):
+                    violations.append(f"{path.name}: imports '{imp}'")
+        assert not violations, (
+            "infra imported id_normalization (dependency-direction "
+            "violation):\n" + "\n".join(violations)
+        )
+
+    def test_critic_stitches_then_delegates_published_ids(
+        self, system_model_files
+    ):
+        """Revision merge stitches by source ID, then applies leaf ID policy.
+
+        Published IDs are not assigned by the IO-near revision merge.
+        The critic may keep stitch-time collision bookkeeping, but the
+        complete stitched payload must go through
+        ``validate_normalized_control_structure``.
+        """
+        source = system_model_files["critic"].read_text(encoding="utf-8")
+        imports = set(_system_model_internal_imports(system_model_files["critic"]))
+        assert "id_normalization" in imports
+        assert "def _stitch_revision_delta" in source
+        assert "validate_normalized_control_structure" in source
+        assert "ControlStructure.model_validate(normalized_payload.payload)" not in source
 
 
 # ---------------------------------------------------------------------------

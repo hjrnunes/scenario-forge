@@ -360,7 +360,7 @@ done
 
 **Command:**
 ```bash
-uv run pytest tmp/acceptance/generated/sp2_*_acceptance_test.py -v
+uv run pytest build/acceptance/generated/sp2_*_acceptance_test.py -v
 ```
 
 ## 9. Full Test Suite Execution

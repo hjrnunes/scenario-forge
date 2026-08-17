@@ -29,6 +29,9 @@ from scenario_forge.stpa.models.loss_analysis import (
     LossProvenance,
     SecurityConstraint,
 )
+from scenario_forge.stpa.system_model.id_normalization import (
+    validate_normalized_control_structure,
+)
 
 
 def _make_element_ref(type: ReferenceType, id: str) -> ElementRef:
@@ -104,6 +107,29 @@ class TestControlStructureValidation:
         """CS-01: valid control structure passes validation."""
         cs = _make_cs()
         assert cs is not None
+
+    def test_missing_control_action_description_fails_after_id_normalization(self):
+        """Missing required descriptions are rejected after ID repair."""
+        payload = {
+            "responsibilities": [
+                {
+                    "resp_id": "source-responsibility",
+                    "description": "Controller",
+                    "process_model_parts": [
+                        {"pm_id": "source-state", "description": "State"}
+                    ],
+                    "control_actions": [
+                        {"ca_id": "source-action", "description": ""}
+                    ],
+                    "feedback_channels": [],
+                }
+            ],
+            "controlled_processes": [],
+            "coordination_links": [],
+        }
+
+        with pytest.raises(ValidationError, match="description"):
+            validate_normalized_control_structure(payload)
 
     @pytest.mark.parametrize(
         "ref_type,bad_ref",

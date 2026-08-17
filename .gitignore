@@ -18,6 +18,21 @@ build/
 # Secrets / local env
 .envrc
 
+# Scratch. Nothing here is load-bearing: the acceptance suite that used to
+# live under tmp/acceptance/ now lives at acceptance/.
+tmp/
+
+# Experiment worktrees are separate checkouts, not content of this one
+.worktrees/
+
+# Quality-tool output, regenerated on every run
+lcov*.info
+coverage.lcov
+.coverage
+
+# Legacy acceptance generated output (now lives under build/acceptance/)
+acceptance/dry/
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
@@ -41,3 +56,7 @@ opencode.json
 
 # Real model profiles (contains API keys — copy from ai/model-profiles.example.yaml)
 ai/model-profiles.yaml
+build/acceptance-mutation/
+build/acceptance/ir/
+build/acceptance/dry/
+build/acceptance/generated/

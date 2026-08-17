@@ -41,6 +41,14 @@ class STPARunManifest(BaseModel):
         default_factory=list,
         description="Gaps identified by the completeness critic.",
     )
+    revised: bool = Field(
+        default=False,
+        description="Whether SP1 attempted a revision after critic findings.",
+    )
+    post_revision_warnings: list[str] = Field(
+        default_factory=list,
+        description="Warnings produced while applying and validating the revision.",
+    )
     stage_errors: list[str] = Field(
         default_factory=list,
         description="Stage failures that occurred during the run (partial failure).",

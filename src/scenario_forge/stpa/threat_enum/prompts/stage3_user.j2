@@ -14,24 +14,18 @@
 
 ## Your Task
 
-Fill the following ICA slots for responsibility **{{ resp_id }}**. For each slot, either provide concrete ICAs (Insecure Control Actions) or declare it N/A with a structural justification.
+Fill the following ICA slots for responsibility **{{ resp_id }}**. For each slot, either provide concrete ICAs (Insecure Control Actions) or declare it N/A with a structural justification. Follow the ICA type definitions and requirements in the system prompt.
 
 ### Slots to fill:
 
 {{ slots_yaml }}
 
-### Instructions:
+### Reference guidance:
 
-1. For each slot, consider the UCA type (NOT_PROVIDED, INCORRECT, WRONG_TIMING, WRONG_DURATION) and the control action description.
-2. If the UCA type applies, provide one or more concrete ICAs with:
-   - `ica_id`: `{slot_id}:N` (1-based index)
-   - `ica_text`: Concrete description of the insecure control action
-   - `hazardous_context`: The specific hazardous situation
-   - `loss_scenario`: The attack chain and resulting harm
-   - `related_hazards`: Valid hazard IDs from the loss analysis above
-   - `related_constraints`: Valid constraint IDs from the loss analysis above
-3. If the UCA type does not apply, set `is_na: true`, leave `icas` empty, and provide a `na_justification` citing a structural property (discrete, continuous, stateless, stateful, atomic, one-shot, instantaneous, no duration).
-4. Use the technology context to inform AI-specific failure modes.
-5. Reference the control structure's process model parts and feedback channels where relevant.
+- Each ICA must reference valid hazard IDs (H-*) and constraint IDs (SC-*) from the loss analysis above. Use `related_hazards` for H-* and `related_constraints` for SC-*.
+- **ID mapping note:** The control structure's `security_constraint_refs` may use REQ-* from requirements derivation; use SC-* from the loss analysis above for `related_constraints`.
+- Reference process model parts (PM-*) and feedback channels (FB-*) from the control structure where relevant.
+- Use the technology context to inform AI-specific failure modes.
+- Each slot's `uca_type` (NOT_PROVIDED, INCORRECT, WRONG_TIMING, WRONG_DURATION) is defined in the input slot schema.
 
 Return JSON with a `filled_slots` array matching the slot schema with `is_na`, `icas`, and `na_justification` filled in.

@@ -190,7 +190,7 @@ a `gherkin_raw` string.
 
 ## QA-GDDI: Fix Loss ID Hallucination (gddi)
 
-### QA-GDDI-01: user prompt includes valid Loss and Hazard IDs
+### QA-GDDI-01: user prompt includes valid Loss IDs only
 
 **Preconditions**: A `ScenarioSpec`, a `LossAnalysis` with losses L-1,
 L-2, L-3 and hazards H-1, H-2, and a `SecurityConstraint`.
@@ -201,9 +201,9 @@ L-2, L-3 and hazards H-1, H-2, and a `SecurityConstraint`.
 2. Inspect the rendered user prompt text.
 
 **Expected**: The user prompt contains the valid loss IDs L-1, L-2, L-3
-and hazard IDs H-1, H-2 from the loss analysis.
+from the loss analysis and does not contain hazard IDs H-1, H-2.
 
-### QA-GDDI-02: user prompt instructs LLM to reference only valid IDs
+### QA-GDDI-02: user prompt instructs LLM to use only L-* loss IDs
 
 **Preconditions**: A `ScenarioSpec`, a `LossAnalysis`, and a
 `SecurityConstraint`.
@@ -213,8 +213,8 @@ and hazard IDs H-1, H-2 from the loss analysis.
    constraint, loss analysis, and a template loader.
 2. Inspect the rendered user prompt text.
 
-**Expected**: The user prompt contains an instruction to reference only
-the provided L-* and H-* IDs and an instruction not to invent new IDs.
+**Expected**: The user prompt contains an instruction to use only L-*
+loss IDs and not H-* hazard IDs.
 
 ### QA-GDDI-03: system prompt instructs LLM to use only provided L-* and H-* IDs
 
@@ -241,7 +241,8 @@ provided L-* and H-* IDs from the loss analysis.
 4. Inspect the rendered user prompt.
 
 **Expected**: The function accepts a loss analysis parameter and the
-user prompt contains valid Loss and Hazard IDs from the loss analysis.
+user prompt contains valid Loss IDs from the loss analysis and excludes
+Hazard IDs.
 
 ### QA-GDDI-05: validator catches hallucinated Loss or Hazard ID
 
