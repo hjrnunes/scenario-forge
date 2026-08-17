@@ -18,14 +18,14 @@ from snapshot import artifact_paths, snapshot_layout  # noqa: E402
 
 
 class TestGate:
-    def test_quality(self):
+    def test_quality_script_checks_and_formats_source_trees(self):
         body = (ROOT / "scripts" / "quality.sh").read_text(encoding="utf-8")
 
         assert "set -euo pipefail" in body
         assert "uv run ruff check src acceptance" in body
         assert "uv run ruff format --check src acceptance" in body
 
-    def test_test_mode(self):
+    def test_test_mode_runs_quality_before_generated_tests(self):
         body = (ROOT / "scripts" / "acceptance.sh").read_text(encoding="utf-8")
 
         gate = body.index('"$root/scripts/quality.sh"')
@@ -33,7 +33,7 @@ class TestGate:
         assert "set -euo pipefail" in body
         assert gate < pytest
 
-    def test_gate_stop(self, tmp_path: Path):
+    def test_test_mode_stops_when_quality_fails(self, tmp_path: Path):
         scripts = tmp_path / "scripts"
         scripts.mkdir()
         entry = scripts / "acceptance.sh"
@@ -56,7 +56,7 @@ class TestGate:
 
 
 class TestRuntime:
-    def test_manifest(self):
+    def test_manifest_loads_valid_step_patterns(self):
         import acceptance_runtime
         import runtime_manifest
 
@@ -72,7 +72,7 @@ class TestRuntime:
 
 
 class TestMapping:
-    def test_output(self):
+    def test_generated_output_layout(self):
         layout = snapshot_layout()
         paths = artifact_paths("features/group/example.feature")
 

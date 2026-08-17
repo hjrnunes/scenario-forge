@@ -119,11 +119,10 @@ def _h_manifest(world: World, text: str, examples: dict) -> tuple[bool, str]:
 
 
 def _h_modules(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    import runtime_manifest
+
     modules = getattr(world, "ahg_modules", ())
-    if (
-        tuple(module.FEATURE_ID for module in modules)
-        != __import__("runtime_manifest").MODULES
-    ):
+    if tuple(module.FEATURE_ID for module in modules) != runtime_manifest.MODULES:
         return False, "Runtime feature manifest is incomplete"
     return True, ""
 
@@ -134,10 +133,6 @@ def _h_patterns(world: World, text: str, examples: dict) -> tuple[bool, str]:
     if not STEP_PATTERNS or any(not pattern.pattern for pattern, _, _ in STEP_PATTERNS):
         return False, "Runtime registry contains an invalid step pattern"
     return True, ""
-
-
-def _h_reg(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    return _h_patterns(world, text, examples)
 
 
 def _h_map_ir(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -218,7 +213,7 @@ def register(api: object) -> None:
     api.register(r"the acceptance runtime manifest is loaded", _h_manifest)
     api.register(r"every runtime feature module is importable", _h_modules)
     api.register(r"every registered handler has a valid step pattern", _h_patterns)
-    api.register(r"handler registration does not raise", _h_reg)
+    api.register(r"handler registration does not raise", _h_patterns)
     api.register(r"features map to build/acceptance/ir", _h_map_ir)
     api.register(r"build/acceptance/ir maps to build/acceptance/generated", _h_map_test)
     api.register(
