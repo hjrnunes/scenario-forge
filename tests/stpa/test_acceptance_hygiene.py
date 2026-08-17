@@ -29,8 +29,12 @@ class TestGate:
         body = (ROOT / "scripts" / "acceptance.sh").read_text(encoding="utf-8")
 
         gate = body.index('"$root/scripts/quality.sh"')
-        pytest = body.index('exec uv run pytest "$root/build/acceptance/generated/" -q')
+        pytest = body.index("exec uv run pytest")
         assert "set -euo pipefail" in body
+        assert (
+            "${SWARMFORGE_ACCEPTANCE_GENERATED_DIR:-build/acceptance/generated}"
+            in body
+        )
         assert gate < pytest
 
     def test_test_mode_stops_when_quality_fails(self, tmp_path: Path):

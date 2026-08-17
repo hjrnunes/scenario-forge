@@ -22,6 +22,8 @@ SWARMFORGE_ACCEPTANCE_CMD="./scripts/acceptance.sh --test"
 SWARMFORGE_QUALITY_CMD="./scripts/quality.sh"
 SWARMFORGE_QA_CMD=""
 SWARMFORGE_COVERAGE_CMD="uv run pytest tests/ --cov=src --cov-branch --cov-report=lcov:lcov.info -q"      # generates lcov.info for LCOV-consuming tools (Python: crap4py, mutate4py); -q avoids flooding the subagent context with ~6000 test lines
+# Source-analysis tools intentionally exclude acceptance handlers; Ruff owns
+# acceptance hygiene through SWARMFORGE_QUALITY_CMD.
 SWARMFORGE_CRAP_CMD="crap4py src/ --lcov lcov.info --max-crap 6"
 SWARMFORGE_DRY_CMD="drywall --threshold 0.82 ./src"
 # Mutation invocation TEMPLATE. The hardender substitutes the changed source

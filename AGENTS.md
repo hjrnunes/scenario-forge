@@ -26,6 +26,8 @@ bd dolt push          # Push beads data to remote
 
 Acceptance uses the generated-output policy: `features/` is committed source,
 while `build/acceptance/` contains ignored generated output.
+CRAP, DRY, and language mutation remain scoped to `src/`; acceptance handler
+hygiene is enforced by `scripts/quality.sh`.
 
 ## Non-Interactive Shell Commands
 

@@ -16,7 +16,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ "${1:-}" == "--test" ]]; then
     # Enforce source hygiene before running generated acceptance tests.
     "$root/scripts/quality.sh"
-    exec uv run pytest "$root/build/acceptance/generated/" -q
+    generated="${SWARMFORGE_ACCEPTANCE_GENERATED_DIR:-build/acceptance/generated}"
+    exec uv run pytest "$root/$generated/" -q
 else
     # Full generation: parse features, run DRY checks, generate tests,
     # clean stale output, and run the generated tests.

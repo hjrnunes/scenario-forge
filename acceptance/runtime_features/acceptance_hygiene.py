@@ -63,7 +63,7 @@ def _h_acceptance(world: World, text: str, examples: dict) -> tuple[bool, str]:
 def _h_gate_first(world: World, text: str, examples: dict) -> tuple[bool, str]:
     body = getattr(world, "ahg_acceptance", "")
     gate = body.find('"$root/scripts/quality.sh"')
-    tests = body.find('exec uv run pytest "$root/build/acceptance/generated/" -q')
+    tests = body.find("exec uv run pytest")
     if gate < 0 or tests < 0 or gate >= tests:
         return False, "The hygiene gate does not precede generated acceptance tests"
     return True, ""
