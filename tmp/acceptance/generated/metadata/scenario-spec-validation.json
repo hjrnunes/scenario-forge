@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "scenario spec validation",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/scenario_spec_validation.json",
+  "implementation_hash": "sha256:a8f7c053f9c366bf0de779b9b1ae6fec8145f857401dae3187ca57f58bb5dfed",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "scenario_spec_validation_acceptance_test.py"
+  ]
+}

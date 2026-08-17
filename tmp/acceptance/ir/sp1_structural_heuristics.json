@@ -1,0 +1,154 @@
+{
+  "name" : "SP1 Stage 2 — Structural heuristics",
+  "scenarios" : [ {
+    "name" : "SP1-HEUR-01 valid control structure passes all heuristics",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure where RESP-1 has PM-1-1, CA-1-1, and FB-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "structural heuristics are checked"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check passes with no errors"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-HEUR-02 responsibility missing an element type fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a responsibility RESP-1 with zero <element_type>",
+      "parameters" : [ "element_type" ]
+    }, {
+      "keyword" : "When",
+      "text" : "structural heuristics are checked"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check fails with error containing <error_fragment>",
+      "parameters" : [ "error_fragment" ]
+    } ],
+    "examples" : [ {
+      "element_type" : "process_model_parts",
+      "error_fragment" : "process model part"
+    }, {
+      "element_type" : "control_actions",
+      "error_fragment" : "control action"
+    }, {
+      "element_type" : "feedback_channels",
+      "error_fragment" : "feedback channel"
+    } ]
+  }, {
+    "name" : "SP1-HEUR-03 orphan PM not updated by any feedback produces warning",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a responsibility RESP-1 with PM-1-1 and PM-1-2 where only PM-1-1 is updated by FB-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "structural heuristics are checked"
+    }, {
+      "keyword" : "Then",
+      "text" : "a warning is produced for orphan PM PM-1-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-HEUR-04 controlled process not referenced by any feedback or CA fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a controlled process CP-1 not referenced by any feedback channel source or control action target"
+    }, {
+      "keyword" : "When",
+      "text" : "structural heuristics are checked"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check fails with error containing controlled process"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-HEUR-05 hazard not traced to any responsibility fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with hazard H-1 and constraint SC-1"
+    }, {
+      "keyword" : "And",
+      "text" : "a control structure where no responsibility references constraint SC-1"
+    }, {
+      "keyword" : "When",
+      "text" : "structural heuristics are checked with the loss analysis"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check fails with error containing hazard"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-HEUR-06 hazard traced to a responsibility passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with hazard H-1 and constraint SC-1"
+    }, {
+      "keyword" : "And",
+      "text" : "a control structure where responsibility RESP-1 references constraint SC-1"
+    }, {
+      "keyword" : "When",
+      "text" : "structural heuristics are checked with the loss analysis"
+    }, {
+      "keyword" : "Then",
+      "text" : "the heuristic check passes with no errors"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-HEUR-07 heuristics run automatically after Call 3 assembly",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid responses for all three Stage 2 calls"
+    }, {
+      "keyword" : "When",
+      "text" : "Stage 2 control structure derivation is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "structural heuristics are checked on the assembled ControlStructure"
+    }, {
+      "keyword" : "And",
+      "text" : "the heuristic results are available"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-HEUR-08 heuristics are re-run after revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a control structure that fails structural heuristics"
+    }, {
+      "keyword" : "And",
+      "text" : "a revision call that produces a corrected control structure"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is applied"
+    }, {
+      "keyword" : "Then",
+      "text" : "structural heuristics are re-run on the revised ControlStructure"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-HEUR-09 heuristic errors after revision are flagged but pipeline proceeds",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a revision call that produces a control structure with a structural error"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is applied"
+    }, {
+      "keyword" : "Then",
+      "text" : "the structural error is flagged in the run manifest"
+    }, {
+      "keyword" : "And",
+      "text" : "the pipeline proceeds without looping"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model heuristics module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with responsibility RESP-1, PM-1-1, CA-1-1, and FB-1-1"
+  } ]
+}

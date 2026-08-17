@@ -1,0 +1,175 @@
+# Fixture: EnrichedThreatSet for the Klarna agentic payment assistant.
+# Provenance: Handcrafted from manual prototype (Phase A) based on the
+# ICA enumeration fixture. Provides structural threats with catalog
+# mappings and coverage analysis for SP3 development against fixtures.
+# Schema: scenario_forge.stpa.models.enriched_threat_set.EnrichedThreatSet
+
+structural_threats:
+  - ica_slot_id: RESP-1:CA-1-1:NOT_PROVIDED
+    provenance: structural
+    ica_id: RESP-1:CA-1-1:NOT_PROVIDED:1
+    ica_text: The payment agent does not provide the execute payment control action when the user has confirmed a payment
+    hazardous_context: User has confirmed a payment but the agent fails to execute it
+    loss_scenario: Delayed or missed payment causes customer dissatisfaction and potential financial loss
+    related_hazards:
+      - H-1
+    related_constraints:
+      - SC-1
+    catalog_mappings:
+      - catalog: OWASP_AGENTIC
+        id: T2-T3
+        name: Agentic Tool Misuse
+        confidence: high
+    na_reconciliation_flag: false
+
+  - ica_slot_id: RESP-1:CA-1-1:NOT_PROVIDED
+    provenance: structural
+    ica_id: RESP-1:CA-1-1:NOT_PROVIDED:2
+    ica_text: The payment agent does not provide the execute payment control action when an automated payment is due
+    hazardous_context: Automated payment trigger fires but agent does not execute
+    loss_scenario: Missed automated payment leads to late fees and regulatory issues
+    related_hazards:
+      - H-1
+    related_constraints:
+      - SC-1
+    catalog_mappings: []
+    na_reconciliation_flag: false
+
+  - ica_slot_id: RESP-1:CA-1-1:INCORRECT
+    provenance: structural
+    ica_id: RESP-1:CA-1-1:INCORRECT:1
+    ica_text: The payment agent provides the execute payment control action with incorrect amount
+    hazardous_context: Agent executes payment with wrong amount due to prompt injection
+    loss_scenario: Attacker manipulates payment amount via prompt injection causing financial loss
+    related_hazards:
+      - H-1
+    related_constraints:
+      - SC-1
+    catalog_mappings:
+      - catalog: OWASP_AGENTIC
+        id: T1
+        name: Prompt Injection
+        confidence: high
+      - catalog: ATLAS
+        id: atlas-prompt-injection
+        name: Prompt Injection
+        confidence: high
+    na_reconciliation_flag: false
+
+  - ica_slot_id: RESP-1:CA-1-1:WRONG_TIMING
+    provenance: structural
+    ica_id: RESP-1:CA-1-1:WRONG_TIMING:1
+    ica_text: The payment agent executes payment too early before user confirmation window expires
+    hazardous_context: Agent executes payment before the confirmation period elapses
+    loss_scenario: Payment executed before user can cancel leading to unauthorized transaction
+    related_hazards:
+      - H-1
+    related_constraints:
+      - SC-1
+    catalog_mappings:
+      - catalog: OWASP_AGENTIC
+        id: T7a
+        name: Excessive Agency
+        confidence: medium
+    na_reconciliation_flag: false
+
+  - ica_slot_id: RESP-1:CA-1-2:INCORRECT
+    provenance: structural
+    ica_id: RESP-1:CA-1-2:INCORRECT:1
+    ica_text: The payment agent requests confirmation with misleading payment details
+    hazardous_context: Agent displays incorrect payment amount in confirmation prompt
+    loss_scenario: User confirms payment with wrong details leading to financial loss
+    related_hazards:
+      - H-1
+    related_constraints:
+      - SC-1
+    catalog_mappings:
+      - catalog: OWASP_AGENTIC
+        id: T9
+        name: Deceptive Output
+        confidence: medium
+    na_reconciliation_flag: false
+
+  - ica_slot_id: RESP-2:CA-2-1:NOT_PROVIDED
+    provenance: structural
+    ica_id: RESP-2:CA-2-1:NOT_PROVIDED:1
+    ica_text: The knowledge retrieval controller does not provide query results when payment advice is needed
+    hazardous_context: Knowledge base query fails or returns empty
+    loss_scenario: Agent provides ungrounded payment advice leading to incorrect recommendations
+    related_hazards:
+      - H-3
+    related_constraints:
+      - SC-3
+    catalog_mappings: []
+    na_reconciliation_flag: false
+
+  - ica_slot_id: RESP-2:CA-2-1:INCORRECT
+    provenance: structural
+    ica_id: RESP-2:CA-2-1:INCORRECT:1
+    ica_text: The knowledge retrieval controller provides incorrect retrieved content due to data poisoning
+    hazardous_context: Knowledge base has been poisoned with incorrect payment information
+    loss_scenario: Agent provides incorrect payment advice based on poisoned data
+    related_hazards:
+      - H-3
+    related_constraints:
+      - SC-3
+    catalog_mappings:
+      - catalog: OWASP_AGENTIC
+        id: T8
+        name: Data Poisoning
+        confidence: high
+    na_reconciliation_flag: false
+
+  - ica_slot_id: CL-1:CM-1:NOT_PROVIDED
+    provenance: structural
+    ica_id: CL-1:CM-1:NOT_PROVIDED:1
+    ica_text: The coordination mechanism does not provide shared context when payment advice grounding is needed
+    hazardous_context: Knowledge retrieval controller does not share retrieved context
+    loss_scenario: Payment agent acts without grounding leading to ungrounded advice
+    related_hazards:
+      - H-3
+    related_constraints:
+      - SC-3
+    catalog_mappings: []
+    na_reconciliation_flag: false
+
+coverage_analysis:
+  structural_coverage:
+    total_slots: 11
+    non_na: 8
+    na: 3
+    coverage_rate: 0.727
+  by_ica_type:
+    NOT_PROVIDED: 4
+    INCORRECT: 3
+    WRONG_TIMING: 1
+    WRONG_DURATION: 0
+  by_controller:
+    RESP-1: 5
+    RESP-2: 2
+    CL-1: 1
+  catalog_correspondence:
+    structural_with_match: 5
+    structural_unmapped: 3
+    catalog_only_supplements: 0
+  na_reconciliation_flags: []
+  uncovered_owasp_threats:
+    - T10
+    - T15
+  uncovered_reason: No structural slot matched these OWASP agentic threats
+  structural_consideration:
+    total_slots: 11
+    considered: 8
+    rate: 0.727
+    by_ica_type:
+      NOT_PROVIDED: 4
+      INCORRECT: 3
+      WRONG_TIMING: 1
+    by_responsibility:
+      RESP-1: 5
+      RESP-2: 2
+      CL-1: 1
+  na_quality:
+    na_count: 3
+    quality_count: 3
+    quality_rate: 1.0

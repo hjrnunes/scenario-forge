@@ -1,0 +1,47 @@
+## Use-Case Description
+
+{{ use_case_text }}
+
+---
+
+## Responsibilities and Controlled Processes
+
+{% for resp in responsibility_set.responsibilities %}
+### {{ resp.resp_id }}
+{{ resp.description }}
+
+Responsibility Constraints:
+{% for rc in resp.responsibility_constraints %}
+- {{ rc.rc_id }}: {{ rc.description }}
+{% endfor %}
+
+Process Model Parts:
+{% for pm in resp.process_model_parts %}
+- {{ pm.pm_id }}: {{ pm.description }}
+  {% if pm.feedback_source %}Feedback source: {{ pm.feedback_source.type }} {{ pm.feedback_source.id }}{% endif %}
+{% endfor %}
+
+Control Actions:
+{% for ca in resp.control_actions %}
+- {{ ca.ca_id }}: {{ ca.description }}
+  {% if ca.target %}Target: {{ ca.target.type }} {{ ca.target.id }}{% endif %}
+{% endfor %}
+
+Feedback Channels:
+{% for fb in resp.feedback_channels %}
+- {{ fb.fb_id }}: {{ fb.description }}
+  Updates: {{ fb.updates }}
+  Source: {{ fb.source.type }} {{ fb.source.id }}
+{% endfor %}
+{% endfor %}
+
+### Controlled Processes
+{% for cp in responsibility_set.controlled_processes %}
+- {{ cp.cp_id }}: {{ cp.description }}
+{% endfor %}
+
+---
+
+## Your Task
+
+Apply Poh's two rules to verify and complete connections. Identify coordination links where responsibilities share PM parts not connected by control actions. Assemble the complete ControlStructure.

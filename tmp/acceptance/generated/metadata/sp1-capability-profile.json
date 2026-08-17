@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 capability profile",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp1_capability_profile.json",
+  "implementation_hash": "sha256:e768deeb1b96dc231277ff33c24c90c28e96228db06382d31bedef0a97174a5b",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_capability_profile_acceptance_test.py"
+  ]
+}

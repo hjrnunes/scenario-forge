@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 loss analysis",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp1_loss_analysis.json",
+  "implementation_hash": "sha256:1e3fff2b1b1f9dbdab6c99a3a44f16ade407bb71ebb2a1438fb288fbf235a071",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_loss_analysis_acceptance_test.py"
+  ]
+}

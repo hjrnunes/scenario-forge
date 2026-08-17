@@ -1,0 +1,128 @@
+{
+  "name" : "EnrichedThreatSet boundary schema validation",
+  "scenarios" : [ {
+    "name" : "EnrichedThreatSet-01 valid enriched threat set passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a structural threat with ica_slot_id RESP-1:CA-1-1:NOT_PROVIDED and provenance structural"
+    }, {
+      "keyword" : "And",
+      "text" : "a coverage analysis with total_slots 10, non_na 8, na 2, and coverage_rate 0.8"
+    }, {
+      "keyword" : "When",
+      "text" : "the enriched threat set is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "EnrichedThreatSet-02 structural threat with catalog mapping passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a structural threat with ica_slot_id RESP-1:CA-1-1:NOT_PROVIDED"
+    }, {
+      "keyword" : "And",
+      "text" : "a catalog mapping catalog OWASP_AGENTIC with id T2-T3 and confidence high"
+    }, {
+      "keyword" : "When",
+      "text" : "the enriched threat set is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "EnrichedThreatSet-03 catalog mapping confidence levels",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a structural threat with a catalog mapping with confidence <confidence_level>",
+      "parameters" : [ "confidence_level" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the enriched threat set is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ {
+      "confidence_level" : "high"
+    }, {
+      "confidence_level" : "medium"
+    }, {
+      "confidence_level" : "low"
+    } ]
+  }, {
+    "name" : "EnrichedThreatSet-04 structural threat with na_reconciliation_flag true passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a structural threat with ica_slot_id RESP-1:CA-1-1:NOT_PROVIDED and na_reconciliation_flag true"
+    }, {
+      "keyword" : "When",
+      "text" : "the enriched threat set is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "EnrichedThreatSet-05 coverage analysis with by_ica_type and by_controller metrics passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a coverage analysis with by_ica_type NOT_PROVIDED 5, INCORRECT 3 and by_controller RESP-1 4, RESP-2 4"
+    }, {
+      "keyword" : "When",
+      "text" : "the enriched threat set is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "EnrichedThreatSet-06 coverage analysis with uncovered OWASP threats passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a coverage analysis with uncovered_owasp_threats T10, T15 and uncovered_reason no structural slot matched"
+    }, {
+      "keyword" : "When",
+      "text" : "the enriched threat set is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "EnrichedThreatSet-07 coverage analysis with slot-level eval metrics passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a coverage analysis with structural_consideration total_slots 10 considered 8 rate 0.8"
+    }, {
+      "keyword" : "And",
+      "text" : "na_quality na_count 2 quality_count 2 quality_rate 1.0"
+    }, {
+      "keyword" : "When",
+      "text" : "the enriched threat set is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "EnrichedThreatSet-08 catalog correspondence with catalog_only_supplements zero passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a coverage analysis with catalog_correspondence structural_with_match 8, structural_unmapped 0, catalog_only_supplements 0"
+    }, {
+      "keyword" : "When",
+      "text" : "the enriched threat set is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA boundary schema module is importable"
+  } ]
+}

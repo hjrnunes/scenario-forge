@@ -1,0 +1,171 @@
+{
+  "name" : "LossAnalysis boundary schema validation",
+  "scenarios" : [ {
+    "name" : "LossAnalysis-01 valid loss analysis passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with losses L-1 and L-2, hazard H-1 referencing L-1, and constraint SC-1 referencing H-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LossAnalysis-02 hazard referencing non-existent loss fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with loss L-1 and hazard H-1 referencing loss <bad_ref>",
+      "parameters" : [ "bad_ref" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing <error_fragment>",
+      "parameters" : [ "error_fragment" ]
+    } ],
+    "examples" : [ {
+      "bad_ref" : "L-99",
+      "error_fragment" : "related_losses"
+    }, {
+      "bad_ref" : "NONEXIST",
+      "error_fragment" : "related_losses"
+    } ]
+  }, {
+    "name" : "LossAnalysis-03 constraint referencing non-existent hazard fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with loss L-1, hazard H-1, and constraint SC-1 referencing hazard <bad_ref>",
+      "parameters" : [ "bad_ref" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing <error_fragment>",
+      "parameters" : [ "error_fragment" ]
+    } ],
+    "examples" : [ {
+      "bad_ref" : "H-99",
+      "error_fragment" : "related_hazards"
+    }, {
+      "bad_ref" : "NONEXIST",
+      "error_fragment" : "related_hazards"
+    } ]
+  }, {
+    "name" : "LossAnalysis-04 risk card loss with correct provenance passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a risk card loss L-1 with provenance risk_card and source_risk_cards atlas-001"
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LossAnalysis-05 risk card loss with empty source_risk_cards fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a risk card loss L-1 with provenance risk_card and empty source_risk_cards"
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing source_risk_cards"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LossAnalysis-06 risk card loss with wrong provenance fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a risk card loss L-1 with provenance use_case and source_risk_cards atlas-001"
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing provenance"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LossAnalysis-07 use case loss with empty source_risk_cards passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a use case loss L-1 with provenance use_case and empty source_risk_cards"
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LossAnalysis-08 use case loss with non-empty source_risk_cards fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a use case loss L-1 with provenance use_case and source_risk_cards atlas-001"
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing source_risk_cards"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LossAnalysis-09 critic derived loss with empty source_risk_cards passes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a critic derived loss L-1 with provenance critic_derived and empty source_risk_cards"
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "LossAnalysis-10 duplicate IDs fail validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a loss analysis with duplicate <id_field> value <dup_value>",
+      "parameters" : [ "id_field", "dup_value" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the loss analysis is validated"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing <error_fragment>",
+      "parameters" : [ "error_fragment" ]
+    } ],
+    "examples" : [ {
+      "id_field" : "loss_id",
+      "dup_value" : "L-1",
+      "error_fragment" : "duplicate"
+    }, {
+      "id_field" : "hazard_id",
+      "dup_value" : "H-1",
+      "error_fragment" : "duplicate"
+    }, {
+      "id_field" : "constraint_id",
+      "dup_value" : "SC-1",
+      "error_fragment" : "duplicate"
+    } ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA boundary schema module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a minimal valid loss analysis with loss L-1, hazard H-1, and constraint SC-1"
+  } ]
+}

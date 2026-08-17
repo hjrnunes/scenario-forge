@@ -1,0 +1,59 @@
+# Fixture: LossAnalysis for the Klarna agentic payment assistant.
+# Provenance: Handcrafted from manual prototype (Phase A) based on the
+# Klarna use case. Provides realistic loss-hazard-constraint structure
+# for SP2 and SP3 development against fixtures.
+# Schema: scenario_forge.stpa.models.loss_analysis.LossAnalysis
+
+risk_card_losses:
+  - loss_id: L-1
+    description: Unauthorized financial transaction executed on behalf of a user
+    provenance: risk_card
+    source_risk_cards:
+      - atlas-prompt-injection
+      - atlas-tool-misuse
+  - loss_id: L-2
+    description: Sensitive user financial data exposed to unauthorized parties
+    provenance: risk_card
+    source_risk_cards:
+      - atlas-data-poisoning
+
+use_case_losses:
+  - loss_id: L-3
+    description: Loss of customer trust due to agent providing incorrect payment advice
+    provenance: use_case
+    source_risk_cards: []
+  - loss_id: L-4
+    description: Regulatory non-compliance from mishandling payment data
+    provenance: use_case
+    source_risk_cards: []
+
+hazards:
+  - hazard_id: H-1
+    description: Agent executes a payment action not intended by the user
+    related_losses:
+      - L-1
+      - L-3
+  - hazard_id: H-2
+    description: Agent exposes sensitive payment data in its response
+    related_losses:
+      - L-2
+      - L-4
+  - hazard_id: H-3
+    description: Agent provides incorrect payment advice due to missing context
+    related_losses:
+      - L-3
+      - L-4
+
+security_constraints:
+  - constraint_id: SC-1
+    description: The agent must not execute payment actions without explicit user confirmation
+    related_hazards:
+      - H-1
+  - constraint_id: SC-2
+    description: The agent must not include sensitive payment data in responses to unauthorized queries
+    related_hazards:
+      - H-2
+  - constraint_id: SC-3
+    description: The agent must verify payment context completeness before providing advice
+    related_hazards:
+      - H-3

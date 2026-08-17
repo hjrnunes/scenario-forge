@@ -1,0 +1,196 @@
+{
+  "name" : "SP1 Stage 2 — Completeness critic",
+  "scenarios" : [ {
+    "name" : "SP1-CRITIC-01 critic produces a valid CriticFindings model",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid CriticFindings JSON with gaps and checklist results"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a CriticFindings model is produced"
+    }, {
+      "keyword" : "And",
+      "text" : "the model has a gaps list, checklist_results dict, and taxonomy_probe_results dict"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-02 critic with no gaps produces empty gaps list",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a CriticFindings JSON with an empty gaps list"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the CriticFindings gaps list is empty"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-03 gap types are validated",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a CriticFindings JSON with a gap of type <gap_type>",
+      "parameters" : [ "gap_type" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the CriticFindings model contains a gap with gap_type <gap_type>",
+      "parameters" : [ "gap_type" ]
+    } ],
+    "examples" : [ {
+      "gap_type" : "missing_responsibility"
+    }, {
+      "gap_type" : "missing_feedback"
+    }, {
+      "gap_type" : "missing_pm_part"
+    } ]
+  }, {
+    "name" : "SP1-CRITIC-04 gap with invalid type fails validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a CriticFindings JSON with a gap of type missing_tool"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing gap_type"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-05 each gap has description, related_attack_path, and suggested_remedy",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a CriticFindings JSON with a gap having all required fields"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the gap has a description, related_attack_path, and suggested_remedy"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-06 checklist results map responsibility names to status",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a CriticFindings JSON with checklist results"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the checklist_results map responsibility names to present, absent_justified, or absent_unjustified"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-07 critic call is logged with stage stage_2 and step critic",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid CriticFindings JSON"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for call logging"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "a call log entry is appended with stage stage_2"
+    }, {
+      "keyword" : "And",
+      "text" : "the call log entry step is critic"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-08 critic receives control structure, capability profile, and use-case",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid CriticFindings JSON"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the user prompt contains the control structure"
+    }, {
+      "keyword" : "And",
+      "text" : "the user prompt contains the capability profile"
+    }, {
+      "keyword" : "And",
+      "text" : "the user prompt contains the use-case text"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-09 taxonomy probes are conditioned on capability profile",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a capability profile with KC sub-code KC6.3.3 indicating RAG"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM that returns a valid CriticFindings JSON"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the user prompt contains taxonomy-derived probes for RAG retrieval integrity"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-10 unjustified gaps trigger revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a CriticFindings JSON with an absent_unjustified checklist result"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "revision is triggered"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-11 only justified gaps do not trigger revision",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a CriticFindings JSON with all checklist results as absent_justified or present"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "revision is not triggered"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1-CRITIC-12 critic findings are recorded in the run manifest",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a CriticFindings JSON with two gaps"
+    }, {
+      "keyword" : "When",
+      "text" : "the completeness critic is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run manifest critic_findings contains two entries"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model critic module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with responsibilities RESP-1 and RESP-2 is available"
+  }, {
+    "keyword" : "And",
+    "text" : "a capability profile and use-case text are available"
+  } ]
+}

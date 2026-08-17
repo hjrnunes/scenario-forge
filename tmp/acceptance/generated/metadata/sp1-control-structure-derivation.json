@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 control structure derivation",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp1_control_structure_derivation.json",
+  "implementation_hash": "sha256:1a05b0367d5ca9aa59495b7c74a62a65f52a6937a0aaecefb531f826244bae34",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_control_structure_derivation_acceptance_test.py"
+  ]
+}

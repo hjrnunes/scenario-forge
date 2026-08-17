@@ -1,0 +1,153 @@
+{
+  "name" : "ICAEnumeration boundary schema validation",
+  "scenarios" : [ {
+    "name" : "ICAEnumeration-01 valid slot with ICA passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA slot RESP-1:CA-1-1:NOT_PROVIDED with is_na false and one ICA referencing hazard H-1 and constraint SC-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ICAEnumeration-02 valid N/A slot passes validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA slot RESP-1:CA-1-1:NOT_PROVIDED with is_na true and na_justification no hazardous context"
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ICAEnumeration-03 N/A slot without na_justification fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA slot RESP-1:CA-1-1:NOT_PROVIDED with is_na true and no na_justification"
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing na_justification"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ICAEnumeration-04 N/A slot with ICAs fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA slot RESP-1:CA-1-1:NOT_PROVIDED with is_na true, na_justification none, and one ICA"
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing icas"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ICAEnumeration-05 non-N/A slot with empty ICAs fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA slot RESP-1:CA-1-1:NOT_PROVIDED with is_na false and zero ICAs"
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing icas"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ICAEnumeration-06 non-N/A slot with na_justification fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA slot RESP-1:CA-1-1:NOT_PROVIDED with is_na false, one ICA, and na_justification set"
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing na_justification"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ICAEnumeration-07 ICA referencing non-existent hazard fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA slot RESP-1:CA-1-1:NOT_PROVIDED with is_na false and one ICA referencing hazard H-99"
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing related_hazards"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ICAEnumeration-08 ICA referencing non-existent constraint fails",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA slot RESP-1:CA-1-1:NOT_PROVIDED with is_na false and one ICA referencing constraint SC-99"
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing related_constraints"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ICAEnumeration-09 duplicate slot IDs fail",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "two ICA slots with the same slot_id RESP-1:CA-1-1:NOT_PROVIDED"
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing duplicate"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "ICAEnumeration-10 all UCA types are accepted",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA slot RESP-1:CA-1-1:<uca_type> with is_na false and one ICA",
+      "parameters" : [ "uca_type" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the ICA enumeration is validated against the loss analysis and control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ {
+      "uca_type" : "NOT_PROVIDED"
+    }, {
+      "uca_type" : "INCORRECT"
+    }, {
+      "uca_type" : "WRONG_TIMING"
+    }, {
+      "uca_type" : "WRONG_DURATION"
+    } ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA boundary schema module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a loss analysis with loss L-1, hazard H-1, and constraint SC-1"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with responsibility RESP-1, control action CA-1-1, and PM-1-1"
+  } ]
+}

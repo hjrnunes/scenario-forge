@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 solution neutrality",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp1_solution_neutrality.json",
+  "implementation_hash": "sha256:d433236890eee40e93e2d20488f2e6e1a6b1efcdd220faa39e7cda8e0af8a4b2",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_solution_neutrality_acceptance_test.py"
+  ]
+}
