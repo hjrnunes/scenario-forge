@@ -44,6 +44,72 @@ PROJECT_ROOT = _find_project_root()
 FIXTURE_DIR = PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "fixtures"
 SP3_OUTPUT = PROJECT_ROOT / "output" / "runs" / "20260810-sp3-occiai-or"
 
+_TREE_SCENARIO_YAML = """\
+scenario_id: SCN-TREE
+scenario_spec:
+  scenario_id: SCN-TREE
+  threat_source:
+    ica_slot_id: RESP-1:CA-1-1:NOT_PROVIDED
+    provenance: structural
+    ica_id: RESP-1:CA-1-1:NOT_PROVIDED:1
+  target_controller: RESP-1
+  target_control_action: CA-1-1
+  ica_type: NOT_PROVIDED
+  defender_bdi:
+    beliefs:
+      - pm_id: PM-1
+        content: The process model is accurate.
+        vulnerability: Prompt injection can corrupt the process model.
+    desires:
+      - resp_id: RESP-1
+        content: Preserve safe control.
+    intentions:
+      - ca_id: CA-1-1
+        content: Verify the control action.
+  attacker_bdi:
+    beliefs:
+      - The control action can be influenced.
+    desires:
+      - Induce an unsafe control action.
+    intentions:
+      - Inject malicious instructions.
+  catalog_context: []
+  loss_scenario: The unsafe action causes harm.
+narrative: An attacker manipulates the control flow.
+attack_tree:
+  root: Induce ICA NOT_PROVIDED on CA-1-1
+  branches:
+    - category: controller_side
+      label: Corrupt the controller process model
+      children:
+        - label: Inject misleading instructions
+    - category: path_side
+      label: Intercept the control path
+      children:
+        - label: Alter the incoming message
+    - category: coordination_gap
+      label: Exploit a coordination gap
+      children:
+        - label: Suppress required verification
+  leaves: []
+gherkin_spec:
+  feature: Safe control action handling
+  scenario: Injection bypasses verification
+  given:
+    - Given the process model is accurate
+  when:
+    - When an attacker injects misleading instructions
+  then_expected:
+    - Then the control action is verified
+  then_actual:
+    - But the control action is not verified
+gherkin_raw: ""
+target_responsibility: RESP-1
+ica_type: NOT_PROVIDED
+catalog_mappings: []
+provenance: structural
+"""
+
 
 def _build_combined_output_dir(tmpdir: Path) -> Path:
     """Build a combined STPA output directory in *tmpdir* with all artifacts."""
@@ -82,6 +148,13 @@ def _build_combined_output_dir(tmpdir: Path) -> Path:
             for f in scn_dir.iterdir():
                 if f.suffix in (".yaml", ".feature"):
                     shutil.copy2(f, scenarios_dir / f.name)
+
+    # The historical SP3 fixture has empty attack trees.  Keep it for the
+    # broad report smoke checks, and add one current-schema scenario so the
+    # CLI QA exercises the rendered tree markup and category badges.
+    (scenarios_dir / "SCN-TREE.yaml").write_text(
+        _TREE_SCENARIO_YAML, encoding="utf-8"
+    )
 
     return combined
 

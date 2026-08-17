@@ -58,7 +58,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -156,19 +155,19 @@ CLASS_B_VERDICTS: list[tuple[str, str, str, str]] = [
     (
         "the revision is run",
         "the revision is run",
-        "_h_bf2_revision_run_with_log_capture",
-        "Wraps _h_rev_revision_run with log capture for duplicate "
-        "rejection warnings; the dead _h_rev_revision_run function "
-        "is still called via delegation — only its registration is "
-        "dead.",
+        "_h_revnorm_run",
+        "The revision-normalization router is the live registration. "
+        "When normalization is inactive, it delegates to "
+        "_h_bf2_revision_run_with_log_capture, preserving log capture "
+        "for duplicate rejection warnings.",
     ),
     (
         "the revision is run",
         "the revision is run",
-        "_h_bf2_revision_run_with_log_capture",
-        "Same live handler as case 3; the dead _h_sp1_rev_run "
-        "function is still called via fallthrough from "
-        "_h_rev_revision_run — only its registration is dead.",
+        "_h_revnorm_run",
+        "Same live router as case 3. Its inactive-normalization "
+        "fallback preserves the intended revision chain; the old "
+        "_h_sp1_rev_run registration remains dead.",
     ),
     (
         "the TemplateLoader can load templates from t",

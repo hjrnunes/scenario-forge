@@ -228,7 +228,6 @@ _STEM_PREFIX_TAGS: tuple[tuple[str, str], ...] = (
     ("sp2_", "sp2"),
     ("sp3_", "sp3"),
     ("sp3-", "sp3"),
-    ("stpa_report", "stpa_report"),
     ("stage6_", "sp3"),
 )
 

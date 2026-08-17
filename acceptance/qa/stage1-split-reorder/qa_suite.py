@@ -376,7 +376,7 @@ def run_pipeline_checks(
             uc_losses = loss_analysis.get("use_case_losses", [])
 
             has_risk_card_loss = any(
-                l.get("provenance") == "risk_card" for l in risk_losses
+                loss.get("provenance") == "risk_card" for loss in risk_losses
             )
             runner.check(
                 "stage1a-split: at least one loss with provenance risk_card",
@@ -385,7 +385,7 @@ def run_pipeline_checks(
             )
 
             all_risk_have_source = all(
-                l.get("source_risk_cards") for l in risk_losses
+                loss.get("source_risk_cards") for loss in risk_losses
             )
             runner.check(
                 "stage1a-split: every risk_card loss has non-empty source_risk_cards",
@@ -394,8 +394,8 @@ def run_pipeline_checks(
 
             # --- stage1a-split: use_case_losses with provenance use_case ---
             has_use_case_loss = any(
-                l.get("provenance") in ("use_case", "critic_derived")
-                for l in uc_losses
+                loss.get("provenance") in ("use_case", "critic_derived")
+                for loss in uc_losses
             )
             runner.check(
                 "stage1a-split: at least one loss with provenance use_case",
@@ -404,7 +404,7 @@ def run_pipeline_checks(
             )
 
             all_uc_empty_source = all(
-                not l.get("source_risk_cards") for l in uc_losses
+                not loss.get("source_risk_cards") for loss in uc_losses
             )
             runner.check(
                 "stage1a-split: every use_case loss has empty source_risk_cards",
@@ -413,7 +413,7 @@ def run_pipeline_checks(
 
             # --- stage1a-split: ID sequence continuity ---
             all_losses = risk_losses + uc_losses
-            loss_ids = [l.get("loss_id", "") for l in all_losses]
+            loss_ids = [loss.get("loss_id", "") for loss in all_losses]
             hazard_ids = [h.get("hazard_id", "") for h in loss_analysis.get("hazards", [])]
             sc_ids = [sc.get("constraint_id", "") for sc in loss_analysis.get("security_constraints", [])]
 

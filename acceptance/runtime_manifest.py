@@ -17,7 +17,6 @@ MODULES = (
     'sp2',
     'sp3',
     'sp3_prompt_remediation',
-    'report',
     'stage1_split',
     'acceptance_refresh',
     'critic_revision_fix',
