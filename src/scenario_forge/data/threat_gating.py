@@ -99,8 +99,7 @@ def _compute_kc_enabled_threats(
             enabled.setdefault(tid, set()).add("hitl")
 
     return {
-        tid: f"enabled by KC sub-codes: {sorted(kcs)}"
-        for tid, kcs in enabled.items()
+        tid: f"enabled by KC sub-codes: {sorted(kcs)}" for tid, kcs in enabled.items()
     }
 
 

@@ -19,6 +19,7 @@ SWARMFORGE_BEADS=true           # true | false (set by /swarmforge-setup; orches
 SWARMFORGE_SPEC_REVIEW=false    # true | false (operator opt-in; true = orchestrator asks for spec approval before coding)
 SWARMFORGE_TEST_CMD="uv run pytest tests/ -x"
 SWARMFORGE_ACCEPTANCE_CMD="./scripts/acceptance.sh --test"
+SWARMFORGE_QUALITY_CMD="./scripts/quality.sh"
 SWARMFORGE_QA_CMD=""
 SWARMFORGE_COVERAGE_CMD="uv run pytest tests/ --cov=src --cov-branch --cov-report=lcov:lcov.info -q"      # generates lcov.info for LCOV-consuming tools (Python: crap4py, mutate4py); -q avoids flooding the subagent context with ~6000 test lines
 SWARMFORGE_CRAP_CMD="crap4py src/ --lcov lcov.info --max-crap 6"

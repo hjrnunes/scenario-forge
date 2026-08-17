@@ -37,12 +37,10 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import copy
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -52,12 +50,7 @@ PROJECT_ROOT = next(
     p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
 )
 PROMPTS_DIR = (
-    PROJECT_ROOT
-    / "src"
-    / "scenario_forge"
-    / "stpa"
-    / "threat_enum"
-    / "prompts"
+    PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "threat_enum" / "prompts"
 )
 SYSTEM_PROMPT_TEMPLATE = PROMPTS_DIR / "stage3_system.j2"
 USER_PROMPT_TEMPLATE = PROMPTS_DIR / "stage3_user.j2"
@@ -97,9 +90,7 @@ class QARunner:
         self.results: list[CheckResult] = []
 
     def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(
-            CheckResult(name, "PASS" if condition else "FAIL", detail)
-        )
+        self.results.append(CheckResult(name, "PASS" if condition else "FAIL", detail))
 
     def skip(self, name: str, reason: str) -> None:
         self.results.append(CheckResult(name, "SKIP", reason))
@@ -346,9 +337,7 @@ def run_static_checks(runner: QARunner) -> None:
     # --- Technology context: not a single generic suffix ---------------------
     # The old code used a single suffix for all tools.  The revised code must
     # have at least two distinct suffix strings.
-    susceptible_lines = re.findall(
-        r"susceptible to [^\"\n]+", tech_src
-    )
+    susceptible_lines = re.findall(r"susceptible to [^\"\n]+", tech_src)
     unique_suffixes = set(susceptible_lines)
     runner.check(
         "SP2-PR-static-26: technology context has at least two distinct "
@@ -366,11 +355,6 @@ def run_static_checks(runner: QARunner) -> None:
 
 def _build_minimal_fixtures():
     """Build minimal control structure, loss analysis, slots, and profile."""
-    from scenario_forge.models.capability_profile import (
-        CapabilityProfile,
-        EntryPoint,
-        ToolInventoryEntry,
-    )
     from scenario_forge.stpa.infra.templates import TemplateLoader
     from scenario_forge.stpa.models.control_structure import (
         ControlAction,
@@ -398,16 +382,12 @@ def _build_minimal_fixtures():
         responsibility_constraints=[
             {"rc_id": "RC-1-1", "description": "Must validate"}
         ],
-        process_model_parts=[
-            ProcessModelPart(pm_id="PM-1-1", description="State")
-        ],
+        process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
         control_actions=[
             ControlAction(
                 ca_id="CA-1-1",
                 description="Validate user input",
-                target=ElementRef(
-                    type=ReferenceType.controlled_process, id="CP-1"
-                ),
+                target=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
             )
         ],
         feedback_channels=[
@@ -415,17 +395,13 @@ def _build_minimal_fixtures():
                 fb_id="FB-1-1",
                 description="Feedback",
                 updates="PM-1-1",
-                source=ElementRef(
-                    type=ReferenceType.controlled_process, id="CP-1"
-                ),
+                source=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
             )
         ],
     )
     cs = ControlStructure(
         responsibilities=[resp],
-        controlled_processes=[
-            ControlledProcess(cp_id="CP-1", description="P1")
-        ],
+        controlled_processes=[ControlledProcess(cp_id="CP-1", description="P1")],
     )
     la = LossAnalysis(
         risk_card_losses=[
@@ -465,7 +441,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             build_technology_context,
         )
         from scenario_forge.stpa.threat_enum.slot_filling import ICASlotFillResult
-        from scenario_forge.stpa.models.ica_enumeration import ICASlot, UCAType, ICA
+        from scenario_forge.stpa.models.ica_enumeration import UCAType
         from scenario_forge.models.capability_profile import (
             CapabilityProfile,
             EntryPoint,
@@ -684,8 +660,15 @@ def run_dynamic_checks(runner: QARunner) -> None:
             f"Expected NOT_PROVIDED, got {slot.uca_type}",
         )
         # Check all required fields are present
-        for field in ("slot_id", "responsibility", "control_action", "uca_type",
-                       "is_na", "icas", "na_justification"):
+        for field in (
+            "slot_id",
+            "responsibility",
+            "control_action",
+            "uca_type",
+            "is_na",
+            "icas",
+            "na_justification",
+        ):
             runner.check(
                 f"SP2-PR-dynamic-25: slot has field {field}",
                 hasattr(slot, field),
@@ -699,17 +682,34 @@ def run_dynamic_checks(runner: QARunner) -> None:
         )
 
     # --- Technology context: capability-aware classification ------------------
-    _run_tech_context_checks(runner, build_technology_context, CapabilityProfile,
-                              EntryPoint, ToolInventoryEntry, MagicMock)
+    _run_tech_context_checks(
+        runner,
+        build_technology_context,
+        CapabilityProfile,
+        EntryPoint,
+        ToolInventoryEntry,
+        MagicMock,
+    )
 
     # --- Anti-vacuity checks -------------------------------------------------
-    _run_anti_vacuity_checks(runner, system_prompt, user_prompt,
-                              build_technology_context, CapabilityProfile,
-                              EntryPoint, ToolInventoryEntry, MagicMock)
+    _run_anti_vacuity_checks(
+        runner,
+        system_prompt,
+        user_prompt,
+        build_technology_context,
+        CapabilityProfile,
+        EntryPoint,
+        ToolInventoryEntry,
+        MagicMock,
+    )
 
 
 def _make_profile_with_tool(
-    CapabilityProfile, EntryPoint, ToolInventoryEntry, tool_name, tool_desc,
+    CapabilityProfile,
+    EntryPoint,
+    ToolInventoryEntry,
+    tool_name,
+    tool_desc,
 ):
     """Build a minimal CapabilityProfile with a single tool."""
     # We need zones_active to include tool_execution for the profile to accept
@@ -717,6 +717,7 @@ def _make_profile_with_tool(
     # directly without full validation.  Use a MagicMock to avoid model
     # validation constraints.
     from unittest.mock import MagicMock
+
     mock = MagicMock()
     mock.zones_active = ["tool_execution"]
     mock.kc_subcodes = []
@@ -729,8 +730,12 @@ def _make_profile_with_tool(
 
 
 def _run_tech_context_checks(
-    runner, build_technology_context, CapabilityProfile, EntryPoint,
-    ToolInventoryEntry, MagicMock,
+    runner,
+    build_technology_context,
+    CapabilityProfile,
+    EntryPoint,
+    ToolInventoryEntry,
+    MagicMock,
 ) -> None:
     """Technology context capability-aware classification checks."""
 
@@ -743,8 +748,11 @@ def _run_tech_context_checks(
     ]
     for tool_name, tool_desc in read_tools:
         profile = _make_profile_with_tool(
-            CapabilityProfile, EntryPoint, ToolInventoryEntry,
-            tool_name, tool_desc,
+            CapabilityProfile,
+            EntryPoint,
+            ToolInventoryEntry,
+            tool_name,
+            tool_desc,
         )
         ctx = build_technology_context(profile)
         runner.check(
@@ -767,8 +775,11 @@ def _run_tech_context_checks(
     ]
     for tool_name, tool_desc in write_tools:
         profile = _make_profile_with_tool(
-            CapabilityProfile, EntryPoint, ToolInventoryEntry,
-            tool_name, tool_desc,
+            CapabilityProfile,
+            EntryPoint,
+            ToolInventoryEntry,
+            tool_name,
+            tool_desc,
         )
         ctx = build_technology_context(profile)
         runner.check(
@@ -778,8 +789,7 @@ def _run_tech_context_checks(
         )
         runner.check(
             f"SP2-PR-dynamic-33: write tool '{tool_name}' emits unauthorized state change",
-            "unauthorized state change" in ctx.lower()
-            or "state change" in ctx.lower(),
+            "unauthorized state change" in ctx.lower() or "state change" in ctx.lower(),
             f"Context for {tool_name}: {ctx}",
         )
 
@@ -790,8 +800,11 @@ def _run_tech_context_checks(
     ]
     for tool_name, tool_desc in unknown_tools:
         profile = _make_profile_with_tool(
-            CapabilityProfile, EntryPoint, ToolInventoryEntry,
-            tool_name, tool_desc,
+            CapabilityProfile,
+            EntryPoint,
+            ToolInventoryEntry,
+            tool_name,
+            tool_desc,
         )
         ctx = build_technology_context(profile)
         runner.check(
@@ -802,12 +815,18 @@ def _run_tech_context_checks(
 
     # --- Distinct suffixes: read vs write ------------------------------------
     read_profile = _make_profile_with_tool(
-        CapabilityProfile, EntryPoint, ToolInventoryEntry,
-        "read-query", "Reads data",
+        CapabilityProfile,
+        EntryPoint,
+        ToolInventoryEntry,
+        "read-query",
+        "Reads data",
     )
     write_profile = _make_profile_with_tool(
-        CapabilityProfile, EntryPoint, ToolInventoryEntry,
-        "write-action", "Writes data",
+        CapabilityProfile,
+        EntryPoint,
+        ToolInventoryEntry,
+        "write-action",
+        "Writes data",
     )
     read_ctx = build_technology_context(read_profile)
     write_ctx = build_technology_context(write_profile)
@@ -833,7 +852,7 @@ def _run_tech_context_checks(
     empty_profile.entry_points = []
     empty_profile.tool_inventory = None
     ctx = build_technology_context(empty_profile)
-    tool_lines = [l for l in ctx.splitlines() if "Tool '" in l]
+    tool_lines = [line for line in ctx.splitlines() if "Tool '" in line]
     runner.check(
         "SP2-PR-dynamic-36: empty tool inventory produces no tool lines",
         len(tool_lines) == 0,
@@ -843,8 +862,11 @@ def _run_tech_context_checks(
     # --- Overlapping verbs: classified by dominant intent --------------------
     # "Reads logs and writes audit entries" — write is the dominant security risk
     overlap_write = _make_profile_with_tool(
-        CapabilityProfile, EntryPoint, ToolInventoryEntry,
-        "read-and-write-log", "Reads logs and writes audit entries",
+        CapabilityProfile,
+        EntryPoint,
+        ToolInventoryEntry,
+        "read-and-write-log",
+        "Reads logs and writes audit entries",
     )
     ctx = build_technology_context(overlap_write)
     runner.check(
@@ -855,8 +877,11 @@ def _run_tech_context_checks(
     )
 
     overlap_read = _make_profile_with_tool(
-        CapabilityProfile, EntryPoint, ToolInventoryEntry,
-        "retrieve-and-format", "Retrieves documents and formats output",
+        CapabilityProfile,
+        EntryPoint,
+        ToolInventoryEntry,
+        "retrieve-and-format",
+        "Retrieves documents and formats output",
     )
     ctx = build_technology_context(overlap_read)
     runner.check(
@@ -868,9 +893,14 @@ def _run_tech_context_checks(
 
 
 def _run_anti_vacuity_checks(
-    runner, system_prompt, user_prompt,
-    build_technology_context, CapabilityProfile, EntryPoint,
-    ToolInventoryEntry, MagicMock,
+    runner,
+    system_prompt,
+    user_prompt,
+    build_technology_context,
+    CapabilityProfile,
+    EntryPoint,
+    ToolInventoryEntry,
+    MagicMock,
 ) -> None:
     """Anti-vacuity: removing required elements must cause check failure."""
 
@@ -903,8 +933,11 @@ def _run_anti_vacuity_checks(
     # suffix were absent.  We simulate this by checking that the write-specific
     # terms are NOT in the read-tool output (proving the branches are distinct).
     read_profile = _make_profile_with_tool(
-        CapabilityProfile, EntryPoint, ToolInventoryEntry,
-        "pure-read", "Reads data from the store",
+        CapabilityProfile,
+        EntryPoint,
+        ToolInventoryEntry,
+        "pure-read",
+        "Reads data from the store",
     )
     read_ctx = build_technology_context(read_profile)
     # The read context should NOT contain write-specific terms
@@ -1039,10 +1072,15 @@ def run_regression_checks(runner: QARunner) -> None:
         try:
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "pytest",
+                    sys.executable,
+                    "-m",
+                    "pytest",
                     test_path,
-                    "-v", "--tb=short", "--no-header",
-                    "-p", "no:cacheprovider",
+                    "-v",
+                    "--tb=short",
+                    "--no-header",
+                    "-p",
+                    "no:cacheprovider",
                 ],
                 capture_output=True,
                 text=True,
@@ -1051,22 +1089,19 @@ def run_regression_checks(runner: QARunner) -> None:
             )
             output = result.stdout + result.stderr
             runner.check(
-                f"SP2-PR-regression: {test_class}::{test_method} "
-                f"({description})",
+                f"SP2-PR-regression: {test_class}::{test_method} ({description})",
                 result.returncode == 0 and "PASSED" in output,
                 f"rc={result.returncode}, output: {output[:300]}",
             )
         except subprocess.TimeoutExpired:
             runner.check(
-                f"SP2-PR-regression: {test_class}::{test_method} "
-                f"({description})",
+                f"SP2-PR-regression: {test_class}::{test_method} ({description})",
                 False,
                 "pytest timed out after 120s",
             )
         except Exception as exc:
             runner.check(
-                f"SP2-PR-regression: {test_class}::{test_method} "
-                f"({description})",
+                f"SP2-PR-regression: {test_class}::{test_method} ({description})",
                 False,
                 str(exc),
             )
@@ -1083,20 +1118,30 @@ def main() -> int:
             "QA suite for SP2 Stage 3 prompt revision (bead scenario-forge-f787)"
         ),
     )
-    parser.add_argument("--static", action="store_true",
-                        help="Run static source-text checks only")
-    parser.add_argument("--dynamic", action="store_true",
-                        help="Run dynamic import-and-render checks only")
-    parser.add_argument("--regression", action="store_true",
-                        help="Run existing stage3 slot-fill test regression matrix")
-    parser.add_argument("--pipeline", action="store_true",
-                        help="Run (or list) checks that need a live LLM endpoint")
-    parser.add_argument("--all", action="store_true",
-                        help="Run static, dynamic, and regression checks")
+    parser.add_argument(
+        "--static", action="store_true", help="Run static source-text checks only"
+    )
+    parser.add_argument(
+        "--dynamic",
+        action="store_true",
+        help="Run dynamic import-and-render checks only",
+    )
+    parser.add_argument(
+        "--regression",
+        action="store_true",
+        help="Run existing stage3 slot-fill test regression matrix",
+    )
+    parser.add_argument(
+        "--pipeline",
+        action="store_true",
+        help="Run (or list) checks that need a live LLM endpoint",
+    )
+    parser.add_argument(
+        "--all", action="store_true", help="Run static, dynamic, and regression checks"
+    )
     args = parser.parse_args()
 
-    if not any([args.static, args.dynamic, args.regression,
-                args.pipeline, args.all]):
+    if not any([args.static, args.dynamic, args.regression, args.pipeline, args.all]):
         args.all = True
 
     runner = QARunner()

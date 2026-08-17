@@ -145,10 +145,7 @@ def metric_tree_branch_coverage(
         and ``coverage_rate``.
     """
     total = len(scenarios)
-    covered = sum(
-        1 for s in scenarios
-        if count_branch_categories(s.attack_tree) >= 2
-    )
+    covered = sum(1 for s in scenarios if count_branch_categories(s.attack_tree) >= 2)
     return {
         "total_scenarios": total,
         "scenarios_with_2plus_categories": covered,
@@ -273,7 +270,10 @@ def metric_diversity(
         ``responsibility_diversity``, and ``ica_type_diversity``.
     """
     by_resp = _count_by(scenarios, lambda s: s.target_responsibility)
-    by_ica = _count_by(scenarios, lambda s: s.ica_type.value if hasattr(s.ica_type, 'value') else str(s.ica_type))
+    by_ica = _count_by(
+        scenarios,
+        lambda s: s.ica_type.value if hasattr(s.ica_type, "value") else str(s.ica_type),
+    )
     by_branch = _count_branch_usage(scenarios)
     unique_mechanisms = _count_unique_mechanisms(scenarios)
 
@@ -317,12 +317,17 @@ def compute_eval_scorecard(
     """
     return {
         "metrics": {
-            "structural_consideration": metric_structural_consideration(enriched_threat_set),
+            "structural_consideration": metric_structural_consideration(
+                enriched_threat_set
+            ),
             "na_quality": metric_na_quality(enriched_threat_set),
             "bdi_grounding": metric_bdi_grounding(scenarios, control_structure),
             "tree_branch_coverage": metric_tree_branch_coverage(scenarios),
             "traceability_depth": metric_traceability_depth(
-                scenarios, enriched_threat_set, control_structure, loss_analysis,
+                scenarios,
+                enriched_threat_set,
+                control_structure,
+                loss_analysis,
                 precomputed_errors=precomputed_trace_errors,
             ),
             "diversity": metric_diversity(scenarios),
@@ -347,7 +352,9 @@ def write_eval_scorecard(scorecard: dict, run_dir: Path) -> Path:
     """
     path = run_dir / "eval-scorecard.yaml"
     path.write_text(
-        yaml.dump(scorecard, default_flow_style=False, sort_keys=False, allow_unicode=True),
+        yaml.dump(
+            scorecard, default_flow_style=False, sort_keys=False, allow_unicode=True
+        ),
         encoding="utf-8",
     )
     return path

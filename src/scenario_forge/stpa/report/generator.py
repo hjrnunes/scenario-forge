@@ -101,7 +101,10 @@ def _load_scenarios(scenarios_dir: Path) -> list[tuple[str, Any, str | None]]:
     for yaml_path in yaml_files:
         scenario_id = yaml_path.stem
         envelope = _load_model_artifact(
-            yaml_path, {}, ScenarioEnvelope, yaml_path.name,
+            yaml_path,
+            {},
+            ScenarioEnvelope,
+            yaml_path.name,
         )
         feature_path = scenarios_dir / f"{scenario_id}.feature"
         feature_text = None
@@ -147,15 +150,22 @@ def _load_sp1_artifacts(
     """Load SP1 artifacts: loss analysis, capability profile, control structure."""
     sp1_raw: dict[str, str] = {}
     loss_analysis = _load_model_artifact(
-        output_dir / "loss-analysis.yaml", sp1_raw, LossAnalysis, "loss-analysis.yaml",
+        output_dir / "loss-analysis.yaml",
+        sp1_raw,
+        LossAnalysis,
+        "loss-analysis.yaml",
     )
     capability_profile = _load_model_artifact(
-        output_dir / "capability-profile.yaml", sp1_raw,
-        CapabilityProfile, "capability-profile.yaml",
+        output_dir / "capability-profile.yaml",
+        sp1_raw,
+        CapabilityProfile,
+        "capability-profile.yaml",
     )
     control_structure = _load_model_artifact(
-        output_dir / "control-structure.yaml", sp1_raw,
-        ControlStructure, "control-structure.yaml",
+        output_dir / "control-structure.yaml",
+        sp1_raw,
+        ControlStructure,
+        "control-structure.yaml",
     )
     return loss_analysis, capability_profile, control_structure, sp1_raw
 
@@ -166,12 +176,16 @@ def _load_sp2_artifacts(
     """Load SP2 artifacts: ICA enumeration, enriched threats."""
     sp2_raw: dict[str, str] = {}
     ica_enumeration = _load_model_artifact(
-        output_dir / "ica-enumeration.yaml", sp2_raw,
-        ICAEnumeration, "ica-enumeration.yaml",
+        output_dir / "ica-enumeration.yaml",
+        sp2_raw,
+        ICAEnumeration,
+        "ica-enumeration.yaml",
     )
     enriched_threats = _load_model_artifact(
-        output_dir / "enriched-threats.yaml", sp2_raw,
-        EnrichedThreatSet, "enriched-threats.yaml",
+        output_dir / "enriched-threats.yaml",
+        sp2_raw,
+        EnrichedThreatSet,
+        "enriched-threats.yaml",
     )
     return ica_enumeration, enriched_threats, sp2_raw
 
@@ -259,8 +273,8 @@ def generate_report(output_dir: Path, output_path: Path | None = None) -> Path:
     output_path = _resolve_output_path(output_dir, output_path)
 
     # --- Load artifacts ---
-    loss_analysis, capability_profile, control_structure, sp1_raw = (
-        _load_sp1_artifacts(output_dir)
+    loss_analysis, capability_profile, control_structure, sp1_raw = _load_sp1_artifacts(
+        output_dir
     )
     ica_enumeration, enriched_threats, sp2_raw = _load_sp2_artifacts(output_dir)
 
@@ -279,19 +293,26 @@ def generate_report(output_dir: Path, output_path: Path | None = None) -> Path:
     manifest_data = _read_yaml_dict(output_dir / "run-manifest.yaml")
     manifest_raw: dict[str, str] = {}
     _load_raw_yaml(
-        output_dir / "run-manifest.yaml", manifest_raw, "run-manifest.yaml",
+        output_dir / "run-manifest.yaml",
+        manifest_raw,
+        "run-manifest.yaml",
     )
 
     # --- Extract hero summary data ---
     run_id, created_at, scenario_count, eval_metrics = _extract_hero_data(
-        manifest_data, scenarios, eval_data,
+        manifest_data,
+        scenarios,
+        eval_data,
     )
 
     # --- Build section HTML ---
     kc_display: dict[str, str] | None = None
     if capability_profile is not None:
         try:
-            from scenario_forge.models.capability_profile import build_kc_subcodes_display
+            from scenario_forge.models.capability_profile import (
+                build_kc_subcodes_display,
+            )
+
             kc_display = build_kc_subcodes_display(
                 getattr(capability_profile, "kc_subcodes", [])
             )
@@ -299,7 +320,10 @@ def generate_report(output_dir: Path, output_path: Path | None = None) -> Path:
             pass
 
     sp1_html = build_sp1_card(
-        loss_analysis, capability_profile, control_structure, sp1_raw,
+        loss_analysis,
+        capability_profile,
+        control_structure,
+        sp1_raw,
         kc_display=kc_display,
     )
     sp2_html = build_sp2_card(ica_enumeration, enriched_threats, sp2_raw)

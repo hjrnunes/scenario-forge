@@ -30,6 +30,7 @@ from pathlib import Path
 # Test fixture builder
 # ---------------------------------------------------------------------------
 
+
 def _find_project_root() -> Path:
     """Find the project root by searching for pyproject.toml."""
     p = Path(__file__).resolve().parent
@@ -120,8 +121,11 @@ def _build_combined_output_dir(tmpdir: Path) -> Path:
 
     # SP1 artifacts from fixtures (convert underscores to hyphens for
     # the filenames the generator expects)
-    for name in ("loss_analysis_occiai.yaml", "capability_profile_occiai.yaml",
-                 "control_structure_occiai.yaml"):
+    for name in (
+        "loss_analysis_occiai.yaml",
+        "capability_profile_occiai.yaml",
+        "control_structure_occiai.yaml",
+    ):
         src = FIXTURE_DIR / name
         if src.exists():
             dest_name = name.replace("_occiai", "").replace("_", "-")
@@ -136,8 +140,12 @@ def _build_combined_output_dir(tmpdir: Path) -> Path:
 
     # SP3 artifacts from output runs
     if SP3_OUTPUT.exists():
-        for fname in ("eval-scorecard.yaml", "coverage-gaps.json",
-                      "run-manifest.yaml", "calls.jsonl"):
+        for fname in (
+            "eval-scorecard.yaml",
+            "coverage-gaps.json",
+            "run-manifest.yaml",
+            "calls.jsonl",
+        ):
             src = SP3_OUTPUT / fname
             if src.exists():
                 shutil.copy2(src, combined / fname)
@@ -152,9 +160,7 @@ def _build_combined_output_dir(tmpdir: Path) -> Path:
     # The historical SP3 fixture has empty attack trees.  Keep it for the
     # broad report smoke checks, and add one current-schema scenario so the
     # CLI QA exercises the rendered tree markup and category badges.
-    (scenarios_dir / "SCN-TREE.yaml").write_text(
-        _TREE_SCENARIO_YAML, encoding="utf-8"
-    )
+    (scenarios_dir / "SCN-TREE.yaml").write_text(_TREE_SCENARIO_YAML, encoding="utf-8")
 
     return combined
 
@@ -162,6 +168,7 @@ def _build_combined_output_dir(tmpdir: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Minimal HTML content inspector
 # ---------------------------------------------------------------------------
+
 
 class HTMLInspector:
     """Lightweight HTML content inspector using regex (no external deps)."""
@@ -204,28 +211,35 @@ class HTMLInspector:
 
     def has_collapsible(self, label: str) -> bool:
         """Check if a collapsible <details> section with the given label exists."""
-        return self.contains(f">{label}<") or self.contains(f'>{label}</summary>')
+        return self.contains(f">{label}<") or self.contains(f">{label}</summary>")
 
     def no_external_links(self) -> bool:
         """Check that there are no <link> tags with href to external resources."""
         # Allow <link> with no href or inline data, but not external URLs
-        links = re.findall(r'<link\s[^>]*href\s*=\s*["\']([^"\']+)["\']', self.html, re.IGNORECASE)
+        links = re.findall(
+            r'<link\s[^>]*href\s*=\s*["\']([^"\']+)["\']', self.html, re.IGNORECASE
+        )
         return all(h.startswith("data:") for h in links)
 
     def no_external_scripts(self) -> bool:
         """Check that there are no <script src> tags with external URLs."""
-        scripts = re.findall(r'<script\s[^>]*src\s*=\s*["\']([^"\']+)["\']', self.html, re.IGNORECASE)
+        scripts = re.findall(
+            r'<script\s[^>]*src\s*=\s*["\']([^"\']+)["\']', self.html, re.IGNORECASE
+        )
         return all(s.startswith("data:") for s in scripts)
 
     def no_external_images(self) -> bool:
         """Check that there are no <img> tags with external src URLs."""
-        imgs = re.findall(r'<img\s[^>]*src\s*=\s*["\']([^"\']+)["\']', self.html, re.IGNORECASE)
+        imgs = re.findall(
+            r'<img\s[^>]*src\s*=\s*["\']([^"\']+)["\']', self.html, re.IGNORECASE
+        )
         return all(s.startswith("data:") for s in imgs)
 
 
 # ---------------------------------------------------------------------------
 # Test runner
 # ---------------------------------------------------------------------------
+
 
 class TestResult:
     def __init__(self) -> None:
@@ -269,13 +283,18 @@ def run_cli(args: list[str], cwd: Path | None = None) -> subprocess.CompletedPro
 # Test suites
 # ---------------------------------------------------------------------------
 
-def test_report_generation(result: TestResult, combined_dir: Path, tmpdir: Path) -> Path | None:
+
+def test_report_generation(
+    result: TestResult, combined_dir: Path, tmpdir: Path
+) -> Path | None:
     """Test: CLI report generation."""
     print("\n--- Report Generation ---")
 
     # Test: valid directory produces report
     proc = run_cli(["stpa-report", "--output-dir", str(combined_dir)])
-    result.check(proc.returncode == 0, f"CLI exits 0 for valid dir (got {proc.returncode})")
+    result.check(
+        proc.returncode == 0, f"CLI exits 0 for valid dir (got {proc.returncode})"
+    )
     report_path = combined_dir / "stpa-report.html"
     result.check(report_path.exists(), "stpa-report.html is written")
 
@@ -307,11 +326,18 @@ def test_report_generation(result: TestResult, combined_dir: Path, tmpdir: Path)
 
     # Test: custom output filename
     custom_path = tmpdir / "custom-report.html"
-    proc3 = run_cli([
-        "stpa-report", "--output-dir", str(combined_dir),
-        "--output", str(custom_path),
-    ])
-    result.check(proc3.returncode == 0, f"CLI exits 0 with --output (got {proc3.returncode})")
+    proc3 = run_cli(
+        [
+            "stpa-report",
+            "--output-dir",
+            str(combined_dir),
+            "--output",
+            str(custom_path),
+        ]
+    )
+    result.check(
+        proc3.returncode == 0, f"CLI exits 0 with --output (got {proc3.returncode})"
+    )
     result.check(custom_path.exists(), "Custom report file is written")
 
     return report_path
@@ -398,7 +424,9 @@ def test_sp2_flow_card(result: TestResult, inspector: HTMLInspector) -> None:
     )
     # Produces arrow between SP1 and SP2
     result.check(
-        inspector.contains("→") or inspector.contains("↓") or inspector.contains("produces")
+        inspector.contains("→")
+        or inspector.contains("↓")
+        or inspector.contains("produces")
         or inspector.contains_regex(r'class\s*=\s*["\'][^"\']*arrow[^"\']*["\']'),
         "Produces arrow between SP1 and SP2",
     )
@@ -423,14 +451,18 @@ def test_sp3_flow_card(result: TestResult, inspector: HTMLInspector) -> None:
     )
     # Collapsible scenario cards
     result.check(
-        inspector.contains_regex(r'class\s*=\s*["\'][^"\']*scenario[^"\']*card[^"\']*["\']')
-        or inspector.contains_regex(r'<details[^>]*>.*?SCN-001', re.DOTALL),
+        inspector.contains_regex(
+            r'class\s*=\s*["\'][^"\']*scenario[^"\']*card[^"\']*["\']'
+        )
+        or inspector.contains_regex(r"<details[^>]*>.*?SCN-001", re.DOTALL),
         "Scenario cards are collapsible",
     )
     # BDI section
     result.check(
-        inspector.contains("belief") or inspector.contains("Belief")
-        or inspector.contains("BDI") or inspector.contains("bdi"),
+        inspector.contains("belief")
+        or inspector.contains("Belief")
+        or inspector.contains("BDI")
+        or inspector.contains("bdi"),
         "Scenario card contains BDI section",
     )
     # Narrative section
@@ -445,7 +477,9 @@ def test_sp3_flow_card(result: TestResult, inspector: HTMLInspector) -> None:
     )
     # Gherkin section
     result.check(
-        inspector.contains("Given") or inspector.contains("gherkin") or inspector.contains("Gherkin"),
+        inspector.contains("Given")
+        or inspector.contains("gherkin")
+        or inspector.contains("Gherkin"),
         "Scenario card contains Gherkin section",
     )
     # Eval scorecard
@@ -501,7 +535,7 @@ def test_llm_call_inspector(result: TestResult, inspector: HTMLInspector) -> Non
     )
     # Summary stats
     result.check(
-        inspector.contains_regex(r'(?:total|summary|successful|failed|success)'),
+        inspector.contains_regex(r"(?:total|summary|successful|failed|success)"),
         "LLM call inspector shows summary statistics",
     )
 
@@ -511,7 +545,8 @@ def test_run_manifest(result: TestResult, inspector: HTMLInspector) -> None:
     print("\n--- Run Manifest ---")
 
     result.check(
-        inspector.has_id("manifest") or inspector.contains_regex(r'id\s*=\s*["\']?manifest'),
+        inspector.has_id("manifest")
+        or inspector.contains_regex(r'id\s*=\s*["\']?manifest'),
         "Run manifest section exists with id",
     )
     result.check(
@@ -549,8 +584,11 @@ def test_sticky_nav(result: TestResult, inspector: HTMLInspector) -> None:
     )
     for label in ("SP1", "SP2", "SP3", "Calls", "Manifest"):
         result.check(
-            inspector.contains(f">{label}<") or inspector.contains(f'>{label}</a>')
-            or inspector.contains_regex(rf'href\s*=\s*["\']#(?:sp1|sp2|sp3|calls|manifest)["\'][^>]*>\s*{label}'),
+            inspector.contains(f">{label}<")
+            or inspector.contains(f">{label}</a>")
+            or inspector.contains_regex(
+                rf'href\s*=\s*["\']#(?:sp1|sp2|sp3|calls|manifest)["\'][^>]*>\s*{label}'
+            ),
             f"Sticky nav contains link labeled '{label}'",
         )
     # JavaScript for scroll behavior
@@ -571,23 +609,30 @@ def test_attack_tree_visual(result: TestResult, inspector: HTMLInspector) -> Non
     )
     # Color coding for branch categories
     result.check(
-        inspector.contains("controller_side") or inspector.contains("controller-side")
+        inspector.contains("controller_side")
+        or inspector.contains("controller-side")
         or inspector.contains_regex(r'class\s*=\s*["\'][^"\']*controller[^"\']*["\']'),
         "Attack tree has controller_side category",
     )
     result.check(
-        inspector.contains("path_side") or inspector.contains("path-side")
+        inspector.contains("path_side")
+        or inspector.contains("path-side")
         or inspector.contains_regex(r'class\s*=\s*["\'][^"\']*path[^"\']*["\']'),
         "Attack tree has path_side category",
     )
     result.check(
-        inspector.contains("coordination_gap") or inspector.contains("coordination-gap")
-        or inspector.contains_regex(r'class\s*=\s*["\'][^"\']*coordination[^"\']*["\']'),
+        inspector.contains("coordination_gap")
+        or inspector.contains("coordination-gap")
+        or inspector.contains_regex(
+            r'class\s*=\s*["\'][^"\']*coordination[^"\']*["\']'
+        ),
         "Attack tree has coordination_gap category",
     )
     # Gate badges
     result.check(
-        inspector.contains("AND") or inspector.contains("OR") or inspector.contains("LEAF")
+        inspector.contains("AND")
+        or inspector.contains("OR")
+        or inspector.contains("LEAF")
         or inspector.contains_regex(r'class\s*=\s*["\'][^"\']*gate[^"\']*["\']'),
         "Attack tree shows gate badges",
     )
@@ -599,14 +644,15 @@ def test_gherkin_highlighting(result: TestResult, inspector: HTMLInspector) -> N
 
     # Check for Gherkin keyword highlighting CSS classes
     result.check(
-        inspector.contains("gherkin-keyword") or inspector.contains("step-given")
+        inspector.contains("gherkin-keyword")
+        or inspector.contains("step-given")
         or inspector.contains_regex(r'class\s*=\s*["\'][^"\']*step[^"\']*["\']'),
         "Gherkin keywords have highlighting CSS classes",
     )
     # Given = blue
     result.check(
         inspector.contains_regex(r'(?:step-given|gherkin-keyword)[^"\']*\b.*?3b82f6')
-        or inspector.contains_regex(r'\.step-given\b.*?3b82f6')
+        or inspector.contains_regex(r"\.step-given\b.*?3b82f6")
         or inspector.contains("step-given"),
         "Given keyword highlighted (blue)",
     )
@@ -638,18 +684,22 @@ def test_eval_scorecard_gauges(result: TestResult, inspector: HTMLInspector) -> 
 
     # Check for gauge/bar elements
     result.check(
-        inspector.contains_regex(r'class\s*=\s*["\'][^"\']*(?:gauge|score-bar|scorecard-badge)[^"\']*["\']'),
+        inspector.contains_regex(
+            r'class\s*=\s*["\'][^"\']*(?:gauge|score-bar|scorecard-badge)[^"\']*["\']'
+        ),
         "Eval scorecard has gauge/bar elements",
     )
     # Green for >= 80%
     result.check(
-        inspector.contains("scorecard-badge-green") or inspector.contains("22c55e")
+        inspector.contains("scorecard-badge-green")
+        or inspector.contains("22c55e")
         or inspector.contains_regex(r'class\s*=\s*["\'][^"\']*green[^"\']*["\']'),
         "Eval scorecard has green gauge for high scores",
     )
     # Red for < 60%
     result.check(
-        inspector.contains("scorecard-badge-red") or inspector.contains("ef4444")
+        inspector.contains("scorecard-badge-red")
+        or inspector.contains("ef4444")
         or inspector.contains_regex(r'class\s*=\s*["\'][^"\']*red[^"\']*["\']'),
         "Eval scorecard has red gauge for low scores",
     )
@@ -664,6 +714,7 @@ def test_eval_scorecard_gauges(result: TestResult, inspector: HTMLInspector) -> 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="STPA Report QA Suite")

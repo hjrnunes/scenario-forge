@@ -114,7 +114,9 @@ def refresh_snapshot(root: Path | None = None, run_tests: bool = False) -> int:
 
     keep_ir, keep_tests, keep_meta = _expected_artifacts(project_root)
     _remove_stale(project_root / layout.ir_dir, keep_ir, "*.json")
-    _remove_stale(project_root / layout.generated_dir, keep_tests, "*_acceptance_test.py")
+    _remove_stale(
+        project_root / layout.generated_dir, keep_tests, "*_acceptance_test.py"
+    )
     _remove_stale(project_root / layout.metadata_dir, keep_meta, "*.json")
     if run_tests:
         generated = project_root / layout.generated_dir

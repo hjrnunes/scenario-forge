@@ -50,12 +50,7 @@ PROJECT_ROOT = next(
     p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
 )
 PROMPTS_DIR = (
-    PROJECT_ROOT
-    / "src"
-    / "scenario_forge"
-    / "stpa"
-    / "scenario_prod"
-    / "prompts"
+    PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "scenario_prod" / "prompts"
 )
 STAGE5_SYSTEM = PROMPTS_DIR / "stage5_system.j2"
 STAGE5_USER = PROMPTS_DIR / "stage5_user.j2"
@@ -93,9 +88,7 @@ class QARunner:
         self.results: list[CheckResult] = []
 
     def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(
-            CheckResult(name, "PASS" if condition else "FAIL", detail)
-        )
+        self.results.append(CheckResult(name, "PASS" if condition else "FAIL", detail))
 
     def skip(self, name: str, reason: str) -> None:
         self.results.append(CheckResult(name, "SKIP", reason))
@@ -205,8 +198,7 @@ def run_static_checks(runner: QARunner) -> None:
     for stage in ("Stage 5", "Stage 6a", "Stage 6b", "Stage 6c"):
         sys_src = srcs[f"{stage} system"]
         runner.check(
-            f"SP3-072o-static-02: {stage} system prompt does not contain "
-            "STPA-Sec",
+            f"SP3-072o-static-02: {stage} system prompt does not contain STPA-Sec",
             "STPA-Sec" not in sys_src,
             f"The {stage} system prompt opener must use task-oriented "
             "security-analyst framing, not STPA-Sec jargon.",
@@ -334,8 +326,7 @@ def run_static_checks(runner: QARunner) -> None:
         # no variable looks malformed.
         malformed = re.findall(r"\{\{[^}]*\}\{[^}]*\}", src)
         runner.check(
-            f"SP3-072o-static-12: {label} template has no malformed Jinja "
-            "placeholders",
+            f"SP3-072o-static-12: {label} template has no malformed Jinja placeholders",
             len(malformed) == 0,
             f"Found malformed Jinja placeholders: {malformed}",
         )
@@ -398,9 +389,7 @@ def _build_minimal_fixtures() -> dict[str, Any]:
             ControlAction(
                 ca_id="CA-1-1",
                 description="Validate user input",
-                target=ElementRef(
-                    type=ReferenceType.controlled_process, id="CP-1"
-                ),
+                target=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
             )
         ],
         feedback_channels=[
@@ -408,9 +397,7 @@ def _build_minimal_fixtures() -> dict[str, Any]:
                 fb_id="FB-1-1",
                 description="Validation feedback",
                 updates="PM-1-1",
-                source=ElementRef(
-                    type=ReferenceType.controlled_process, id="CP-1"
-                ),
+                source=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
             )
         ],
     )
@@ -566,9 +553,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
 
     # Render prompts
     try:
-        s5_sys, s5_usr = build_bdi_prompts(
-            defender_bdi, threat, cs, "RESP-1", loader
-        )
+        s5_sys, s5_usr = build_bdi_prompts(defender_bdi, threat, cs, "RESP-1", loader)
         s6a_sys, s6a_usr = build_narrative_prompts(spec, loader)
         s6b_sys, s6b_usr = build_attack_tree_prompts(spec, cs, loader)
         s6c_sys, s6c_usr = build_gherkin_prompts(spec, sc, la, loader)
@@ -597,8 +582,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
     # --- No unresolved Jinja placeholders in rendered prompts ---------------
     for label, text in rendered.items():
         runner.check(
-            f"SP3-072o-dynamic-02: {label} rendered prompt has no "
-            "unresolved {{ }}",
+            f"SP3-072o-dynamic-02: {label} rendered prompt has no unresolved {{{{ }}}}",
             "{{" not in text and "}}" not in text,
             f"Unresolved Jinja placeholder found in {label}.",
         )
@@ -607,8 +591,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
     for stage in ("Stage 5", "Stage 6a", "Stage 6b", "Stage 6c"):
         sys_text = rendered[f"{stage} system"]
         runner.check(
-            f"SP3-072o-dynamic-03: {stage} rendered system prompt has no "
-            "STPA-Sec",
+            f"SP3-072o-dynamic-03: {stage} rendered system prompt has no STPA-Sec",
             "STPA-Sec" not in sys_text,
             f"STPA-Sec must not appear in the {stage} rendered system prompt.",
         )
@@ -633,8 +616,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
         "SP3-072o-dynamic-06: Stage 6c rendered user prompt does not list "
         "valid hazard IDs",
         valid_hazard_ids not in usr_6c,
-        f"Stage 6c user prompt should not contain hazard IDs "
-        f"'{valid_hazard_ids}'.",
+        f"Stage 6c user prompt should not contain hazard IDs '{valid_hazard_ids}'.",
     )
     runner.check(
         "SP3-072o-dynamic-07: Stage 6c rendered user prompt does not contain "
@@ -683,8 +665,12 @@ def _run_anti_vacuity_checks(
     # --- SP3-072o-40: Remove L-* only restriction from Stage 6c user prompt ----
     vacuous_6c = rendered["Stage 6c user"]
     for phrase in (
-        "only L-* loss IDs", "L-* loss IDs only", "use only L-*",
-        "only use L-*", "Do not use H-*", "not H-*",
+        "only L-* loss IDs",
+        "L-* loss IDs only",
+        "use only L-*",
+        "only use L-*",
+        "Do not use H-*",
+        "not H-*",
         "loss references use only L-*",
         "consequence references must not use H-*",
         "consequence references use only L-*",
@@ -702,7 +688,10 @@ def _run_anti_vacuity_checks(
     # --- SP3-072o-41: Remove no-code-fences instruction from Stage 6b system prompt
     vacuous_6b = rendered["Stage 6b system"]
     for phrase in (
-        "Do not wrap", "code fence", "code fences", "Markdown code",
+        "Do not wrap",
+        "code fence",
+        "code fences",
+        "Markdown code",
         "no code fences",
     ):
         vacuous_6b = vacuous_6b.replace(phrase, "REMOVED")
@@ -804,25 +793,23 @@ def run_pipeline_checks(runner: QARunner) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=(
-            "QA suite for SP3 prompt revision (bead scenario-forge-072o)"
-        ),
+        description=("QA suite for SP3 prompt revision (bead scenario-forge-072o)"),
     )
     parser.add_argument(
-        "--static", action="store_true",
-        help="Run static source-text checks only"
+        "--static", action="store_true", help="Run static source-text checks only"
     )
     parser.add_argument(
-        "--dynamic", action="store_true",
-        help="Run dynamic import-and-render checks only"
+        "--dynamic",
+        action="store_true",
+        help="Run dynamic import-and-render checks only",
     )
     parser.add_argument(
-        "--pipeline", action="store_true",
-        help="Run (or list) checks that need a live LLM endpoint"
+        "--pipeline",
+        action="store_true",
+        help="Run (or list) checks that need a live LLM endpoint",
     )
     parser.add_argument(
-        "--all", action="store_true",
-        help="Run static, dynamic, and regression checks"
+        "--all", action="store_true", help="Run static, dynamic, and regression checks"
     )
     args = parser.parse_args()
 

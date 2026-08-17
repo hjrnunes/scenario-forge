@@ -60,7 +60,9 @@ def load_sssom(path: str | Path) -> list[SSSOMMapping]:
         lines = [line for line in f if not line.startswith("#") and line.strip()]
 
     reader = csv.DictReader(lines, delimiter="\t")
-    has_source_cols = reader.fieldnames is not None and "subject_source" in reader.fieldnames
+    has_source_cols = (
+        reader.fieldnames is not None and "subject_source" in reader.fieldnames
+    )
 
     for row in reader:
         if has_source_cols:

@@ -12,8 +12,14 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from scenario_forge.stpa.models.control_structure import ControlStructure, Responsibility
-from scenario_forge.stpa.models.enriched_threat_set import EnrichedThreatSet, StructuralThreat
+from scenario_forge.stpa.models.control_structure import (
+    ControlStructure,
+    Responsibility,
+)
+from scenario_forge.stpa.models.enriched_threat_set import (
+    EnrichedThreatSet,
+    StructuralThreat,
+)
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.models.scenario_envelope import GherkinSpec, ScenarioEnvelope
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
@@ -119,8 +125,7 @@ def validate_vulnerability_completeness(
     for belief in scenario_spec.defender_bdi.beliefs:
         if not belief.vulnerability or not belief.vulnerability.strip():
             errors.append(
-                f"DefenderBelief {belief.pm_id} has an empty vulnerability "
-                f"annotation."
+                f"DefenderBelief {belief.pm_id} has an empty vulnerability annotation."
             )
     return ValidationResult(passed=len(errors) == 0, errors=errors)
 
@@ -152,10 +157,12 @@ def validate_tree_branch_coverage(attack_tree: dict) -> ValidationResult:
     """
     count = count_branch_categories(attack_tree)
     if count < 2:
-        return ValidationResult.failure([
-            f"Attack tree uses only {count} branch categor"
-            f"{'y' if count == 1 else 'ies'}, need at least 2."
-        ])
+        return ValidationResult.failure(
+            [
+                f"Attack tree uses only {count} branch categor"
+                f"{'y' if count == 1 else 'ies'}, need at least 2."
+            ]
+        )
     return ValidationResult.success()
 
 
@@ -201,7 +208,9 @@ def _validate_gherkin_spec(spec: GherkinSpec) -> ValidationResult:
 def _check_then_expected(steps: list[str]) -> list[str]:
     """Validate that then_expected has a 'should' clause."""
     if not steps:
-        return ["Gherkin missing a 'Then ... should ...' step (then_expected is empty)."]
+        return [
+            "Gherkin missing a 'Then ... should ...' step (then_expected is empty)."
+        ]
     if not any("should" in step.lower() for step in steps):
         return ["Gherkin then_expected missing a 'should' clause."]
     return []
@@ -219,9 +228,7 @@ def _check_then_actual(steps: list[str]) -> list[str]:
 def _check_given_pm_refs(steps: list[str]) -> list[str]:
     """Validate that given steps reference process model states (PM-*)."""
     if not steps or not any(_PM_ID_RE.search(step) for step in steps):
-        return [
-            "Gherkin Given steps do not reference a process model state (PM-*)."
-        ]
+        return ["Gherkin Given steps do not reference a process model state (PM-*)."]
     return []
 
 
@@ -283,7 +290,9 @@ def validate_loss_hazard_id_references(
 
     errors: list[str] = []
     errors.extend(_find_hallucinated_ids(text, _LOSS_ID_RE, valid_loss_ids, "Loss"))
-    errors.extend(_find_hallucinated_ids(text, _HAZARD_ID_RE, valid_hazard_ids, "Hazard"))
+    errors.extend(
+        _find_hallucinated_ids(text, _HAZARD_ID_RE, valid_hazard_ids, "Hazard")
+    )
 
     return ValidationResult(passed=len(errors) == 0, errors=errors)
 
@@ -327,26 +336,30 @@ def validate_attack_tree_root_label(
     expected = f"Induce ICA {ica_type} on {ca_id}"
 
     if not root or not root.strip():
-        return ValidationResult.failure([
-            f"Attack tree root is empty; expected '{expected}'."
-        ])
+        return ValidationResult.failure(
+            [f"Attack tree root is empty; expected '{expected}'."]
+        )
 
     # Case-insensitive on "Induce ICA", exact on type and CA
     root_lower = root.lower().strip()
     prefix = "induce ica "
     if not root_lower.startswith(prefix):
-        return ValidationResult.failure([
-            f"Attack tree root '{root}' does not start with 'Induce ICA'; "
-            f"expected '{expected}'."
-        ])
+        return ValidationResult.failure(
+            [
+                f"Attack tree root '{root}' does not start with 'Induce ICA'; "
+                f"expected '{expected}'."
+            ]
+        )
 
-    remainder = root.strip()[len("Induce ICA "):]
+    remainder = root.strip()[len("Induce ICA ") :]
     expected_suffix = f"{ica_type} on {ca_id}"
     if remainder != expected_suffix:
-        return ValidationResult.failure([
-            f"Attack tree root '{root}' does not match expected '{expected}' "
-            f"(ICA type or CA ID mismatch)."
-        ])
+        return ValidationResult.failure(
+            [
+                f"Attack tree root '{root}' does not match expected '{expected}' "
+                f"(ICA type or CA ID mismatch)."
+            ]
+        )
 
     return ValidationResult.success()
 
@@ -356,6 +369,7 @@ def _extract_root(attack_tree: dict | object) -> str:
     if isinstance(attack_tree, dict):
         return attack_tree.get("root", "")
     return ""
+
 
 def validate_tree_id_references(
     attack_tree: dict,
@@ -404,9 +418,7 @@ def _flatten_nested_ids(
     this collects ``id_attr`` from every item across all responsibilities.
     """
     return {
-        getattr(item, id_attr)
-        for r in responsibilities
-        for item in getattr(r, attr)
+        getattr(item, id_attr) for r in responsibilities for item in getattr(r, attr)
     }
 
 
@@ -456,11 +468,7 @@ def validate_traceability(
 
     errors: list[TraceabilityError] = []
     for scenario in scenarios:
-        errors.extend(
-            _validate_single_scenario_traceability(
-                scenario, lookups
-            )
-        )
+        errors.extend(_validate_single_scenario_traceability(scenario, lookups))
     return errors
 
 
@@ -488,9 +496,7 @@ def _build_traceability_lookups(
         resp_ids=cs_ids["RESP"],
         all_ca_ids=cs_ids["CA"],
         threat_by_ica_id={
-            t.ica_id: t
-            for t in enriched_threat_set.structural_threats
-            if t.ica_id
+            t.ica_id: t for t in enriched_threat_set.structural_threats if t.ica_id
         },
     )
 
@@ -508,12 +514,14 @@ def _validate_single_scenario_traceability(
 
     threat = lookups.threat_by_ica_id.get(spec.threat_source.ica_id)
     if threat is None:
-        errors.append(TraceabilityError(
-            scenario_id=sid,
-            broken_link="ica",
-            expected=f"valid ica_id from {sorted(lookups.threat_by_ica_id.keys())}",
-            actual=spec.threat_source.ica_id or "None",
-        ))
+        errors.append(
+            TraceabilityError(
+                scenario_id=sid,
+                broken_link="ica",
+                expected=f"valid ica_id from {sorted(lookups.threat_by_ica_id.keys())}",
+                actual=spec.threat_source.ica_id or "None",
+            )
+        )
         return errors
 
     errors.extend(_check_hazard_and_constraint_links(sid, threat, lookups))
@@ -530,28 +538,34 @@ def _check_scenario_links(
 
     provenance = spec.threat_source.provenance
     if provenance not in LEGAL_PROVENANCE_ROOTS and provenance != "structural":
-        errors.append(TraceabilityError(
-            scenario_id=sid,
-            broken_link="provenance_root",
-            expected=str(LEGAL_PROVENANCE_ROOTS | {"structural"}),
-            actual=provenance,
-        ))
+        errors.append(
+            TraceabilityError(
+                scenario_id=sid,
+                broken_link="provenance_root",
+                expected=str(LEGAL_PROVENANCE_ROOTS | {"structural"}),
+                actual=provenance,
+            )
+        )
 
     if spec.target_controller not in lookups.resp_ids:
-        errors.append(TraceabilityError(
-            scenario_id=sid,
-            broken_link="responsibility",
-            expected=f"valid RESP ID from {sorted(lookups.resp_ids)}",
-            actual=spec.target_controller,
-        ))
+        errors.append(
+            TraceabilityError(
+                scenario_id=sid,
+                broken_link="responsibility",
+                expected=f"valid RESP ID from {sorted(lookups.resp_ids)}",
+                actual=spec.target_controller,
+            )
+        )
 
     if spec.target_control_action not in lookups.all_ca_ids:
-        errors.append(TraceabilityError(
-            scenario_id=sid,
-            broken_link="control_action",
-            expected=f"valid CA ID from {sorted(lookups.all_ca_ids)}",
-            actual=spec.target_control_action,
-        ))
+        errors.append(
+            TraceabilityError(
+                scenario_id=sid,
+                broken_link="control_action",
+                expected=f"valid CA ID from {sorted(lookups.all_ca_ids)}",
+                actual=spec.target_control_action,
+            )
+        )
 
     return errors
 
@@ -566,21 +580,25 @@ def _check_hazard_and_constraint_links(
 
     for hz_id in threat.related_hazards:
         if hz_id not in lookups.hazard_ids:
-            errors.append(TraceabilityError(
-                scenario_id=sid,
-                broken_link="hazard",
-                expected=f"valid hazard ID from {sorted(lookups.hazard_ids)}",
-                actual=hz_id,
-            ))
+            errors.append(
+                TraceabilityError(
+                    scenario_id=sid,
+                    broken_link="hazard",
+                    expected=f"valid hazard ID from {sorted(lookups.hazard_ids)}",
+                    actual=hz_id,
+                )
+            )
 
     for cs_id in threat.related_constraints:
         if cs_id not in lookups.constraint_ids and not cs_id.startswith("RC-"):
-            errors.append(TraceabilityError(
-                scenario_id=sid,
-                broken_link="constraint",
-                expected=f"valid constraint ID from {sorted(lookups.constraint_ids)}",
-                actual=cs_id,
-            ))
+            errors.append(
+                TraceabilityError(
+                    scenario_id=sid,
+                    broken_link="constraint",
+                    expected=f"valid constraint ID from {sorted(lookups.constraint_ids)}",
+                    actual=cs_id,
+                )
+            )
 
     return errors
 
@@ -639,7 +657,9 @@ def _find_orphan_elements(
     orphans: list[str] = []
     for resp in control_structure.responsibilities:
         orphans.extend(
-            _find_orphans_in_resp(resp, referenced_pms, referenced_cas, referenced_resps)
+            _find_orphans_in_resp(
+                resp, referenced_pms, referenced_cas, referenced_resps
+            )
         )
     return orphans
 
@@ -655,13 +675,9 @@ def _find_orphans_in_resp(
     if resp.resp_id not in ref_resps:
         orphans.append(resp.resp_id)
     orphans.extend(
-        pm.pm_id for pm in resp.process_model_parts
-        if pm.pm_id not in ref_pms
+        pm.pm_id for pm in resp.process_model_parts if pm.pm_id not in ref_pms
     )
-    orphans.extend(
-        ca.ca_id for ca in resp.control_actions
-        if ca.ca_id not in ref_cas
-    )
+    orphans.extend(ca.ca_id for ca in resp.control_actions if ca.ca_id not in ref_cas)
     return orphans
 
 

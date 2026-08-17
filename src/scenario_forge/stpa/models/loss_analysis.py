@@ -110,7 +110,10 @@ def _validate_risk_card_provenance(losses: list[Loss]) -> None:
 def _validate_use_case_provenance(losses: list[Loss]) -> None:
     """Ensure every loss in use_case_losses has use_case/critic_derived provenance and empty source."""
     for loss in losses:
-        if loss.provenance not in (LossProvenance.use_case, LossProvenance.critic_derived):
+        if loss.provenance not in (
+            LossProvenance.use_case,
+            LossProvenance.critic_derived,
+        ):
             raise ValueError(
                 f"Loss {loss.loss_id} in use_case_losses has provenance "
                 f"'{loss.provenance.value}' but must be 'use_case' or "

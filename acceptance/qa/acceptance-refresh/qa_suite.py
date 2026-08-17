@@ -48,6 +48,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -62,15 +63,15 @@ import yaml
 # Paths
 # ---------------------------------------------------------------------------
 
-_PROJECT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+_PROJECT_ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
+)
 
 PROMPTS_DIR = (
     _PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "system_model" / "prompts"
 )
 LEGACY_FEATURES_DIR = _PROJECT_ROOT / "tests" / "stpa" / "features"
-REFRESH_FEATURES_DIR = (
-    _PROJECT_ROOT / "features" / "acceptance-refresh"
-)
+REFRESH_FEATURES_DIR = _PROJECT_ROOT / "features" / "acceptance-refresh"
 IR_DIR = _PROJECT_ROOT / "build" / "acceptance" / "ir"
 GENERATED_DIR = _PROJECT_ROOT / "build" / "acceptance" / "generated"
 
@@ -196,6 +197,7 @@ EXPECTED_STAGE1A_CALL_COUNT = 2
 # Test framework
 # ---------------------------------------------------------------------------
 
+
 class CheckResult:
     """Result of a single QA check."""
 
@@ -242,6 +244,7 @@ class QARunner:
 # Corpus helpers
 # ---------------------------------------------------------------------------
 
+
 def _strip_manifest_comments(text: str) -> str:
     """Drop leading '#' comment lines from a feature file.
 
@@ -279,7 +282,10 @@ def _feature_files() -> list[Path]:
 
 def _feature_bodies() -> dict[Path, str]:
     """Feature file bodies with mutation-manifest comments stripped."""
-    return {p: _strip_manifest_comments(p.read_text(encoding="utf-8")) for p in _feature_files()}
+    return {
+        p: _strip_manifest_comments(p.read_text(encoding="utf-8"))
+        for p in _feature_files()
+    }
 
 
 def _ir_files() -> list[Path]:
@@ -347,12 +353,16 @@ def _whole_word(needle: str, haystack: str) -> bool:
     Prevents 'loss_analysis' from matching inside 'derive_loss_analysis' and
     prevents 'call_2_responsibilities' from matching 'call_2a_responsibilities'.
     """
-    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(needle)}(?![A-Za-z0-9_])", haystack) is not None
+    return (
+        re.search(rf"(?<![A-Za-z0-9_]){re.escape(needle)}(?![A-Za-z0-9_])", haystack)
+        is not None
+    )
 
 
 # ---------------------------------------------------------------------------
 # Static checks
 # ---------------------------------------------------------------------------
+
 
 def check_templates_on_disk(runner: QARunner) -> None:
     """Prompt templates: stale ones deleted, replacements and stable ones present."""
@@ -397,7 +407,12 @@ def check_prompt_content(runner: QARunner) -> None:
     # Stage 1b no longer receives any loss-analysis context, which is what
     # made security-constraint contamination possible in the first place.
     stage1b_user = all_prompts.get("stage1b_user.j2", "")
-    for fragment in ("Security Constraints", "Loss Analysis", "loss_analysis", "all_losses"):
+    for fragment in (
+        "Security Constraints",
+        "Loss Analysis",
+        "loss_analysis",
+        "all_losses",
+    ):
         runner.check(
             f"prompt content: stage1b_user.j2 carries no {fragment!r} context",
             fragment not in stage1b_user,
@@ -417,10 +432,14 @@ def check_features_free_of_stale_symbols(runner: QARunner) -> None:
     # assertion that keeps it from coming back. Only affirmative uses are
     # staleness, and polarity is a property of the whole scenario block
     # because example rows carry no negation word of their own.
-    stale_needles = STALE_TEMPLATES + STALE_SYMBOLS + [
-        "call_2_responsibilities",
-        "call_3_connections",
-    ]
+    stale_needles = (
+        STALE_TEMPLATES
+        + STALE_SYMBOLS
+        + [
+            "call_2_responsibilities",
+            "call_3_connections",
+        ]
+    )
     for needle in stale_needles:
         offenders = []
         for path, body in bodies.items():
@@ -441,7 +460,9 @@ def check_features_free_of_stale_symbols(runner: QARunner) -> None:
 def check_features_name_replacements(runner: QARunner) -> None:
     """Every replacement template, symbol, and step is asserted somewhere."""
     corpus = "\n".join(_feature_bodies().values())
-    for needle in REPLACEMENT_TEMPLATES + REPLACEMENT_SYMBOLS + REPLACEMENT_STEPS + FALLBACK_STEPS:
+    for needle in (
+        REPLACEMENT_TEMPLATES + REPLACEMENT_SYMBOLS + REPLACEMENT_STEPS + FALLBACK_STEPS
+    ):
         runner.check(
             f"features: some feature asserts replacement {needle!r}",
             _whole_word(needle, corpus),
@@ -474,7 +495,9 @@ def check_retired_and_replacement_features(runner: QARunner) -> None:
             f"replacement: IR for {name} exists",
             bool(ir_candidates),
         )
-        entry_candidates = list(GENERATED_DIR.glob(f"*{name.replace('-', '_')}*_acceptance_test.py"))
+        entry_candidates = list(
+            GENERATED_DIR.glob(f"*{name.replace('-', '_')}*_acceptance_test.py")
+        )
         entry_candidates += list(GENERATED_DIR.glob(f"*{name}*_acceptance_test.py"))
         runner.check(
             f"replacement: generated entry point for {name} exists",
@@ -499,14 +522,20 @@ def check_ir_free_of_stale_symbols(runner: QARunner) -> None:
     parsed: list[tuple[Path, list[tuple[str, bool]]]] = []
     for path in ir_files:
         try:
-            parsed.append((path, _ir_assertions(json.loads(path.read_text(encoding="utf-8")))))
+            parsed.append(
+                (path, _ir_assertions(json.loads(path.read_text(encoding="utf-8"))))
+            )
         except (json.JSONDecodeError, UnicodeDecodeError):
             continue
 
-    needles = STALE_TEMPLATES + STALE_SYMBOLS + [
-        "call_2_responsibilities",
-        "call_3_connections",
-    ]
+    needles = (
+        STALE_TEMPLATES
+        + STALE_SYMBOLS
+        + [
+            "call_2_responsibilities",
+            "call_3_connections",
+        ]
+    )
     for needle in needles:
         offenders = []
         for path, pairs in parsed:
@@ -547,6 +576,36 @@ def check_ir_matches_features(runner: QARunner) -> None:
         )
 
 
+def _entry_point_ir_refs(path: Path) -> list[str]:
+    """Return JSON path literals embedded in a generated entry point.
+
+    The generator has emitted both ``Path(r"...json")`` and
+    ``_PROJECT_ROOT / "...json"`` forms over its lifetime. Parsing string
+    constants keeps these checks independent of either spelling.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (SyntaxError, UnicodeDecodeError):
+        return []
+    return sorted(
+        {
+            node.value
+            for node in ast.walk(tree)
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value.endswith(".json")
+            )
+        }
+    )
+
+
+def _resolve_entry_point_ir_ref(reference: str) -> Path:
+    """Resolve a generated entry point's repo-relative or absolute IR path."""
+    path = Path(reference)
+    return path if path.is_absolute() else _PROJECT_ROOT / path
+
+
 def check_entry_points_resolve(runner: QARunner) -> None:
     """Every generated entry point points at an IR file that exists."""
     entry_points = sorted(GENERATED_DIR.glob("*_acceptance_test.py"))
@@ -556,13 +615,18 @@ def check_entry_points_resolve(runner: QARunner) -> None:
         f"searched {GENERATED_DIR}",
     )
     for path in entry_points:
-        body = path.read_text(encoding="utf-8")
-        refs = re.findall(r'Path\(r"([^"]+\.json)"\)', body)
-        missing = [r for r in refs if not Path(r).exists()]
+        refs = _entry_point_ir_refs(path)
+        missing = [
+            reference
+            for reference in refs
+            if not _resolve_entry_point_ir_ref(reference).exists()
+        ]
         runner.check(
             f"entry point: {path.name} references an existing IR file",
             bool(refs) and not missing,
-            f"missing IR: {missing}" if missing else ("no IR reference found" if not refs else ""),
+            f"missing IR: {missing}"
+            if missing
+            else ("no IR reference found" if not refs else ""),
         )
 
 
@@ -570,11 +634,9 @@ def check_entry_points_cover_ir(runner: QARunner) -> None:
     """Every IR file is executed by exactly one generated entry point."""
     referenced: dict[str, int] = {}
     for path in GENERATED_DIR.glob("*_acceptance_test.py"):
-        body = path.read_text(encoding="utf-8")
-        for ref in set(re.findall(r'Path\(r"([^"]+\.json)"\)', body)):
-            referenced[Path(ref).resolve().as_posix()] = referenced.get(
-                Path(ref).resolve().as_posix(), 0
-            ) + 1
+        for reference in _entry_point_ir_refs(path):
+            resolved = _resolve_entry_point_ir_ref(reference).resolve().as_posix()
+            referenced[resolved] = referenced.get(resolved, 0) + 1
 
     for ir_path in _ir_files():
         key = ir_path.resolve().as_posix()
@@ -594,14 +656,15 @@ def check_entry_points_canonical_ir_location(runner: QARunner) -> None:
     """
     entry_points = sorted(GENERATED_DIR.glob("*_acceptance_test.py"))
     for path in entry_points:
-        body = path.read_text(encoding="utf-8")
-        refs = re.findall(r'Path\(r"([^"]+\.json)"\)', body)
+        refs = _entry_point_ir_refs(path)
         non_canonical = []
-        for ref in refs:
+        for reference in refs:
             try:
-                Path(ref).resolve().relative_to(IR_DIR.resolve())
+                _resolve_entry_point_ir_ref(reference).resolve().relative_to(
+                    IR_DIR.resolve()
+                )
             except ValueError:
-                non_canonical.append(ref)
+                non_canonical.append(reference)
         runner.check(
             f"canonical: {path.name} references IR in {IR_DIR.name}/",
             not non_canonical,
@@ -627,6 +690,7 @@ def run_static_checks(runner: QARunner) -> None:
 # Pipeline checks
 # ---------------------------------------------------------------------------
 
+
 def run_pipeline_checks(
     runner: QARunner,
     use_case: str,
@@ -637,16 +701,26 @@ def run_pipeline_checks(
     with tempfile.TemporaryDirectory(prefix="qa_acceptance_refresh_") as tmpdir:
         out_dir = Path(tmpdir) / "run"
         cmd = [
-            "uv", "run", "scenario-forge", "stpa-run",
-            "--use-case", str(use_case),
-            "--risk-extraction", str(risk_extraction),
-            "--output-dir", str(out_dir),
+            "uv",
+            "run",
+            "scenario-forge",
+            "stpa-run",
+            "--use-case",
+            str(use_case),
+            "--risk-extraction",
+            str(risk_extraction),
+            "--output-dir",
+            str(out_dir),
         ]
         if capability_profile is not None:
             cmd += ["--profile", str(capability_profile)]
 
         proc = subprocess.run(
-            cmd, cwd=_PROJECT_ROOT, capture_output=True, text=True, timeout=3600,
+            cmd,
+            cwd=_PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=3600,
         )
         runner.check(
             "pipeline: stpa-run exits with code 0",
@@ -656,7 +730,9 @@ def run_pipeline_checks(
 
         calls_path = out_dir / "calls.jsonl"
         if not calls_path.exists():
-            runner.check("pipeline: calls.jsonl exists", False, f"not found at {calls_path}")
+            runner.check(
+                "pipeline: calls.jsonl exists", False, f"not found at {calls_path}"
+            )
             return
         runner.check("pipeline: calls.jsonl exists", True)
 
@@ -673,7 +749,9 @@ def run_pipeline_checks(
             runner.check(
                 f"pipeline: call log contains step {step!r}",
                 step in logged_steps,
-                f"logged steps: {sorted(logged_steps)}" if step not in logged_steps else "",
+                f"logged steps: {sorted(logged_steps)}"
+                if step not in logged_steps
+                else "",
             )
 
         # Retired steps absent.
@@ -738,33 +816,43 @@ def run_pipeline_checks(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="End-to-end QA suite for the acceptance staleness refresh.",
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument(
-        "--static", action="store_true",
+        "--static",
+        action="store_true",
         help="Run static checks only (no LLM needed).",
     )
     mode.add_argument(
-        "--pipeline", action="store_true",
+        "--pipeline",
+        action="store_true",
         help="Run pipeline checks (requires LLM endpoint and input files).",
     )
     mode.add_argument(
-        "--all", action="store_true",
+        "--all",
+        action="store_true",
         help="Run both static and pipeline checks.",
     )
     parser.add_argument(
-        "--use-case", type=str, default=None,
+        "--use-case",
+        type=str,
+        default=None,
         help="Path to use-case text file for pipeline checks.",
     )
     parser.add_argument(
-        "--risk-extraction", type=Path, default=None,
+        "--risk-extraction",
+        type=Path,
+        default=None,
         help="Path to risk extraction JSON file for pipeline checks.",
     )
     parser.add_argument(
-        "--capability-profile", type=Path, default=None,
+        "--capability-profile",
+        type=Path,
+        default=None,
         help="Pre-built capability profile YAML (optional).",
     )
     args = parser.parse_args()
@@ -777,11 +865,16 @@ def main() -> int:
 
     if args.pipeline or args.all:
         if not args.use_case or not args.risk_extraction:
-            print("ERROR: --use-case and --risk-extraction required for pipeline checks")
+            print(
+                "ERROR: --use-case and --risk-extraction required for pipeline checks"
+            )
             return 1
         print("\n=== Pipeline checks (requires LLM endpoint) ===")
         run_pipeline_checks(
-            runner, args.use_case, args.risk_extraction, args.capability_profile,
+            runner,
+            args.use_case,
+            args.risk_extraction,
+            args.capability_profile,
         )
 
     return runner.summary()

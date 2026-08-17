@@ -47,11 +47,21 @@ _KC6_GATED_TECHNIQUES: frozenset[str] = frozenset(
     }
 )
 
-_KC6_SUBCODES: frozenset[str] = frozenset({
-    "KC6.1.1", "KC6.1.2", "KC6.2.1", "KC6.2.2",
-    "KC6.3.1", "KC6.3.2", "KC6.3.3",
-    "KC6.4", "KC6.5", "KC6.6", "KC6.7",
-})
+_KC6_SUBCODES: frozenset[str] = frozenset(
+    {
+        "KC6.1.1",
+        "KC6.1.2",
+        "KC6.2.1",
+        "KC6.2.2",
+        "KC6.3.1",
+        "KC6.3.2",
+        "KC6.3.3",
+        "KC6.4",
+        "KC6.5",
+        "KC6.6",
+        "KC6.7",
+    }
+)
 
 
 class ThreatSurfaceEntry(BaseModel):

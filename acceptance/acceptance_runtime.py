@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from runtime_features.sp1_revision import _h_rev_revision_run as _retained_rev_revision_run
+from runtime_features.sp1_revision import (
+    _h_rev_revision_run as _retained_rev_revision_run,
+)
 from runtime_shared import (
     World,
     _GDStageError,
@@ -23,10 +25,12 @@ _CURRENT_REGISTRATION_FEATURE: str | None = None
 _CURRENT_EXECUTION_FEATURE: str | None = None
 _REGISTERED_PATTERN_KEYS: set[tuple[str, str, str | None]] = set()
 
+
 def _set_feature(tag: str | None) -> None:
     """Set the feature tag for subsequent _register_first calls."""
     global _CURRENT_REGISTRATION_FEATURE
     _CURRENT_REGISTRATION_FEATURE = tag
+
 
 def _track_registration(pattern: str, handler: Any, feature_tag: str | None) -> None:
     """Record a registration and assert no exact duplicate exists.
@@ -49,9 +53,11 @@ def _track_registration(pattern: str, handler: Any, feature_tag: str | None) -> 
         )
     _REGISTERED_PATTERN_KEYS.add(key)
 
+
 def _register(pattern: str, handler: Any) -> None:
     _track_registration(pattern, handler, None)
     STEP_PATTERNS.append((re.compile(pattern, re.IGNORECASE), handler, None))
+
 
 def _register_first(pattern: str, handler: Any) -> None:
     """Register a pattern at the front of the list (higher priority).
@@ -65,6 +71,7 @@ def _register_first(pattern: str, handler: Any) -> None:
         0,
         (re.compile(pattern, re.IGNORECASE), handler, _CURRENT_REGISTRATION_FEATURE),
     )
+
 
 def find_pattern_conflicts(
     step_texts: list[str],
@@ -99,15 +106,12 @@ def find_pattern_conflicts(
                 continue
 
             witness = next(
-                (
-                    text
-                    for text in step_texts
-                    if distinct_handlers[0][0].search(text)
-                ),
+                (text for text in step_texts if distinct_handlers[0][0].search(text)),
                 "<no supplied witness>",
             )
             conflicts.append((witness, raw_pattern, raw_pattern))
     return conflicts
+
 
 class _RegistrationStage:
     """Private transaction buffer used before publishing the registry."""
@@ -118,7 +122,9 @@ class _RegistrationStage:
         self.feature: str | None = None
         self._sequence = 0
 
-    def add(self, pattern: str, handler: Any, first: bool, source_order: int | None) -> None:
+    def add(
+        self, pattern: str, handler: Any, first: bool, source_order: int | None
+    ) -> None:
         tag = self.feature if first else None
         handler_name = getattr(handler, "__name__", repr(handler))
         key = (pattern, handler_name, tag)
@@ -132,6 +138,7 @@ class _RegistrationStage:
         order = source_order if source_order is not None else self._sequence
         self.entries.append((order, self._sequence, first, pattern, handler, tag))
         self._sequence += 1
+
 
 class _RegistrationAPI:
     """Explicit feature-module registration API backed by one stage."""
@@ -151,21 +158,34 @@ class _RegistrationAPI:
     def set_feature(self, tag: str | None) -> None:
         self._stage.feature = tag
 
-    def register(self, pattern: str, handler: Any, *, source_order: int | None = None) -> None:
+    def register(
+        self, pattern: str, handler: Any, *, source_order: int | None = None
+    ) -> None:
         self._stage.add(pattern, handler, False, source_order)
 
-    def register_first(self, pattern: str, handler: Any, *, source_order: int | None = None) -> None:
+    def register_first(
+        self, pattern: str, handler: Any, *, source_order: int | None = None
+    ) -> None:
         self._stage.add(pattern, handler, True, source_order)
 
     def install_handlers(self, namespaces: list[dict[str, Any]]) -> None:
         for namespace in namespaces:
-            self.bindings.update({name: value for name, value in namespace.items() if name.startswith("_h_")})
+            self.bindings.update(
+                {
+                    name: value
+                    for name, value in namespace.items()
+                    if name.startswith("_h_")
+                }
+            )
         for namespace in namespaces:
             namespace.update(self.bindings)
 
+
 def _publish(stage: _RegistrationStage) -> None:
     patterns: list[tuple[re.Pattern, Any, str | None]] = []
-    for _, _, first, raw_pattern, handler, tag in sorted(stage.entries, key=lambda entry: (entry[0], entry[1])):
+    for _, _, first, raw_pattern, handler, tag in sorted(
+        stage.entries, key=lambda entry: (entry[0], entry[1])
+    ):
         value = (re.compile(raw_pattern, re.IGNORECASE), handler, tag)
         if first:
             patterns.insert(0, value)
@@ -175,16 +195,22 @@ def _publish(stage: _RegistrationStage) -> None:
     _REGISTERED_PATTERN_KEYS.clear()
     _REGISTERED_PATTERN_KEYS.update(stage.keys)
 
+
 def _load_feature_registry() -> None:
     """Validate, stage, and atomically publish all feature registrations."""
     import runtime_manifest
+
     stage = _RegistrationStage()
     api = _RegistrationAPI(stage)
     modules = runtime_manifest.load_modules()
     import runtime_shared
-    api.install_handlers([runtime_shared.__dict__, *[module.__dict__ for module in modules]])
+
+    api.install_handlers(
+        [runtime_shared.__dict__, *[module.__dict__ for module in modules]]
+    )
     runtime_manifest.register_all(api, modules)
     _publish(stage)
+
 
 def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
     """Execute a single step against the world.
@@ -214,6 +240,7 @@ def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
     except (ValidationError, ValueError, _GDStageError) as e:
         world.validation_error = e
         return True, ""
+
 
 # Feature-tag derivation lookup tables for _derive_feature_tag.
 # Directory-part to tag mapping (checked first, higher priority).
@@ -248,6 +275,7 @@ def _derive_feature_tag(ir_path: str) -> str | None:
             return tag
     return None
 
+
 def execute_ir(ir_path: str) -> tuple[bool, str]:
     """Execute all scenarios in a JSON IR file.
 
@@ -281,7 +309,9 @@ def execute_ir(ir_path: str) -> tuple[bool, str]:
             for bg_step in background_steps:
                 success, error = execute_step(world, bg_step, example)
                 if not success:
-                    output_lines.append(f"FAIL {exec_name}: background step failed: {error}")
+                    output_lines.append(
+                        f"FAIL {exec_name}: background step failed: {error}"
+                    )
                     all_passed = False
                     break
             else:
@@ -297,15 +327,19 @@ def execute_ir(ir_path: str) -> tuple[bool, str]:
 
     return all_passed, "\n".join(output_lines)
 
+
 _load_feature_registry()
+
 
 def _h_rev_revision_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Delegate the retained revision handler through the stable facade."""
     return _retained_rev_revision_run(world, text, examples)
 
+
 def _h_sp1_rev_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Delegate the retained SP1 revision helper through the stable facade."""
     return _retained_sp1_rev_run(world, text, examples)
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -321,10 +355,19 @@ if __name__ == "__main__":
         sys.exit(1)
 
 __all__ = [
-    "execute_ir", "execute_step", "STEP_PATTERNS", "_REGISTERED_PATTERN_KEYS",
-    "_track_registration", "_register", "_register_first", "_set_feature",
-    "_derive_feature_tag", "find_pattern_conflicts", "World",
-    "_h_rev_revision_run", "_h_sp1_rev_run",
+    "execute_ir",
+    "execute_step",
+    "STEP_PATTERNS",
+    "_REGISTERED_PATTERN_KEYS",
+    "_track_registration",
+    "_register",
+    "_register_first",
+    "_set_feature",
+    "_derive_feature_tag",
+    "find_pattern_conflicts",
+    "World",
+    "_h_rev_revision_run",
+    "_h_sp1_rev_run",
 ]
 
 

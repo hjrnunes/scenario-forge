@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/opt/homebrew/bin:$PATH"
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+
+uv run ruff check src acceptance
+uv run ruff format --check src acceptance

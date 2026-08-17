@@ -284,16 +284,11 @@ def _iter_resp_ref_fields(
     The caller can ``getattr``/``setattr`` *field_name* on *item* to
     read or nullify the ref.
     """
-    return [
-        (f"PM {pm.pm_id}", "feedback_source", pm)
-        for pm in resp.process_model_parts
-    ] + [
-        (f"CA {ca.ca_id}", "target", ca)
-        for ca in resp.control_actions
-    ] + [
-        (f"FB {fb.fb_id}", "source", fb)
-        for fb in resp.feedback_channels
-    ]
+    return (
+        [(f"PM {pm.pm_id}", "feedback_source", pm) for pm in resp.process_model_parts]
+        + [(f"CA {ca.ca_id}", "target", ca) for ca in resp.control_actions]
+        + [(f"FB {fb.fb_id}", "source", fb) for fb in resp.feedback_channels]
+    )
 
 
 def _nullify_invalid_refs_in_resp(
@@ -411,8 +406,7 @@ def _strip_all_element_refs(
     for resp in copy.deepcopy(responsibilities):
         if resp.resp_id in seen_resp_ids:
             warnings.append(
-                f"Further-degraded: removed duplicate responsibility "
-                f"{resp.resp_id}."
+                f"Further-degraded: removed duplicate responsibility {resp.resp_id}."
             )
             continue
         seen_resp_ids.add(resp.resp_id)
@@ -439,11 +433,9 @@ def _fallback_control_structure(
     """Build the sanitized fallback, degrading to stripped refs if needed."""
     warnings: list[str] = []
     try:
-        sanitized_resps, sanitized_cps, sanitize_warnings = (
-            _sanitize_for_fallback(
-                enriched_responsibilities,
-                controlled_processes,
-            )
+        sanitized_resps, sanitized_cps, sanitize_warnings = _sanitize_for_fallback(
+            enriched_responsibilities,
+            controlled_processes,
         )
         warnings.extend(sanitize_warnings)
         return (
@@ -656,10 +648,7 @@ def _next_fb_num(resp: Responsibility) -> int:
 def _find_orphan_pms(resp: Responsibility) -> list[str]:
     """Return PM IDs in *resp* that no feedback channel updates."""
     updated_pms = {fb.updates for fb in resp.feedback_channels}
-    return [
-        pm.pm_id for pm in resp.process_model_parts
-        if pm.pm_id not in updated_pms
-    ]
+    return [pm.pm_id for pm in resp.process_model_parts if pm.pm_id not in updated_pms]
 
 
 def _create_stub_fb(

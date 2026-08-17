@@ -14,7 +14,8 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 if [[ "${1:-}" == "--test" ]]; then
-    # Run only the generated acceptance tests without regenerating.
+    # Enforce source hygiene before running generated acceptance tests.
+    "$root/scripts/quality.sh"
     exec uv run pytest "$root/build/acceptance/generated/" -q
 else
     # Full generation: parse features, run DRY checks, generate tests,

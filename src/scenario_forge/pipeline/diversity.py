@@ -93,9 +93,7 @@ class DiversityTracker:
             math.ceil(total_seeds / num_actor_types) if total_seeds else 1
         )
         excluded = [
-            t
-            for t in ACTOR_TYPES
-            if self.actor_type_usage.get(t, 0) > actor_fair_share
+            t for t in ACTOR_TYPES if self.actor_type_usage.get(t, 0) > actor_fair_share
         ]
         return excluded or None
 
@@ -194,9 +192,7 @@ class DiversityTracker:
         # Actor type and capability level
         if envelope.actor_profile is not None:
             self.actor_type_usage[envelope.actor_profile.actor_type] += 1
-            self.capability_level_usage[
-                envelope.actor_profile.capability_level
-            ] += 1
+            self.capability_level_usage[envelope.actor_profile.capability_level] += 1
             # Goal category usage
             if envelope.actor_profile.goal_category is not None:
                 self.goal_usage[envelope.actor_profile.goal_category] += 1

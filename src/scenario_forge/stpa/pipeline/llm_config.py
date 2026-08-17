@@ -126,8 +126,7 @@ def _resolve_reference_path(reference: str, source_file: Path) -> Path:
     resolved = next((c for c in candidates if c.exists()), None)
     if resolved is None:
         raise FileNotFoundError(
-            f"Use-case file {source_file} references unresolved path "
-            f"{reference!r}"
+            f"Use-case file {source_file} references unresolved path {reference!r}"
         )
     return resolved
 

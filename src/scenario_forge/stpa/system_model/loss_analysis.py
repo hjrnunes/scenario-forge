@@ -87,14 +87,21 @@ def derive_loss_analysis(
     )
 
     # --- Compute next IDs for gap analysis ---
-    next_loss_num = _max_id_num(
-        [loss.loss_id for loss in risk_draft.risk_card_losses + risk_draft.use_case_losses],
-        "L-",
-    ) + 1
+    next_loss_num = (
+        _max_id_num(
+            [
+                loss.loss_id
+                for loss in risk_draft.risk_card_losses + risk_draft.use_case_losses
+            ],
+            "L-",
+        )
+        + 1
+    )
     next_hazard_num = _max_id_num([h.hazard_id for h in risk_draft.hazards], "H-") + 1
-    next_sc_num = _max_id_num(
-        [sc.constraint_id for sc in risk_draft.security_constraints], "SC-"
-    ) + 1
+    next_sc_num = (
+        _max_id_num([sc.constraint_id for sc in risk_draft.security_constraints], "SC-")
+        + 1
+    )
 
     # --- Call 2: gap_analysis ---
     existing_losses = risk_draft.risk_card_losses + risk_draft.use_case_losses
@@ -189,8 +196,8 @@ def _merge_drafts(
     all_risk_losses = list(risk_draft.risk_card_losses)
     all_uc_losses = list(gap_draft.use_case_losses)
     all_hazards = list(risk_draft.hazards) + list(gap_draft.hazards)
-    all_constraints = (
-        list(risk_draft.security_constraints) + list(gap_draft.security_constraints)
+    all_constraints = list(risk_draft.security_constraints) + list(
+        gap_draft.security_constraints
     )
 
     # --- Renumber loss IDs (risk losses first, then use-case losses) ---

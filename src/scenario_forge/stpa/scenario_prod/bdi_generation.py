@@ -143,9 +143,7 @@ def _find_responsibility(
     for resp in control_structure.responsibilities:
         if resp.resp_id == resp_id:
             return resp
-    raise ValueError(
-        f"Responsibility '{resp_id}' not found in control structure."
-    )
+    raise ValueError(f"Responsibility '{resp_id}' not found in control structure.")
 
 
 def generate_bdi(
@@ -235,12 +233,16 @@ def build_bdi_prompts(
         sort_keys=False,
         allow_unicode=True,
     )
-    catalog_context = yaml.dump(
-        [m.model_dump(mode="json") for m in threat.catalog_mappings],
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-    ) if threat.catalog_mappings else "No catalog mappings."
+    catalog_context = (
+        yaml.dump(
+            [m.model_dump(mode="json") for m in threat.catalog_mappings],
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+        if threat.catalog_mappings
+        else "No catalog mappings."
+    )
     technology_context = context_for(capability_profile)
 
     system_prompt = loader.render_prompt("stage5_system.j2")
@@ -287,9 +289,7 @@ def assemble_scenario_spec(
 
     # Merge vulnerability annotations — use original deterministic pm_ids
     for belief in defender_bdi.beliefs:
-        belief.vulnerability = llm_result.defender_vulnerabilities.get(
-            belief.pm_id, ""
-        )
+        belief.vulnerability = llm_result.defender_vulnerabilities.get(belief.pm_id, "")
 
     return ScenarioSpec(
         scenario_id=generate_scenario_id(scenario_index),

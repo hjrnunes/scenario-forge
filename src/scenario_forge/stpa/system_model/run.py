@@ -120,20 +120,37 @@ def run_sp1(
 
     # --- Stage 1b: Capability Profile (runs BEFORE Stage 1a) ---
     capability_profile = _try_derive_capability_profile(
-        llm_client, use_case_text, run_dir, loader, temperature,
-        profile_path, stage_errors,
+        llm_client,
+        use_case_text,
+        run_dir,
+        loader,
+        temperature,
+        profile_path,
+        stage_errors,
     )
 
     # --- Stage 1a: Loss Analysis (two calls, receives capability profile) ---
     loss_analysis = _try_derive_loss_analysis(
-        llm_client, use_case_text, risk_cards, run_dir, loader, temperature,
-        stage_errors, capability_profile,
+        llm_client,
+        use_case_text,
+        risk_cards,
+        run_dir,
+        loader,
+        temperature,
+        stage_errors,
+        capability_profile,
     )
 
     # --- Stage 2: Control Structure + heuristics + critic + revision ---
     stage2_result = _run_stage_2_block(
-        llm_client, use_case_text, loss_analysis, capability_profile,
-        run_dir, loader, temperature, stage_errors,
+        llm_client,
+        use_case_text,
+        loss_analysis,
+        capability_profile,
+        run_dir,
+        loader,
+        temperature,
+        stage_errors,
     )
 
     # Write run manifest (always, even on partial failure)
@@ -323,9 +340,13 @@ def _run_stage_2_block(
     )
 
 
-def _compute_input_hashes(use_case_text: str, risk_cards: list[RiskCard]) -> dict[str, str]:
+def _compute_input_hashes(
+    use_case_text: str, risk_cards: list[RiskCard]
+) -> dict[str, str]:
     """Compute SHA-256 hashes of input artifacts for the manifest."""
-    hashes = {"use_case_text": hashlib.sha256(use_case_text.encode("utf-8")).hexdigest()}
+    hashes = {
+        "use_case_text": hashlib.sha256(use_case_text.encode("utf-8")).hexdigest()
+    }
     if risk_cards:
         risk_ids = ",".join(rc.risk_id for rc in risk_cards)
         hashes["risk_extraction"] = hashlib.sha256(risk_ids.encode("utf-8")).hexdigest()

@@ -173,9 +173,7 @@ def has_unjustified_gaps(findings: CriticFindings) -> bool:
 
 def _count_unjustified(probe_results: dict[str, str]) -> int:
     """Count ``absent_unjustified`` entries in a probe-result mapping."""
-    return sum(
-        1 for status in probe_results.values() if status == "absent_unjustified"
-    )
+    return sum(1 for status in probe_results.values() if status == "absent_unjustified")
 
 
 def count_findings(findings: CriticFindings) -> int:
@@ -209,9 +207,7 @@ _CONFORMING_PATTERNS = [
 ]
 
 # Any ID-like token (for detection): RESP-*, PM-*, CA-*, FB-*, CP-*, CL-*, RC-*
-_ID_LIKE_PATTERN = re.compile(
-    r"\b(?:RESP|PM|CA|FB|CP|CL|RC)-\d+(?:-\d+)?\b"
-)
+_ID_LIKE_PATTERN = re.compile(r"\b(?:RESP|PM|CA|FB|CP|CL|RC)-\d+(?:-\d+)?\b")
 
 # Generic descriptions for non-conforming ID prefixes, used as replacements
 # in suggested_remedy strings so the revision model never sees invalid IDs.
@@ -239,6 +235,7 @@ def _replace_non_conforming_ids(remedy: str) -> str:
     For example, ``PM-0`` (single-part, missing the X-Y suffix) is replaced
     with ``a new PM part``. Conforming IDs like ``PM-1-2`` are preserved.
     """
+
     def _replacer(match: re.Match) -> str:
         token = match.group()
         if _is_conforming_id(token):
@@ -377,9 +374,7 @@ def run_revision(
             control_structure, revision_delta
         )
     except Exception as exc:
-        warning = (
-            f"Revision delta merge degraded: {type(exc).__name__}: {exc}"
-        )
+        warning = f"Revision delta merge degraded: {type(exc).__name__}: {exc}"
         return control_structure, [warning]
 
     # Warnings are accumulated in chronological order: dismissal → merge →
@@ -513,10 +508,7 @@ def _replace_modified_resps(
             "Modified responsibility resp_id must match an existing "
             f"canonical responsibility ID; unknown ID(s): {unknown}."
         )
-    return [
-        copy.deepcopy(modified_map.get(r.resp_id, r))
-        for r in resps
-    ]
+    return [copy.deepcopy(modified_map.get(r.resp_id, r)) for r in resps]
 
 
 def _next_free_cm_id(used_cm_ids: set[str]) -> str:
@@ -596,18 +588,24 @@ def _stitch_revision_delta(
         cs.responsibilities, delta.modified_responsibilities
     )
     merged_resps = _add_new_items(
-        merged_resps, delta.new_responsibilities,
-        existing_resp_ids, lambda r: r.resp_id,
+        merged_resps,
+        delta.new_responsibilities,
+        existing_resp_ids,
+        lambda r: r.resp_id,
     )
 
     merged_cps = _add_new_items(
-        cs.controlled_processes, delta.new_controlled_processes,
-        existing_cp_ids, lambda cp: cp.cp_id,
+        cs.controlled_processes,
+        delta.new_controlled_processes,
+        existing_cp_ids,
+        lambda cp: cp.cp_id,
     )
 
     merged_cls = _add_new_items(
-        cs.coordination_links, delta.new_coordination_links,
-        existing_cl_ids, lambda cl: cl.link_id,
+        cs.coordination_links,
+        delta.new_coordination_links,
+        existing_cl_ids,
+        lambda cl: cl.link_id,
     )
 
     merged_cls, cm_warnings = _renumber_colliding_cm_ids(

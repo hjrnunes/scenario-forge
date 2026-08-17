@@ -97,8 +97,7 @@ class ICASlot(BaseModel):
                 )
             if self.na_justification is not None:
                 raise ValueError(
-                    f"ICA slot {self.slot_id} is_na=false but "
-                    f"na_justification is set."
+                    f"ICA slot {self.slot_id} is_na=false but na_justification is set."
                 )
         return self
 
@@ -138,9 +137,7 @@ class ICAEnumeration(BaseModel):
             ValueError: If any reference is invalid.
         """
         hazard_ids = {h.hazard_id for h in loss_analysis.hazards}
-        constraint_ids = {
-            sc.constraint_id for sc in loss_analysis.security_constraints
-        }
+        constraint_ids = {sc.constraint_id for sc in loss_analysis.security_constraints}
         rc_ids = _collect_rc_ids(control_structure)
         valid_constraint_refs = constraint_ids | rc_ids
 

@@ -7,21 +7,22 @@ from types import ModuleType
 from typing import Any
 
 MODULES = (
-    'foundation',
-    'infrastructure',
-    'models',
-    'sp1',
-    'sp1_revision',
-    'parallel_llm',
-    'stage2',
-    'sp2',
-    'sp3',
-    'sp3_prompt_remediation',
-    'stage1_split',
-    'acceptance_refresh',
-    'critic_revision_fix',
-    'shadow_cleanup',
-    'llm_helper_failure_defenses',
+    "foundation",
+    "infrastructure",
+    "models",
+    "sp1",
+    "sp1_revision",
+    "parallel_llm",
+    "stage2",
+    "sp2",
+    "sp3",
+    "sp3_prompt_remediation",
+    "stage1_split",
+    "acceptance_refresh",
+    "critic_revision_fix",
+    "shadow_cleanup",
+    "llm_helper_failure_defenses",
+    "acceptance_hygiene",
 )
 
 
@@ -42,8 +43,12 @@ def load_modules() -> tuple[ModuleType, ...]:
     if set(MODULES) != expected:
         missing = sorted(expected - set(MODULES))
         omitted = sorted(set(MODULES) - expected)
-        raise RuntimeError(f"runtime feature manifest mismatch: missing={missing}, omitted={omitted}")
-    modules = tuple(importlib.import_module(f"runtime_features.{name}") for name in MODULES)
+        raise RuntimeError(
+            f"runtime feature manifest mismatch: missing={missing}, omitted={omitted}"
+        )
+    modules = tuple(
+        importlib.import_module(f"runtime_features.{name}") for name in MODULES
+    )
     for name, module in zip(MODULES, modules):
         _validate_module(name, module)
     return modules

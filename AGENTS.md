@@ -21,7 +21,11 @@ bd show <id>          # View issue details
 bd update <id> --claim  # Claim work atomically
 bd close <id>         # Complete work
 bd dolt push          # Push beads data to remote
+./scripts/quality.sh   # Ruff check and format-check src/ and acceptance/
 ```
+
+Acceptance uses the generated-output policy: `features/` is committed source,
+while `build/acceptance/` contains ignored generated output.
 
 ## Non-Interactive Shell Commands
 

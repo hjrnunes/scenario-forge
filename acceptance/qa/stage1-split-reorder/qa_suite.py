@@ -53,7 +53,9 @@ import yaml
 # ---------------------------------------------------------------------------
 
 PROMPTS_DIR = (
-    next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+    next(
+        p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
+    )
     / "src"
     / "scenario_forge"
     / "stpa"
@@ -63,14 +65,37 @@ PROMPTS_DIR = (
 
 VALID_KC_SUBCODES = frozenset(
     {
-        "KC1.1", "KC1.2", "KC1.3", "KC1.4",
-        "KC2.1", "KC2.2", "KC2.3",
-        "KC3.1", "KC3.2", "KC3.3", "KC3.4",
-        "KC4.1", "KC4.2", "KC4.3", "KC4.4", "KC4.5", "KC4.6",
-        "KC5.1", "KC5.2", "KC5.3",
-        "KC6.1.1", "KC6.1.2", "KC6.2.1", "KC6.2.2",
-        "KC6.3.1", "KC6.3.2", "KC6.3.3",
-        "KC6.4", "KC6.5", "KC6.6", "KC6.7",
+        "KC1.1",
+        "KC1.2",
+        "KC1.3",
+        "KC1.4",
+        "KC2.1",
+        "KC2.2",
+        "KC2.3",
+        "KC3.1",
+        "KC3.2",
+        "KC3.3",
+        "KC3.4",
+        "KC4.1",
+        "KC4.2",
+        "KC4.3",
+        "KC4.4",
+        "KC4.5",
+        "KC4.6",
+        "KC5.1",
+        "KC5.2",
+        "KC5.3",
+        "KC6.1.1",
+        "KC6.1.2",
+        "KC6.2.1",
+        "KC6.2.2",
+        "KC6.3.1",
+        "KC6.3.2",
+        "KC6.3.3",
+        "KC6.4",
+        "KC6.5",
+        "KC6.6",
+        "KC6.7",
     }
 )
 KCX_PREFIX = "KCX-"
@@ -82,6 +107,7 @@ _KC_MULTI_AGENT = frozenset({"KC2.3", "KCX-MAGENT"})
 # ---------------------------------------------------------------------------
 # Test framework
 # ---------------------------------------------------------------------------
+
 
 class CheckResult:
     """Result of a single QA check."""
@@ -129,6 +155,7 @@ class QARunner:
 # Static checks (no LLM required)
 # ---------------------------------------------------------------------------
 
+
 def run_static_checks(runner: QARunner) -> None:
     """Run checks that inspect prompt templates and model declarations on disk."""
 
@@ -158,8 +185,11 @@ def run_static_checks(runner: QARunner) -> None:
     stage1b_system = PROMPTS_DIR / "stage1b_system.j2"
     if stage1b_system.exists():
         content = stage1b_system.read_text(encoding="utf-8")
-        for marker in ("KC1 — Language Models", "KC6 — Operational Environment",
-                       "KCX — Extended Capabilities"):
+        for marker in (
+            "KC1 — Language Models",
+            "KC6 — Operational Environment",
+            "KCX — Extended Capabilities",
+        ):
             runner.check(
                 f"stage1b-revision: stage1b_system.j2 contains '{marker}'",
                 marker in content,
@@ -210,7 +240,11 @@ def run_static_checks(runner: QARunner) -> None:
     # We inspect the source file for field declarations rather than
     # importing the model, to stay at the "file on disk" level.
     profile_model_path = (
-        next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+        next(
+            p
+            for p in Path(__file__).resolve().parents
+            if (p / "pyproject.toml").is_file()
+        )
         / "src"
         / "scenario_forge"
         / "models"
@@ -256,6 +290,7 @@ def run_static_checks(runner: QARunner) -> None:
 # Pipeline checks (require LLM endpoint)
 # ---------------------------------------------------------------------------
 
+
 def _run_stpa_pipeline(
     use_case: str,
     risk_extraction: Path,
@@ -264,10 +299,16 @@ def _run_stpa_pipeline(
 ) -> subprocess.CompletedProcess:
     """Run `scenario-forge stpa-run` and return the completed process."""
     cmd = [
-        "uv", "run", "scenario-forge", "stpa-run",
-        "--use-case", use_case,
-        "--risk-extraction", str(risk_extraction),
-        "--output-dir", str(output_dir),
+        "uv",
+        "run",
+        "scenario-forge",
+        "stpa-run",
+        "--use-case",
+        use_case,
+        "--risk-extraction",
+        str(risk_extraction),
+        "--output-dir",
+        str(output_dir),
     ]
     if capability_profile is not None:
         cmd.extend(["--capability-profile", str(capability_profile)])
@@ -340,7 +381,10 @@ def run_pipeline_checks(
         output_dir = Path(tmpdir) / "output"
 
         proc = _run_stpa_pipeline(
-            use_case, risk_extraction, output_dir, capability_profile,
+            use_case,
+            risk_extraction,
+            output_dir,
+            capability_profile,
         )
 
         runner.check(
@@ -414,8 +458,13 @@ def run_pipeline_checks(
             # --- stage1a-split: ID sequence continuity ---
             all_losses = risk_losses + uc_losses
             loss_ids = [loss.get("loss_id", "") for loss in all_losses]
-            hazard_ids = [h.get("hazard_id", "") for h in loss_analysis.get("hazards", [])]
-            sc_ids = [sc.get("constraint_id", "") for sc in loss_analysis.get("security_constraints", [])]
+            hazard_ids = [
+                h.get("hazard_id", "") for h in loss_analysis.get("hazards", [])
+            ]
+            sc_ids = [
+                sc.get("constraint_id", "")
+                for sc in loss_analysis.get("security_constraints", [])
+            ]
 
             runner.check(
                 "stage1a-split: loss IDs are sequential with no duplicates",
@@ -455,8 +504,16 @@ def run_pipeline_checks(
             )
 
         # --- stage1a-split: two call-log entries for stage_1a ---
-        risk_calls = [c for c in calls if c.get("stage") == "stage_1a" and c.get("step") == "risk_derivation"]
-        gap_calls = [c for c in calls if c.get("stage") == "stage_1a" and c.get("step") == "gap_analysis"]
+        risk_calls = [
+            c
+            for c in calls
+            if c.get("stage") == "stage_1a" and c.get("step") == "risk_derivation"
+        ]
+        gap_calls = [
+            c
+            for c in calls
+            if c.get("stage") == "stage_1a" and c.get("step") == "gap_analysis"
+        ]
 
         runner.check(
             "stage1a-split: calls.jsonl has stage_1a/risk_derivation entry",
@@ -654,7 +711,10 @@ def run_profile_skip_checks(
         output_dir = Path(tmpdir) / "output"
 
         proc = _run_stpa_pipeline(
-            use_case, risk_extraction, output_dir, capability_profile,
+            use_case,
+            risk_extraction,
+            output_dir,
+            capability_profile,
         )
 
         runner.check(
@@ -673,8 +733,16 @@ def run_profile_skip_checks(
 
         calls = _load_calls_jsonl(output_dir / "calls.jsonl")
 
-        risk_calls = [c for c in calls if c.get("stage") == "stage_1a" and c.get("step") == "risk_derivation"]
-        gap_calls = [c for c in calls if c.get("stage") == "stage_1a" and c.get("step") == "gap_analysis"]
+        risk_calls = [
+            c
+            for c in calls
+            if c.get("stage") == "stage_1a" and c.get("step") == "risk_derivation"
+        ]
+        gap_calls = [
+            c
+            for c in calls
+            if c.get("stage") == "stage_1a" and c.get("step") == "gap_analysis"
+        ]
         b_calls = [c for c in calls if c.get("stage") == "stage_1b"]
 
         runner.check(
@@ -696,33 +764,43 @@ def run_profile_skip_checks(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="End-to-end QA suite for Stage 1 split-and-reorder."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument(
-        "--static", action="store_true",
+        "--static",
+        action="store_true",
         help="Run static checks only (no LLM needed).",
     )
     mode.add_argument(
-        "--pipeline", action="store_true",
+        "--pipeline",
+        action="store_true",
         help="Run pipeline checks (requires LLM endpoint and input files).",
     )
     mode.add_argument(
-        "--all", action="store_true",
+        "--all",
+        action="store_true",
         help="Run both static and pipeline checks.",
     )
     parser.add_argument(
-        "--use-case", type=str, default=None,
+        "--use-case",
+        type=str,
+        default=None,
         help="Path to use-case text file for pipeline checks.",
     )
     parser.add_argument(
-        "--risk-extraction", type=Path, default=None,
+        "--risk-extraction",
+        type=Path,
+        default=None,
         help="Path to risk extraction JSON file for pipeline checks.",
     )
     parser.add_argument(
-        "--capability-profile", type=Path, default=None,
+        "--capability-profile",
+        type=Path,
+        default=None,
         help="Pre-built capability profile for the profile-skip scenario.",
     )
     args = parser.parse_args()
@@ -738,17 +816,25 @@ def main() -> int:
 
     if do_pipeline:
         if not args.use_case or not args.risk_extraction:
-            print("ERROR: --use-case and --risk-extraction required for pipeline checks")
+            print(
+                "ERROR: --use-case and --risk-extraction required for pipeline checks"
+            )
             return 1
         print("\n=== Pipeline checks (requires LLM endpoint) ===")
         run_pipeline_checks(
-            runner, args.use_case, args.risk_extraction, args.capability_profile,
+            runner,
+            args.use_case,
+            args.risk_extraction,
+            args.capability_profile,
         )
 
     if do_pipeline and args.capability_profile:
         print("\n=== Profile-skip checks ===")
         run_profile_skip_checks(
-            runner, args.use_case, args.risk_extraction, args.capability_profile,
+            runner,
+            args.use_case,
+            args.risk_extraction,
+            args.capability_profile,
         )
 
     return runner.summary()

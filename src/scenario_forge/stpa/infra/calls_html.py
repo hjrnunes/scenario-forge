@@ -98,21 +98,20 @@ def _build_summary_html(summary: dict[str, Any]) -> str:
         ("Total duration (ms)", summary["total_duration_ms"]),
     ]
     body = "\n".join(
-        f"      <tr><td>{label}</td><td>{value}</td></tr>"
-        for label, value in rows
+        f"      <tr><td>{label}</td><td>{value}</td></tr>" for label, value in rows
     )
-    return (
-        '  <table class="summary">\n'
-        "    <tbody>\n"
-        f"{body}\n"
-        "    </tbody>\n"
-        "  </table>"
-    )
+    return f'  <table class="summary">\n    <tbody>\n{body}\n    </tbody>\n  </table>'
 
 
 _DETAIL_HEADERS = (
-    "stage", "step", "model", "prompt_tokens",
-    "completion_tokens", "duration_ms", "timestamp", "status",
+    "stage",
+    "step",
+    "model",
+    "prompt_tokens",
+    "completion_tokens",
+    "duration_ms",
+    "timestamp",
+    "status",
 )
 
 
@@ -139,9 +138,9 @@ def _build_entry_cells(entry: dict[str, Any]) -> list[str]:
 
 def _build_detail_html(entries: list[dict[str, Any]]) -> str:
     """Build the detail table HTML."""
-    header_row = "    <tr>" + "".join(
-        f"<th>{h}</th>" for h in _DETAIL_HEADERS
-    ) + "</tr>\n"
+    header_row = (
+        "    <tr>" + "".join(f"<th>{h}</th>" for h in _DETAIL_HEADERS) + "</tr>\n"
+    )
 
     body_rows: list[str] = []
     for entry in entries:
@@ -153,7 +152,7 @@ def _build_detail_html(entries: list[dict[str, Any]]) -> str:
     body = "\n".join(body_rows)
     return (
         '  <table class="detail">\n'
-        '    <thead>\n'
+        "    <thead>\n"
         f"{header_row}"
         "    </thead>\n"
         "    <tbody>\n"
@@ -254,7 +253,7 @@ def _build_call_entry_html(entry: dict[str, Any]) -> str:
     sections_html = "\n".join(sections)
     return (
         f'<div class="call-entry{css_class}">\n'
-        f'<details open><summary>{_html_escape(summary_line)}</summary>\n'
+        f"<details open><summary>{_html_escape(summary_line)}</summary>\n"
         f"{sections_html}\n"
         "</details>\n"
         "</div>\n"
@@ -301,11 +300,11 @@ def render_calls_html(calls_jsonl_path: Path, output_path: Path) -> Path:
         "<h1>LLM Calls Report</h1>\n"
         "<h2>Summary</h2>\n"
         f"{summary_html}\n"
-        '<h2>Call Details</h2>\n'
+        "<h2>Call Details</h2>\n"
         f'<input type="text" id="call-search" class="search-box" '
         'placeholder="Filter calls by text..." onkeyup="filterCalls()">\n'
         f"{detail_html}\n"
-        '<h2>Full Call Content</h2>\n'
+        "<h2>Full Call Content</h2>\n"
         f"{call_entries_html}\n"
         f"<script>\n{_INLINE_JS}</script>\n"
         "</body>\n"

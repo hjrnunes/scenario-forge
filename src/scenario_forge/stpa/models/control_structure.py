@@ -199,8 +199,8 @@ class ControlStructure(BaseModel):
         resp_ids = {r.resp_id for r in self.responsibilities}
         cp_ids = {cp.cp_id for cp in self.controlled_processes}
 
-        all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp = (
-            _collect_child_ids(self.responsibilities)
+        all_rc_ids, all_pm_ids, all_ca_ids, all_fb_ids, pm_by_resp = _collect_child_ids(
+            self.responsibilities
         )
 
         _check_all_duplicate_ids(
@@ -213,13 +213,13 @@ class ControlStructure(BaseModel):
             all_fb_ids,
         )
 
-        _check_cross_namespace_collision(self.responsibilities, self.controlled_processes)
+        _check_cross_namespace_collision(
+            self.responsibilities, self.controlled_processes
+        )
 
         _validate_element_refs(self.responsibilities, resp_ids, cp_ids)
         _validate_feedback_updates(self.responsibilities, pm_by_resp)
-        _validate_coordination_links(
-            self.coordination_links, resp_ids, all_pm_ids
-        )
+        _validate_coordination_links(self.coordination_links, resp_ids, all_pm_ids)
 
         return self
 
@@ -324,9 +324,7 @@ def _collect_namespace_buckets(
     Returns a list of (namespace_name, id_set) pairs for every ID type
     in the control structure.
     """
-    rc_ids, pm_ids, ca_ids, fb_ids, resp_ids = _collect_all_id_sets(
-        responsibilities
-    )
+    rc_ids, pm_ids, ca_ids, fb_ids, resp_ids = _collect_all_id_sets(responsibilities)
     cp_ids = {cp.cp_id for cp in controlled_processes}
     return [
         ("rc_id", rc_ids),
@@ -447,8 +445,7 @@ def _validate_fb_update_target(
             f"responsibility (not {resp_id})."
         )
     raise ValueError(
-        f"FeedbackChannel {fb.fb_id} updates references "
-        f"non-existent PM '{fb.updates}'."
+        f"FeedbackChannel {fb.fb_id} updates references non-existent PM '{fb.updates}'."
     )
 
 
@@ -570,14 +567,18 @@ def _collect_referenced_cps(responsibilities: list[Responsibility]) -> set[str]:
     return referenced
 
 
-def _add_cps_from_feedback(referenced: set[str], channels: list[FeedbackChannel]) -> None:
+def _add_cps_from_feedback(
+    referenced: set[str], channels: list[FeedbackChannel]
+) -> None:
     """Add CP IDs referenced by feedback channel sources."""
     for fb in channels:
         if fb.source is not None and fb.source.type == ReferenceType.controlled_process:
             referenced.add(fb.source.id)
 
 
-def _add_cps_from_control_actions(referenced: set[str], actions: list[ControlAction]) -> None:
+def _add_cps_from_control_actions(
+    referenced: set[str], actions: list[ControlAction]
+) -> None:
     """Add CP IDs referenced by control action targets."""
     for ca in actions:
         if ca.target is not None and ca.target.type == ReferenceType.controlled_process:

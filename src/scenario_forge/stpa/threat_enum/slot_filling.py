@@ -36,6 +36,7 @@ __all__ = [
     "build_slot_filling_prompts",
 ]
 
+
 class ICASlotFillResult(BaseModel):
     """LLM response model: a list of filled ICA slots.
 
@@ -76,13 +77,9 @@ def build_slot_filling_prompts(
     )
     la_yaml = yaml.dump(
         {
-            "hazards": [
-                h.model_dump(mode="json")
-                for h in loss_analysis.hazards
-            ],
+            "hazards": [h.model_dump(mode="json") for h in loss_analysis.hazards],
             "security_constraints": [
-                sc.model_dump(mode="json")
-                for sc in loss_analysis.security_constraints
+                sc.model_dump(mode="json") for sc in loss_analysis.security_constraints
             ],
         },
         default_flow_style=False,
@@ -210,7 +207,12 @@ def fill_all_slots(
     technology_context = build_technology_context(capability_profile)
     resp_slots = _group_resp_slots(slots)
     call_specs = _build_slot_fill_call_specs(
-        resp_slots, control_structure, loss_analysis, technology_context, temperature, loader
+        resp_slots,
+        control_structure,
+        loss_analysis,
+        technology_context,
+        temperature,
+        loader,
     )
 
     results = parallel_safe_llm_calls(
@@ -282,9 +284,7 @@ def _collect_filled_slots(
     return filled_by_id
 
 
-def _is_expected_slot(
-    filled_slot: ICASlot, placeholder: SlotPlaceholder
-) -> bool:
+def _is_expected_slot(filled_slot: ICASlot, placeholder: SlotPlaceholder) -> bool:
     """Check that an LLM result preserves the slot identity contract.
 
     The slot ID is the primary key, but checking the other identity fields

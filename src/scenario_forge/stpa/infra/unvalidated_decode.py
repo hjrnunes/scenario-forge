@@ -31,10 +31,7 @@ def _construct_collection(
 ) -> Any:
     """Construct a supported collection while preserving its element values."""
     item_type = args[0] if args else Any
-    converted = [
-        _construct_unvalidated(item, item_type)
-        for item in value
-    ]
+    converted = [_construct_unvalidated(item, item_type) for item in value]
     if origin is tuple:
         return tuple(converted)
     if origin is set:

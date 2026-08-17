@@ -597,9 +597,7 @@ def stpa_run_cmd(
     # early.  Degrade-level errors (stage_errors from individual stages
     # that still produced artifacts) allow the pipeline to continue and
     # exit with code 0.
-    abort_errors = [
-        e for e in result.stage_errors if "stopping pipeline" in e
-    ]
+    abort_errors = [e for e in result.stage_errors if "stopping pipeline" in e]
     if abort_errors:
         typer.echo(f"Error: {abort_errors[0]}", err=True)
         raise typer.Exit(code=1)

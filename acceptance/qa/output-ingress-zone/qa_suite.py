@@ -15,7 +15,8 @@ import yaml
 
 
 ROOT = next(
-    path for path in Path(__file__).resolve().parents
+    path
+    for path in Path(__file__).resolve().parents
     if (path / "pyproject.toml").is_file()
 )
 QA_ROOT = ROOT / "tmp" / "qa-output-ingress-zone"
@@ -117,7 +118,9 @@ def require_cli_success(label: str, proc: subprocess.CompletedProcess[str]) -> N
         raise AssertionError(f"{label} omitted completion message\n{detail}")
     error_text = proc.stderr.lower()
     if "validationerror" in error_text or "cannot have an ingress zone" in error_text:
-        raise AssertionError(f"{label} reported entry-point validation failure\n{detail}")
+        raise AssertionError(
+            f"{label} reported entry-point validation failure\n{detail}"
+        )
 
 
 def main() -> int:

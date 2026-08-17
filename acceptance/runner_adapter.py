@@ -15,7 +15,6 @@ Job response:
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import time
@@ -27,8 +26,6 @@ def run_job(job: dict) -> dict:
     """Execute a single mutation job."""
     job_id = job.get("id", "unknown")
     feature_json = job.get("feature_json", "")
-    generated_dir = job.get("generated_dir", "")
-    work_dir = job.get("work_dir", "")
     timeout_str = job.get("timeout", "30s")
 
     # Parse timeout
@@ -42,7 +39,11 @@ def run_job(job: dict) -> dict:
 
     try:
         # Run the acceptance runtime against the mutated IR
-        project_root = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+        project_root = next(
+            p
+            for p in Path(__file__).resolve().parents
+            if (p / "pyproject.toml").is_file()
+        )
         runtime_script = Path(__file__).resolve().parent / "acceptance_runtime.py"
 
         result = subprocess.run(

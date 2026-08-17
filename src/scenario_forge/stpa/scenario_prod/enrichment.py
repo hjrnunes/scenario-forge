@@ -12,7 +12,10 @@ Stage 6 artifacts without any LLM calls:
 from __future__ import annotations
 
 from scenario_forge.models.capability_profile import CapabilityProfile
-from scenario_forge.stpa.models.control_structure import ControlStructure, Responsibility
+from scenario_forge.stpa.models.control_structure import (
+    ControlStructure,
+    Responsibility,
+)
 from scenario_forge.stpa.models.scenario_envelope import ConsumerHints, SystemContext
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
 

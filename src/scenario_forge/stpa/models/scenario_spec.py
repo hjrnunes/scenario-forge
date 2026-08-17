@@ -107,9 +107,7 @@ class ScenarioSpec(BaseModel):
             all_ca_ids,
             ca_to_resp,
         )
-        _validate_defender_bdi(
-            self.defender_bdi, all_pm_ids, resp_ids, all_ca_ids
-        )
+        _validate_defender_bdi(self.defender_bdi, all_pm_ids, resp_ids, all_ca_ids)
 
 
 def _build_lookup_maps(
@@ -146,8 +144,7 @@ def _validate_target(
     """Validate target_controller and target_control_action references."""
     if target_controller not in resp_ids:
         raise ValueError(
-            f"target_controller '{target_controller}' is not a valid "
-            f"responsibility ID."
+            f"target_controller '{target_controller}' is not a valid responsibility ID."
         )
     if target_control_action not in all_ca_ids:
         raise ValueError(
@@ -168,12 +165,8 @@ def _validate_defender_bdi(
     all_ca_ids: set[str],
 ) -> None:
     """Validate defender BDI references against control structure lookups."""
-    _validate_ref_items(
-        defender_bdi.beliefs, "pm_id", all_pm_ids, "DefenderBelief"
-    )
-    _validate_ref_items(
-        defender_bdi.desires, "resp_id", resp_ids, "DefenderDesire"
-    )
+    _validate_ref_items(defender_bdi.beliefs, "pm_id", all_pm_ids, "DefenderBelief")
+    _validate_ref_items(defender_bdi.desires, "resp_id", resp_ids, "DefenderDesire")
     _validate_ref_items(
         defender_bdi.intentions, "ca_id", all_ca_ids, "DefenderIntention"
     )
@@ -190,8 +183,7 @@ def _validate_ref_items(
         ref_value = getattr(item, attr_name)
         if ref_value not in valid_ids:
             raise ValueError(
-                f"{model_name} references non-existent {attr_name} "
-                f"'{ref_value}'."
+                f"{model_name} references non-existent {attr_name} '{ref_value}'."
             )
 
 

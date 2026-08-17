@@ -23,7 +23,9 @@ from scenario_forge.models.capability_profile import ConfidenceLevel
 class EvidenceSpan(BaseModel):
     """A span of evidence supporting the risk identification."""
 
-    text: str = Field(description="The evidence text extracted from the source document.")
+    text: str = Field(
+        description="The evidence text extracted from the source document."
+    )
     source: Optional[str] = Field(
         default=None,
         description="Source document or location of the evidence.",
@@ -43,7 +45,9 @@ class MitigationRef(BaseModel):
         default=None,
         description="Identifier for the mitigation if one exists in the taxonomy.",
     )
-    description: str = Field(default="", description="Description of the mitigation measure.")
+    description: str = Field(
+        default="", description="Description of the mitigation measure."
+    )
 
     @field_validator("description", mode="before")
     @classmethod

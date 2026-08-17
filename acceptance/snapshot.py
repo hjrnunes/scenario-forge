@@ -89,8 +89,7 @@ def discover_features(root: Path) -> list[str]:
     """Return sorted repo-relative feature paths under features/."""
     features_root = Path(root) / snapshot_layout().features_dir
     found = sorted(
-        path.relative_to(root).as_posix()
-        for path in features_root.rglob("*.feature")
+        path.relative_to(root).as_posix() for path in features_root.rglob("*.feature")
     )
     stems: dict[str, str] = {}
     for feature_path in found:
@@ -109,12 +108,16 @@ def find_step_data_tables(feature_path: Path) -> list[str]:
     problems: list[str] = []
     in_examples = False
     rel = feature_path.as_posix()
-    for line_no, raw in enumerate(feature_path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_no, raw in enumerate(
+        feature_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         stripped = raw.strip()
         if stripped.startswith("Examples:"):
             in_examples = True
             continue
-        if stripped.startswith(("Feature:", "Background:", "Scenario:", "Scenario Outline:")):
+        if stripped.startswith(
+            ("Feature:", "Background:", "Scenario:", "Scenario Outline:")
+        ):
             in_examples = False
         if stripped.startswith("|") and stripped.endswith("|") and not in_examples:
             problems.append(f"step data table in {rel}:{line_no}")
@@ -151,9 +154,7 @@ def _scan_absolute_paths(root: Path) -> list[str]:
             except UnicodeDecodeError:
                 continue
             if _ABS_PATH.search(text):
-                problems.append(
-                    f"absolute path in {path.relative_to(root).as_posix()}"
-                )
+                problems.append(f"absolute path in {path.relative_to(root).as_posix()}")
     return problems
 
 
@@ -250,20 +251,26 @@ def validate_snapshot(root: Path) -> list[str]:
         for key in ("feature_path", "ir_path"):
             pointed = root / str(meta.get(key, ""))
             if not pointed.is_file():
-                problems.append(f"metadata points at missing {key} in {paths.metadata_path}")
+                problems.append(
+                    f"metadata points at missing {key} in {paths.metadata_path}"
+                )
 
     ir_root = root / layout.ir_dir
     if ir_root.exists():
         for path in ir_root.rglob("*.json"):
             if path.stem.endswith("_dry"):
-                problems.append(f"dry report in IR tree {path.relative_to(root).as_posix()}")
+                problems.append(
+                    f"dry report in IR tree {path.relative_to(root).as_posix()}"
+                )
             elif path not in expected_ir:
                 problems.append(f"orphan IR {path.relative_to(root).as_posix()}")
     generated_root = root / layout.generated_dir
     if generated_root.exists():
         for path in generated_root.glob("*_acceptance_test.py"):
             if path not in expected_tests:
-                problems.append(f"orphan generated test {path.relative_to(root).as_posix()}")
+                problems.append(
+                    f"orphan generated test {path.relative_to(root).as_posix()}"
+                )
     meta_root = root / layout.metadata_dir
     if meta_root.exists():
         for path in meta_root.glob("*.json"):

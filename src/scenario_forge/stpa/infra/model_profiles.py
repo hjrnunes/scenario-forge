@@ -33,9 +33,7 @@ def _load_raw_profiles(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _resolve_profile_dict(
-    raw: Any, profile_name: str, path: Path
-) -> dict[str, Any]:
+def _resolve_profile_dict(raw: Any, profile_name: str, path: Path) -> dict[str, Any]:
     """Return the profile dict for *profile_name* from the raw YAML.
 
     Raises:
@@ -46,9 +44,7 @@ def _resolve_profile_dict(
         raise KeyError(f"Profile '{profile_name}' not found in {path}")
     profile = raw[profile_name]
     if not isinstance(profile, dict):
-        raise ValueError(
-            f"Profile '{profile_name}' in {path} is not a mapping"
-        )
+        raise ValueError(f"Profile '{profile_name}' in {path} is not a mapping")
     return profile
 
 
@@ -100,10 +96,9 @@ def load_profile(profiles_path: Path | str, profile_name: str) -> dict[str, Any]
     path = Path(profiles_path)
     raw = _load_raw_profiles(path)
     profile = _resolve_profile_dict(raw, profile_name, path)
-    return (
-        _extract_required_fields(profile, profile_name, path)
-        | _extract_optional_fields(profile)
-    )
+    return _extract_required_fields(
+        profile, profile_name, path
+    ) | _extract_optional_fields(profile)
 
 
 # mutate4py-manifest-begin

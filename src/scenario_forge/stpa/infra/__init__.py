@@ -12,7 +12,11 @@ from scenario_forge.stpa.infra.call_log import (
 )
 from scenario_forge.stpa.infra.calls_html import render_calls_html
 from scenario_forge.stpa.infra.llm import LLMClient, LLMResult
-from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result, safe_llm_call_raw
+from scenario_forge.stpa.infra.llm_helpers import (
+    log_llm_call,
+    parse_llm_result,
+    safe_llm_call_raw,
+)
 from scenario_forge.stpa.infra.manifest import STPARunManifest
 from scenario_forge.stpa.infra.model_profiles import load_profile
 from scenario_forge.stpa.infra.parallel_llm import (

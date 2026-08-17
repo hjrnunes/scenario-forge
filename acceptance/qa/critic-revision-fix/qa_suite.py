@@ -79,11 +79,11 @@ from typing import Any
 # Constants
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
-SRC_ROOT = PROJECT_ROOT / "src"
-SYSTEM_MODEL_DIR = (
-    SRC_ROOT / "scenario_forge" / "stpa" / "system_model"
+PROJECT_ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
 )
+SRC_ROOT = PROJECT_ROOT / "src"
+SYSTEM_MODEL_DIR = SRC_ROOT / "scenario_forge" / "stpa" / "system_model"
 CRITIC_FILE = SYSTEM_MODEL_DIR / "critic.py"
 RUN_FILE = SYSTEM_MODEL_DIR / "run.py"
 PROMPTS_DIR = SYSTEM_MODEL_DIR / "prompts"
@@ -116,6 +116,7 @@ OBSERVED_TRUNCATION_POINT = 4096
 # Test framework
 # ---------------------------------------------------------------------------
 
+
 class CheckResult:
     """Result of a single QA check."""
 
@@ -139,9 +140,7 @@ class QARunner:
         self.results: list[CheckResult] = []
 
     def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(
-            CheckResult(name, "PASS" if condition else "FAIL", detail)
-        )
+        self.results.append(CheckResult(name, "PASS" if condition else "FAIL", detail))
 
     def skip(self, name: str, reason: str) -> None:
         """Record a check that was deliberately not executed.
@@ -183,6 +182,7 @@ class QARunner:
 # ---------------------------------------------------------------------------
 # Source helpers
 # ---------------------------------------------------------------------------
+
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -281,6 +281,7 @@ def _find_call_keywords(func: ast.FunctionDef, call_name: str) -> set[str]:
 # Static checks
 # ---------------------------------------------------------------------------
 
+
 def run_static_checks(runner: QARunner) -> None:
     """AST and source-text assertions. No LLM, no pipeline execution."""
 
@@ -330,8 +331,7 @@ def run_static_checks(runner: QARunner) -> None:
         hug_src = ast.get_source_segment(_read(CRITIC_FILE), hug) or ""
         for field in ("checklist_results", "taxonomy_probe_results", "gaps"):
             runner.check(
-                f"crf-static-07[{field}]: has_unjustified_gaps reads "
-                f"findings.{field}",
+                f"crf-static-07[{field}]: has_unjustified_gaps reads findings.{field}",
                 f"findings.{field}" in hug_src,
                 "All three critic probes must be able to trigger revision",
             )
@@ -588,8 +588,10 @@ def run_static_checks(runner: QARunner) -> None:
         "Regression guard for the RevRunaway-02 contract",
     )
 
-    for path, name in ((CRITIC_SYSTEM, "critic_system.j2"),
-                       (REVISION_SYSTEM, "revision_system.j2")):
+    for path, name in (
+        (CRITIC_SYSTEM, "critic_system.j2"),
+        (REVISION_SYSTEM, "revision_system.j2"),
+    ):
         runner.check(
             f"crf-static-33[{name}]: the unexplained STPA-Sec framing is gone",
             "STPA-Sec" not in _read(path),
@@ -639,28 +641,32 @@ def run_static_checks(runner: QARunner) -> None:
         )
 
     # --- All-dismissed warning (scenario-forge-dy5n) ------------------------
-    if run_revision is not None:
-        rev_src = ast.get_source_segment(_read(CRITIC_FILE), run_revision) or ""
-        runner.check(
-            "crf-static-38: run_revision checks for all-dismissed + no-change "
-            "condition",
-            "dismissed all findings" in rev_src
-            or "all_findings_dismissed" in rev_src,
-            "A distinct deterministic warning must be emitted when all "
-            "findings are dismissed and no changes are produced",
-        )
-        runner.check(
-            "crf-static-39: the all-dismissed warning is emitted at most once",
-            rev_src.count("dismissed all findings") <= 1
-            or "all_findings_dismissed" in rev_src,
-            "The warning must appear at most once per revision call — no "
-            "duplicates",
-        )
+    # The warning construction was extracted from run_revision into a helper;
+    # inspect the helper so this contract remains stable across that refactor.
+    all_dismissed_fn = _find_function(tree, "_all_dismissed_no_change_warning")
+    all_dismissed_src = (
+        ast.get_source_segment(_read(CRITIC_FILE), all_dismissed_fn) or ""
+        if all_dismissed_fn is not None
+        else ""
+    )
+    runner.check(
+        "crf-static-38: all-dismissed helper checks no-change condition",
+        "dismissed all findings" in all_dismissed_src
+        and "_delta_has_changes" in all_dismissed_src,
+        "A distinct deterministic warning must be emitted when all "
+        "findings are dismissed and no changes are produced",
+    )
+    runner.check(
+        "crf-static-39: the all-dismissed warning is emitted at most once",
+        all_dismissed_src.count("dismissed all findings") <= 1,
+        "The warning must appear at most once per revision call — no duplicates",
+    )
 
 
 # ---------------------------------------------------------------------------
 # Dynamic checks — no LLM endpoint required
 # ---------------------------------------------------------------------------
+
 
 class _StubLLMClient:
     """Records calls and replays canned content. Never touches a network.
@@ -750,9 +756,7 @@ def _qa_control_structure(**overrides: Any):
                 ControlAction(
                     ca_id=f"CA-{n}-1",
                     description=f"action issued by responsibility {n}",
-                    target=ElementRef(
-                        type=ReferenceType.controlled_process, id="CP-1"
-                    ),
+                    target=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
                 )
             ],
             feedback_channels=[
@@ -760,9 +764,7 @@ def _qa_control_structure(**overrides: Any):
                     fb_id=f"FB-{n}-1",
                     description=f"signal observed by responsibility {n}",
                     updates=f"PM-{n}-1",
-                    source=ElementRef(
-                        type=ReferenceType.controlled_process, id="CP-1"
-                    ),
+                    source=ElementRef(type=ReferenceType.controlled_process, id="CP-1"),
                 )
             ],
         )
@@ -1047,8 +1049,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
         populated = RevisionDelta(dismissed_gaps=["no multi-agent capability"])
         runner.check(
             "crf-dynamic-07: RevisionDelta accepts dismissal justifications",
-            getattr(populated, "dismissed_gaps", None)
-            == ["no multi-agent capability"],
+            getattr(populated, "dismissed_gaps", None) == ["no multi-agent capability"],
         )
     except Exception as exc:  # pragma: no cover
         import traceback
@@ -1085,8 +1086,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
         runner.check(
             "crf-dynamic-08: run_revision sends max_completion_tokens 8192",
             caps == [EXPECTED_TOKEN_CEILING],
-            f"Caps observed: {caps}; constant is "
-            f"{REVISION_MAX_COMPLETION_TOKENS}",
+            f"Caps observed: {caps}; constant is {REVISION_MAX_COMPLETION_TOKENS}",
         )
         runner.check(
             "crf-dynamic-09: an empty delta preserves both responsibilities",
@@ -1104,9 +1104,11 @@ def run_dynamic_checks(runner: QARunner) -> None:
             "The fixture has CM-1, so the next available mechanism is CM-2. "
             f"Prompt head: {system_prompt[:160]!r}",
         )
-        for token in ("belief held by responsibility 1",
-                      "action issued by responsibility 1",
-                      "signal observed by responsibility 1"):
+        for token in (
+            "belief held by responsibility 1",
+            "action issued by responsibility 1",
+            "signal observed by responsibility 1",
+        ):
             runner.check(
                 f"crf-dynamic-11[{token}]: the revision system prompt shows "
                 f"the element description",
@@ -1130,17 +1132,13 @@ def run_dynamic_checks(runner: QARunner) -> None:
                 run_dir=Path(tmpdir),
             )
         runner.check(
-            "crf-dynamic-12: a dismissal-only revision leaves the structure "
-            "intact",
+            "crf-dynamic-12: a dismissal-only revision leaves the structure intact",
             [r.resp_id for r in revised.responsibilities] == ["RESP-1", "RESP-2"],
             f"Got {[r.resp_id for r in revised.responsibilities]}",
         )
         runner.check(
-            "crf-dynamic-13: the dismissal justification is reported in the "
-            "warnings",
-            any(
-                "the system has no multi-agent capability" in w for w in warnings
-            ),
+            "crf-dynamic-13: the dismissal justification is reported in the warnings",
+            any("the system has no multi-agent capability" in w for w in warnings),
             f"Warnings: {warnings}",
         )
         runner.check(
@@ -1160,8 +1158,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
                 run_dir=Path(tmpdir),
             )
         runner.check(
-            "crf-dynamic-15: a revision with no dismissals emits no "
-            "dismissal warning",
+            "crf-dynamic-15: a revision with no dismissals emits no dismissal warning",
             not any("dismiss" in w.lower() for w in warnings),
             f"Warnings: {warnings}",
         )
@@ -1213,15 +1210,12 @@ def run_dynamic_checks(runner: QARunner) -> None:
         )
         # Per-dismissal warnings are still present.
         runner.check(
-            "crf-dynamic-31: per-dismissal warnings remain when all are "
-            "dismissed",
+            "crf-dynamic-31: per-dismissal warnings remain when all are dismissed",
             sum(1 for w in warnings if "Revision dismissed finding" in w) == 2,
             f"Expected 2 per-dismissal warnings, got: {warnings}",
         )
         # Exactly one all-dismissed warning (no duplicates).
-        all_dismissed_count = sum(
-            1 for w in warnings if "dismissed all findings" in w
-        )
+        all_dismissed_count = sum(1 for w in warnings if "dismissed all findings" in w)
         runner.check(
             "crf-dynamic-32: exactly one all-dismissed warning is emitted",
             all_dismissed_count == 1,
@@ -1229,9 +1223,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
         )
 
         # Partial dismissal (1 of 2) → no all-dismissed warning.
-        delta_partial = RevisionDelta(
-            dismissed_gaps=["gap 1 is a false positive"]
-        )
+        delta_partial = RevisionDelta(dismissed_gaps=["gap 1 is a false positive"])
         client = _StubLLMClient({RevisionDelta: delta_partial})
         with tempfile.TemporaryDirectory(prefix="qa_crf_partial_") as tmpdir:
             _, warnings = run_revision(
@@ -1242,14 +1234,12 @@ def run_dynamic_checks(runner: QARunner) -> None:
                 run_dir=Path(tmpdir),
             )
         runner.check(
-            "crf-dynamic-33: partial dismissal does not emit all-dismissed "
-            "warning",
+            "crf-dynamic-33: partial dismissal does not emit all-dismissed warning",
             not any("dismissed all findings" in w for w in warnings),
             f"Warnings: {warnings}",
         )
         runner.check(
-            "crf-dynamic-34: partial dismissal still emits per-dismissal "
-            "warning",
+            "crf-dynamic-34: partial dismissal still emits per-dismissal warning",
             any("Revision dismissed finding" in w for w in warnings),
             f"Warnings: {warnings}",
         )
@@ -1271,18 +1261,15 @@ def run_dynamic_checks(runner: QARunner) -> None:
                     resp_id="RESP-3",
                     description="Input validation controller",
                     responsibility_constraints=[
-                        ResponsibilityConstraint(
-                            rc_id="RC-3-1", description="Validate"
-                        )
+                        ResponsibilityConstraint(rc_id="RC-3-1", description="Validate")
                     ],
                     process_model_parts=[
-                        ProcessModelPart(
-                            pm_id="PM-3-1", description="Input state"
-                        )
+                        ProcessModelPart(pm_id="PM-3-1", description="Input state")
                     ],
                     control_actions=[
                         ControlAction(
-                            ca_id="CA-3-1", description="Validate",
+                            ca_id="CA-3-1",
+                            description="Validate",
                             target=ElementRef(
                                 type=ReferenceType.controlled_process, id="CP-1"
                             ),
@@ -1290,7 +1277,8 @@ def run_dynamic_checks(runner: QARunner) -> None:
                     ],
                     feedback_channels=[
                         FeedbackChannel(
-                            fb_id="FB-3-1", description="Result",
+                            fb_id="FB-3-1",
+                            description="Result",
                             updates="PM-3-1",
                             source=ElementRef(
                                 type=ReferenceType.controlled_process, id="CP-1"
@@ -1328,9 +1316,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
 
         # All dismissed + a new controlled process → warning suppressed.
         delta_with_cp = RevisionDelta(
-            new_controlled_processes=[
-                {"cp_id": "CP-2", "description": "New process"}
-            ],
+            new_controlled_processes=[{"cp_id": "CP-2", "description": "New process"}],
             dismissed_gaps=[
                 "gap 1 is a false positive",
                 "checklist item is a false positive",
@@ -1354,9 +1340,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
 
         # Empty findings + dismissed gaps → no all-dismissed warning.
         findings_empty = _qa_findings()
-        delta_dismiss_empty = RevisionDelta(
-            dismissed_gaps=["not applicable"]
-        )
+        delta_dismiss_empty = RevisionDelta(dismissed_gaps=["not applicable"])
         client = _StubLLMClient({RevisionDelta: delta_dismiss_empty})
         with tempfile.TemporaryDirectory(prefix="qa_crf_emptyfind_") as tmpdir:
             _, warnings = run_revision(
@@ -1367,8 +1351,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
                 run_dir=Path(tmpdir),
             )
         runner.check(
-            "crf-dynamic-38: empty findings does not emit all-dismissed "
-            "warning",
+            "crf-dynamic-38: empty findings does not emit all-dismissed warning",
             not any("dismissed all findings" in w for w in warnings),
             f"Warnings: {warnings}",
         )
@@ -1395,7 +1378,8 @@ def run_dynamic_checks(runner: QARunner) -> None:
                     ],
                     control_actions=[
                         ControlAction(
-                            ca_id="CA-1-1", description="Execute action",
+                            ca_id="CA-1-1",
+                            description="Execute action",
                             target=ElementRef(
                                 type=ReferenceType.controlled_process, id="CP-1"
                             ),
@@ -1403,7 +1387,8 @@ def run_dynamic_checks(runner: QARunner) -> None:
                     ],
                     feedback_channels=[
                         FeedbackChannel(
-                            fb_id="FB-1-1", description="Action result",
+                            fb_id="FB-1-1",
+                            description="Action result",
                             updates="PM-1-1",
                             source=ElementRef(
                                 type=ReferenceType.controlled_process, id="CP-1"
@@ -1434,11 +1419,10 @@ def run_dynamic_checks(runner: QARunner) -> None:
         )
 
         # RevisionDelta fields remain unchanged.
-        delta_fresh = RevisionDelta()
         runner.check(
             "crf-dynamic-40: RevisionDelta fields remain unchanged after "
             "all-dismissed warning feature",
-            set(delta_fresh.model_fields.keys())
+            set(RevisionDelta.model_fields.keys())
             == {
                 "new_responsibilities",
                 "new_controlled_processes",
@@ -1446,7 +1430,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
                 "modified_responsibilities",
                 "dismissed_gaps",
             },
-            f"Fields: {sorted(delta_fresh.model_fields.keys())}",
+            f"Fields: {sorted(RevisionDelta.model_fields.keys())}",
         )
     except Exception as exc:  # pragma: no cover
         import traceback
@@ -1548,8 +1532,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
                 token in rendered,
             )
         runner.check(
-            "crf-dynamic-19: the critic user prompt has no unrendered Jinja "
-            "expression",
+            "crf-dynamic-19: the critic user prompt has no unrendered Jinja expression",
             "{{" not in rendered and "{%" not in rendered,
         )
     except Exception as exc:  # pragma: no cover
@@ -1573,8 +1556,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             call3_warnings=None,
         )
         runner.check(
-            "crf-dynamic-20: the critic user prompt renders without a loss "
-            "analysis",
+            "crf-dynamic-20: the critic user prompt renders without a loss analysis",
             "Loss analysis not available" in bare,
         )
         runner.check(
@@ -1586,8 +1568,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
         import traceback
 
         runner.check(
-            "crf-dynamic-20: the critic user prompt renders with no optional "
-            "context",
+            "crf-dynamic-20: the critic user prompt renders with no optional context",
             False,
             f"{exc}\n{traceback.format_exc()}",
         )
@@ -1606,8 +1587,12 @@ def run_dynamic_checks(runner: QARunner) -> None:
                 call3_warnings=["CL-2 shares a process model part outside its scope"],
             )
         user_prompt = client.calls[0]["user_prompt"]
-        for token in ("**L-1**", "**H-1**", "**SC-1**",
-                      "CL-2 shares a process model part outside its scope"):
+        for token in (
+            "**L-1**",
+            "**H-1**",
+            "**SC-1**",
+            "CL-2 shares a process model part outside its scope",
+        ):
             runner.check(
                 f"crf-dynamic-22[{token}]: run_completeness_critic forwards it "
                 f"into the user prompt",
@@ -1652,7 +1637,9 @@ def run_dynamic_checks(runner: QARunner) -> None:
         stripped = cs.responsibilities[0].model_copy(
             update={
                 "process_model_parts": [
-                    ProcessModelPart(pm_id="PM-1-1", description="belief with no source")
+                    ProcessModelPart(
+                        pm_id="PM-1-1", description="belief with no source"
+                    )
                 ]
             }
         )
@@ -1729,8 +1716,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
 
 _PIPELINE_CHECKS: list[tuple[str, str]] = [
     (
-        "crf-pipeline-01: the revision call completes without "
-        "LengthFinishReasonError",
+        "crf-pipeline-01: the revision call completes without LengthFinishReasonError",
         "Read calls.jsonl and assert the stage_2/revision entry has "
         "success=true and no LengthFinishReasonError. The 4096 ceiling "
         "produced this error on all three 2026-08-10 runs.",
@@ -1775,8 +1761,7 @@ _PIPELINE_CHECKS: list[tuple[str, str]] = [
         "positive rather than work the model avoided.",
     ),
     (
-        "crf-pipeline-08: the all-dismissed/no-change warning surfaces in "
-        "real runs",
+        "crf-pipeline-08: the all-dismissed/no-change warning surfaces in real runs",
         "Read the run warnings (run-manifest.yaml or calls.jsonl) and check "
         "whether the 'dismissed all findings' warning appears when the "
         "revision dismissed everything and produced no changes. A live LLM "
@@ -1844,8 +1829,7 @@ def run_pipeline_checks(runner: QARunner, run_dir: Path | None) -> None:
             int(e.get("completion_tokens") or 0) < EXPECTED_TOKEN_CEILING
             for e in revision_entries
         ),
-        f"completion_tokens: "
-        f"{[e.get('completion_tokens') for e in revision_entries]}",
+        f"completion_tokens: {[e.get('completion_tokens') for e in revision_entries]}",
     )
 
     # The remaining checks are judgement calls over run artifacts and are
@@ -1858,6 +1842,7 @@ def run_pipeline_checks(runner: QARunner, run_dir: Path | None) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -1866,13 +1851,17 @@ def main() -> int:
         ),
     )
     parser.add_argument("--static", action="store_true", help="Run static checks only")
-    parser.add_argument("--dynamic", action="store_true", help="Run dynamic checks only")
+    parser.add_argument(
+        "--dynamic", action="store_true", help="Run dynamic checks only"
+    )
     parser.add_argument(
         "--pipeline",
         action="store_true",
         help="Run (or list) checks that need a live LLM endpoint",
     )
-    parser.add_argument("--all", action="store_true", help="Run static and dynamic checks")
+    parser.add_argument(
+        "--all", action="store_true", help="Run static and dynamic checks"
+    )
     parser.add_argument(
         "--run-dir",
         type=Path,

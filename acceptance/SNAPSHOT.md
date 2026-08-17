@@ -62,4 +62,14 @@ uv run python acceptance/refresh_snapshot.py --run
 
 Then run `uv run pytest build/acceptance/generated/`.
 
+Acceptance code must pass both hygiene checks:
+
+```bash
+uv run ruff check acceptance
+uv run ruff format --check acceptance
+```
+
+The gate is enforced before generated tests by
+`./scripts/acceptance.sh --test`.
+
 A throwaway worktree check lives at `scripts/verify_acceptance_fresh.sh`.

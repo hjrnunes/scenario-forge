@@ -176,9 +176,7 @@ def expand_seeds(
             prov_atlas_ids = pattern_prov.get("mitre-atlas", [])
 
             # Extract seed-level constraints from YAML
-            seed_min_complexity, seed_required_caps = _extract_seed_constraints(
-                pattern
-            )
+            seed_min_complexity, seed_required_caps = _extract_seed_constraints(pattern)
 
             if ap_id in seen:
                 # Merge: union taxonomy IDs, collect contributing risk cards
@@ -207,15 +205,11 @@ def expand_seeds(
                 # atlas_technique_ids = union of curated provenance across
                 # contributing risk cards (not the broad risk-level pool)
                 merged_prov = list(
-                    dict.fromkeys(
-                        existing.atlas_technique_ids + filtered_atlas_prov
-                    )
+                    dict.fromkeys(existing.atlas_technique_ids + filtered_atlas_prov)
                 )
 
                 merged_asi = list(
-                    dict.fromkeys(
-                        existing.owasp_asi_ids + entry.owasp_asi_ids
-                    )
+                    dict.fromkeys(existing.owasp_asi_ids + entry.owasp_asi_ids)
                 )
 
                 seen[ap_id] = existing.model_copy(

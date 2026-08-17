@@ -81,9 +81,7 @@ def _call_log_entry(world: World) -> dict:
     return entries[-1]
 
 
-def _h_llm_failure_run_dir(
-    world: World, text: str, examples: dict
-) -> tuple[bool, str]:
+def _h_llm_failure_run_dir(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: a temporary directory is available for LLM call logging."""
     _run_dir(world)
     return True, ""
@@ -173,9 +171,7 @@ def _h_llm_failure_attempt_count(
     return True, ""
 
 
-def _h_llm_failure_outcome(
-    world: World, text: str, examples: dict
-) -> tuple[bool, str]:
+def _h_llm_failure_outcome(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Handle: assert whether compatibility recovery succeeded."""
     match = re.search(r"outcome is (\w+)$", text)
     if match is None:

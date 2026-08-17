@@ -156,7 +156,9 @@ def load(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def run(case: str, work: Path, port: int) -> tuple[subprocess.CompletedProcess[str], Path]:
+def run(
+    case: str, work: Path, port: int
+) -> tuple[subprocess.CompletedProcess[str], Path]:
     """Run the public SP2 command for one fixture case."""
     output = work / f"case-{case}"
     profiles = work / f"profiles-{case}.yaml"

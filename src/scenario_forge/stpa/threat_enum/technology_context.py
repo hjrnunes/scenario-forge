@@ -127,8 +127,7 @@ _WRITE_FAILURE_SUFFIX = (
 )
 _READ_FAILURE_SUFFIX = "susceptible to output fabrication, data exfiltration"
 _UNKNOWN_FAILURE_SUFFIX = (
-    "susceptible to unexpected behavior from malformed input or output "
-    "manipulation"
+    "susceptible to unexpected behavior from malformed input or output manipulation"
 )
 
 
@@ -237,9 +236,7 @@ def _emit_tool_inventory_failure_modes(
         return
     for tool in profile.tool_inventory:
         suffix = _classify_tool_failure_mode(tool.description)
-        lines.append(
-            f"- Tool '{tool.name}': {tool.description} → {suffix}"
-        )
+        lines.append(f"- Tool '{tool.name}': {tool.description} → {suffix}")
 
 
 # mutate4py-manifest-begin

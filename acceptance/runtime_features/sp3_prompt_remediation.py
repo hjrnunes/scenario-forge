@@ -27,13 +27,15 @@ from scenario_forge.stpa.scenario_prod.bdi_generation import (
     build_bdi_prompts,
     populate_defender_bdi,
 )
-from scenario_forge.stpa.scenario_prod.narrative import build_narrative_prompts, generate_narrative
+from scenario_forge.stpa.scenario_prod.narrative import (
+    build_narrative_prompts,
+    generate_narrative,
+)
 from scenario_forge.stpa.threat_enum.technology_context import build_technology_context
 
 
 _BRIDGE = (
-    "FB-* denotes a logical information dependency that updates a "
-    "process-model belief"
+    "FB-* denotes a logical information dependency that updates a process-model belief"
 )
 _SURFACES = (
     "prompt/context input",
@@ -242,14 +244,15 @@ def _h_fcb_architecture(world: World, text: str, examples: dict) -> tuple[bool, 
     """Record the logical or transport architecture used by later steps."""
     world.sp3_profile = _profile()
     world.sp3_transport_accessible = (
-        "through transport" in text
-        or "explicitly declared attacker-accessible" in text
+        "through transport" in text or "explicitly declared attacker-accessible" in text
     )
     world.sp3_transport = "webhook-1" if world.sp3_transport_accessible else ""
     return True, ""
 
 
-def _h_fcb_tool_architecture(world: World, text: str, examples: dict) -> tuple[bool, str]:
+def _h_fcb_tool_architecture(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
     """Record a logical tool-result feedback architecture."""
     world.sp3_profile = _profile()
     world.sp3_transport_accessible = False
@@ -307,7 +310,10 @@ def _h_fcb_narrative(world: World, text: str, examples: dict) -> tuple[bool, str
 def _h_fcb_retrieved(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Check the logical-only narrative realization."""
     narrative = getattr(world, "sp3_narrative", "") or ""
-    if "poison" not in narrative.lower() or "retrieved content" not in narrative.lower():
+    if (
+        "poison" not in narrative.lower()
+        or "retrieved content" not in narrative.lower()
+    ):
         return False, "Narrative does not poison retrieved content"
     return True, ""
 
@@ -321,7 +327,9 @@ def _h_fcb_no_infra(world: World, text: str, examples: dict) -> tuple[bool, str]
     return True, ""
 
 
-def _h_fcb_transport_evidence(world: World, text: str, examples: dict) -> tuple[bool, str]:
+def _h_fcb_transport_evidence(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
     """Check that an allowed transport is tied to its architecture evidence."""
     narrative = (getattr(world, "sp3_narrative", "") or "").lower()
     if "webhook-1" not in narrative or "architecture evidence" not in narrative:
@@ -339,9 +347,7 @@ def _h_aat_render_prompt(world: World, text: str, examples: dict) -> tuple[bool,
     return True, ""
 
 
-def _h_existing_tree_call(
-    world: World, text: str, examples: dict
-) -> tuple[bool, str]:
+def _h_existing_tree_call(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Give the exact legacy tree step its production handler priority."""
     from runtime_features.sp3 import _h_sp3_tree_call
 
@@ -482,7 +488,9 @@ def _h_aat_no_infra(world: World, text: str, examples: dict) -> tuple[bool, str]
     return True, ""
 
 
-def _h_aat_transport_evidence(world: World, text: str, examples: dict) -> tuple[bool, str]:
+def _h_aat_transport_evidence(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
     """Check that an infrastructure leaf cites webhook-1."""
     tree = _tree_text(getattr(world, "sp3_attack_tree", {}))
     if "webhook-1" not in tree or "architecture evidence" not in tree:
@@ -607,12 +615,10 @@ def _h_mcp_run(world: World, text: str, examples: dict) -> tuple[bool, str]:
 def _h_mcp_stage5_requests(world: World, text: str, examples: dict) -> tuple[bool, str]:
     """Check every Stage 5 request for the deterministic context."""
     context = build_technology_context(world.sp3_profile)
-    calls = [
-        call
-        for call in _logged_calls(world)
-        if call.get("stage") == "stage_5"
-    ]
-    if not calls or any(context not in call.get("user_prompt_text", "") for call in calls):
+    calls = [call for call in _logged_calls(world) if call.get("stage") == "stage_5"]
+    if not calls or any(
+        context not in call.get("user_prompt_text", "") for call in calls
+    ):
         return False, "A Stage 5 request lacks the deterministic context"
     return True, ""
 
@@ -625,7 +631,9 @@ def _h_mcp_stage6_requests(world: World, text: str, examples: dict) -> tuple[boo
         for call in _logged_calls(world)
         if call.get("stage") == "stage_6" and call.get("step") == "narrative"
     ]
-    if not calls or any(context not in call.get("user_prompt_text", "") for call in calls):
+    if not calls or any(
+        context not in call.get("user_prompt_text", "") for call in calls
+    ):
         return False, "A Stage 6 narrative request lacks the deterministic context"
     return True, ""
 

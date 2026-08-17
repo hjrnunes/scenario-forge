@@ -166,9 +166,7 @@ def _collect_responsibility_source_ids(
     entries: NamespaceEntries = {"responsibility": []}
     old_resp_id = responsibility.get("resp_id")
     if isinstance(old_resp_id, str):
-        entries["responsibility"].append(
-            (old_resp_id, f"RESP-{responsibility_index}")
-        )
+        entries["responsibility"].append((old_resp_id, f"RESP-{responsibility_index}"))
 
     for child_key, id_key, prefix, namespace in _RESPONSIBILITY_CHILD_SPECS:
         entries[namespace] = _collect_child_source_ids(
@@ -191,9 +189,7 @@ def _collect_controlled_process_source_ids(
     for process_index, process in enumerate(processes, start=1):
         old_id = _string_id(process, "cp_id")
         if old_id is not None:
-            entries["controlled_process"].append(
-                (old_id, f"CP-{process_index}")
-            )
+            entries["controlled_process"].append((old_id, f"CP-{process_index}"))
 
 
 def _collect_coordination_source_ids(
@@ -229,9 +225,7 @@ def _collect_coordination_link_source_ids(
     mechanism = link.get("coordination_mechanism")
     mechanism_id = _string_id(mechanism, "cm_id")
     if mechanism_id is not None:
-        entries["coordination_mechanism"].append(
-            (mechanism_id, f"CM-{link_index}")
-        )
+        entries["coordination_mechanism"].append((mechanism_id, f"CM-{link_index}"))
 
 
 def _source_id_entries(
@@ -246,9 +240,7 @@ def _source_id_entries(
     for resp_index, resp in enumerate(responsibilities, start=1):
         if not isinstance(resp, dict):
             continue
-        responsibility_entries = _collect_responsibility_source_ids(
-            resp, resp_index
-        )
+        responsibility_entries = _collect_responsibility_source_ids(resp, resp_index)
         for namespace, source_entries in responsibility_entries.items():
             entries[namespace].extend(source_entries)
 
@@ -306,9 +298,7 @@ def _set_responsibility_child_canonical_ids(
             continue
         for child_index, child in enumerate(children, start=1):
             if isinstance(child, dict):
-                child[id_key] = (
-                    f"{prefix}-{responsibility_index}-{child_index}"
-                )
+                child[id_key] = f"{prefix}-{responsibility_index}-{child_index}"
 
 
 def _set_controlled_process_canonical_ids(processes: list[Any]) -> None:
@@ -689,9 +679,7 @@ def _fix_resps(responsibilities: Any) -> None:
         if not isinstance(responsibility, dict):
             continue
         _set_empty_description(responsibility, "responsibility")
-        for child_key, _id_key, _prefix, element_type in (
-            _RESPONSIBILITY_CHILD_SPECS
-        ):
+        for child_key, _id_key, _prefix, element_type in _RESPONSIBILITY_CHILD_SPECS:
             _fix_children(responsibility.get(child_key, []), element_type)
 
 

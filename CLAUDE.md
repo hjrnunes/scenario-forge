@@ -63,8 +63,13 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 ```bash
 uv sync                    # Install/update dependencies (includes ruff)
 uv run ruff check src/     # Linting
+./scripts/quality.sh       # Ruff check and format-check src/ and acceptance/
 uv run pytest              # Unit suite (testpaths=tests; ~5900 tests)
 ```
+
+The `./scripts/acceptance.sh --test` path enforces `scripts/quality.sh` before
+running generated acceptance tests. CRAP, DRY, and mutation analysis remains
+scoped to `src/` only; acceptance handlers are outside those tools' scope.
 
 ### Test suites
 

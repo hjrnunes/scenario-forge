@@ -146,10 +146,7 @@ def _is_unsupported_unvalidated_error(
     if not allow_unvalidated:
         return False
     message = str(error)
-    return (
-        "unexpected keyword argument" in message
-        and "allow_unvalidated" in message
-    )
+    return "unexpected keyword argument" in message and "allow_unvalidated" in message
 
 
 def _result_usage(

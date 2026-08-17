@@ -57,9 +57,7 @@ def _resolve_api_key(explicit: str | None) -> str:
 
 def _resolve_model(explicit: str | None) -> str:
     """Resolve model name from explicit arg or environment."""
-    return explicit or os.environ.get(
-        "SCENARIO_FORGE_MODEL_NAME", "gemma-3n-e4b-it"
-    )
+    return explicit or os.environ.get("SCENARIO_FORGE_MODEL_NAME", "gemma-3n-e4b-it")
 
 
 def _resolve_extra_headers(
@@ -74,9 +72,7 @@ def _resolve_extra_headers(
     return merged if merged else None
 
 
-def _inject_openrouter_headers(
-    merged: dict[str, str], base_url: str | None
-) -> None:
+def _inject_openrouter_headers(merged: dict[str, str], base_url: str | None) -> None:
     """Inject OpenRouter default headers if the base URL points to OpenRouter."""
     if base_url and "openrouter.ai" in base_url:
         for key, default in _OPENROUTER_DEFAULT_HEADERS.items():

@@ -137,17 +137,19 @@ def _extract_keywords(text: str) -> set[str]:
     and short tokens.
     """
     tokens = re.findall(r"[a-zA-Z0-9]+", text.lower())
-    return {
-        t
-        for t in tokens
-        if len(t) >= _MIN_WORD_LENGTH and t not in _STOPWORDS
-    }
+    return {t for t in tokens if len(t) >= _MIN_WORD_LENGTH and t not in _STOPWORDS}
 
 
 def _causal_chain_text(card: RiskCard) -> str:
     """Concatenate all causal chain fields into a single string."""
     parts: list[str] = []
-    for field_name in ("threat", "threat_source", "vulnerability", "consequence", "impact"):
+    for field_name in (
+        "threat",
+        "threat_source",
+        "vulnerability",
+        "consequence",
+        "impact",
+    ):
         value = getattr(card, field_name, None)
         if value:
             parts.append(value)

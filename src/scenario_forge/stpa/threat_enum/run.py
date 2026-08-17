@@ -191,7 +191,9 @@ def _write_manifest(
 
     manifest_path = run_dir / "run-manifest.yaml"
     manifest_path.write_text(
-        yaml.dump(manifest, default_flow_style=False, sort_keys=False, allow_unicode=True),
+        yaml.dump(
+            manifest, default_flow_style=False, sort_keys=False, allow_unicode=True
+        ),
         encoding="utf-8",
     )
 

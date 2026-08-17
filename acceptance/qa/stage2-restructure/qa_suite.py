@@ -51,7 +51,9 @@ import yaml
 # ---------------------------------------------------------------------------
 
 PROMPTS_DIR = (
-    next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+    next(
+        p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
+    )
     / "src"
     / "scenario_forge"
     / "stpa"
@@ -102,6 +104,7 @@ EXPECTED_STAGE2_CALL_COUNT = 4
 # Test framework
 # ---------------------------------------------------------------------------
 
+
 class CheckResult:
     """Result of a single QA check."""
 
@@ -147,6 +150,7 @@ class QARunner:
 # ---------------------------------------------------------------------------
 # Static checks (no LLM required)
 # ---------------------------------------------------------------------------
+
 
 def _read_template(name: str) -> str | None:
     """Read a prompt template, returning None if missing."""
@@ -264,8 +268,11 @@ def run_static_checks(runner: QARunner) -> None:
     # --- Call 2b user prompt: responsibilities from Call 2a ---
     call2b_user = _read_template("stage2_call2b_user.j2")
     if call2b_user is not None:
-        for marker in ("responsibilities", "responsibility_constraints",
-                       "process_model_parts"):
+        for marker in (
+            "responsibilities",
+            "responsibility_constraints",
+            "process_model_parts",
+        ):
             runner.check(
                 f"stage2-call2b: user prompt contains '{marker}'",
                 marker in call2b_user,
@@ -367,6 +374,7 @@ def run_static_checks(runner: QARunner) -> None:
 # Pipeline checks (require LLM endpoint)
 # ---------------------------------------------------------------------------
 
+
 def _run_stpa_pipeline(
     use_case: str,
     risk_extraction: Path,
@@ -375,10 +383,16 @@ def _run_stpa_pipeline(
 ) -> subprocess.CompletedProcess:
     """Run `scenario-forge stpa-run` and return the completed process."""
     cmd = [
-        "uv", "run", "scenario-forge", "stpa-run",
-        "--use-case", use_case,
-        "--risk-extraction", str(risk_extraction),
-        "--output-dir", str(output_dir),
+        "uv",
+        "run",
+        "scenario-forge",
+        "stpa-run",
+        "--use-case",
+        use_case,
+        "--risk-extraction",
+        str(risk_extraction),
+        "--output-dir",
+        str(output_dir),
     ]
     if capability_profile is not None:
         cmd.extend(["--capability-profile", str(capability_profile)])
@@ -412,14 +426,18 @@ def _load_calls_jsonl(path: Path) -> list[dict]:
 
 
 def _find_call_entries(
-    calls: list[dict], stage: str, step: str,
+    calls: list[dict],
+    stage: str,
+    step: str,
 ) -> list[dict]:
     """Return all call-log entries matching the given stage and step."""
     return [c for c in calls if c.get("stage") == stage and c.get("step") == step]
 
 
 def _find_first_call_index(
-    calls: list[dict], stage: str, step: str,
+    calls: list[dict],
+    stage: str,
+    step: str,
 ) -> int | None:
     """Return the index of the first call-log entry matching stage and step."""
     for i, c in enumerate(calls):
@@ -440,7 +458,10 @@ def run_pipeline_checks(
         output_dir = Path(tmpdir) / "output"
 
         proc = _run_stpa_pipeline(
-            use_case, risk_extraction, output_dir, capability_profile,
+            use_case,
+            risk_extraction,
+            output_dir,
+            capability_profile,
         )
 
         runner.check(
@@ -594,9 +615,7 @@ def run_pipeline_checks(
                     f"non-RC IDs: {[r for r in all_rc_ids if not r.startswith('RC-')]}",
                 )
 
-                none_start_pm = not any(
-                    rc_id.startswith("PM-") for rc_id in all_rc_ids
-                )
+                none_start_pm = not any(rc_id.startswith("PM-") for rc_id in all_rc_ids)
                 runner.check(
                     "stage2-call2a: no rc_id starts with 'PM-'",
                     none_start_pm,
@@ -612,8 +631,12 @@ def run_pipeline_checks(
             all_pm_covered = True
             orphan_pms: list[str] = []
             for r in responsibilities:
-                pm_ids = {pm.get("pm_id", "") for pm in r.get("process_model_parts", [])}
-                updated_pms = {fb.get("updates", "") for fb in r.get("feedback_channels", [])}
+                pm_ids = {
+                    pm.get("pm_id", "") for pm in r.get("process_model_parts", [])
+                }
+                updated_pms = {
+                    fb.get("updates", "") for fb in r.get("feedback_channels", [])
+                }
                 for pm_id in pm_ids:
                     if pm_id and pm_id not in updated_pms:
                         all_pm_covered = False
@@ -663,33 +686,43 @@ def run_pipeline_checks(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="End-to-end QA suite for Stage 2 restructure."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument(
-        "--static", action="store_true",
+        "--static",
+        action="store_true",
         help="Run static checks only (no LLM needed).",
     )
     mode.add_argument(
-        "--pipeline", action="store_true",
+        "--pipeline",
+        action="store_true",
         help="Run pipeline checks (requires LLM endpoint and input files).",
     )
     mode.add_argument(
-        "--all", action="store_true",
+        "--all",
+        action="store_true",
         help="Run both static and pipeline checks.",
     )
     parser.add_argument(
-        "--use-case", type=str, default=None,
+        "--use-case",
+        type=str,
+        default=None,
         help="Path to use-case text file for pipeline checks.",
     )
     parser.add_argument(
-        "--risk-extraction", type=Path, default=None,
+        "--risk-extraction",
+        type=Path,
+        default=None,
         help="Path to risk extraction JSON file for pipeline checks.",
     )
     parser.add_argument(
-        "--capability-profile", type=Path, default=None,
+        "--capability-profile",
+        type=Path,
+        default=None,
         help="Pre-built capability profile YAML (optional).",
     )
     args = parser.parse_args()
@@ -705,11 +738,16 @@ def main() -> int:
 
     if do_pipeline:
         if not args.use_case or not args.risk_extraction:
-            print("ERROR: --use-case and --risk-extraction required for pipeline checks")
+            print(
+                "ERROR: --use-case and --risk-extraction required for pipeline checks"
+            )
             return 1
         print("\n=== Pipeline checks (requires LLM endpoint) ===")
         run_pipeline_checks(
-            runner, args.use_case, args.risk_extraction, args.capability_profile,
+            runner,
+            args.use_case,
+            args.risk_extraction,
+            args.capability_profile,
         )
 
     return runner.summary()

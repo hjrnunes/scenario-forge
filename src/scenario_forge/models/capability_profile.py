@@ -799,9 +799,7 @@ def deduplicate_tool_inventory(
             seen[tid] = (identity_tuple, tool)
             continue
         existing_tuple, existing_tool = seen[tid]
-        _reject_tool_conflict(
-            tool, existing_tool, tid, identity_tuple, existing_tuple
-        )
+        _reject_tool_conflict(tool, existing_tool, tid, identity_tuple, existing_tuple)
         logger.debug(
             "Deduplicating tool '%s' (exact duplicate of '%s')",
             tool.name,
@@ -1371,9 +1369,7 @@ def _check_agents(zones: set[str], enabled: bool) -> None:
         )
 
 
-def _need_tools(
-    zones: set[str], inventory: list[ToolInventoryEntry] | None
-) -> None:
+def _need_tools(zones: set[str], inventory: list[ToolInventoryEntry] | None) -> None:
     """Require an inventory when tool execution is active."""
     if "tool_execution" in zones and not inventory:
         raise ValueError(

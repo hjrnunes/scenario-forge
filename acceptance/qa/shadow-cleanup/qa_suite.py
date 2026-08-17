@@ -69,9 +69,7 @@ PROJECT_ROOT = next(
 ACCEPTANCE_DIR = PROJECT_ROOT / "acceptance"
 ACCEPTANCE_RUNTIME = ACCEPTANCE_DIR / "acceptance_runtime.py"
 IR_DIR = PROJECT_ROOT / "build" / "acceptance" / "ir"
-PROPERTY_TEST = (
-    PROJECT_ROOT / "tests" / "stpa" / "test_acceptance_harness_property.py"
-)
+PROPERTY_TEST = PROJECT_ROOT / "tests" / "stpa" / "test_acceptance_harness_property.py"
 
 # ---------------------------------------------------------------------------
 # Inventory: 39 dead registrations to remove
@@ -84,46 +82,122 @@ PROPERTY_TEST = (
 
 DEAD_REGISTRATIONS: list[tuple[str, str, str]] = [
     # --- 27 mechanical removals (Class A) ---
-    (r"the file contains entries with stage stage_5", "_h_sp3_calls_jsonl", "_register_first"),
+    (
+        r"the file contains entries with stage stage_5",
+        "_h_sp3_calls_jsonl",
+        "_register_first",
+    ),
     (r"by_ica_type has.*", "_h_sp3_diversity_counts", "_register_first"),
     (r"by_ica_type has.*", "_h_sp3_diversity_has_value", "_register_first"),
     (r"by_branch_category has.*", "_h_sp3_diversity_has_value", "_register_first"),
     (r"by_responsibility has.*", "_h_sp3_diversity_has_value", "_register_first"),
-    (r"a control structure with responsibilities RE", "_h_sp1_cs_two_resps_available", "_register"),
+    (
+        r"a control structure with responsibilities RE",
+        "_h_sp1_cs_two_resps_available",
+        "_register",
+    ),
     (r"the HTML contains the text", "_h_ch_contains_text", "_register_first"),
-    (r"the STPA system model prompts directory is a", "_h_pqf_prompts_dir_available", "_register"),
+    (
+        r"the STPA system model prompts directory is a",
+        "_h_pqf_prompts_dir_available",
+        "_register",
+    ),
     (r"the revision is applied", "_h_sp1_rev_applied", "_register"),
-    (r"the resulting control structure does not con", "_h_strip_cs_does_not_contain", "_register_first"),
-    (r"the final control structure passes foundatio", "_h_cmidup_passes_validation", "_register"),
+    (
+        r"the resulting control structure does not con",
+        "_h_strip_cs_does_not_contain",
+        "_register_first",
+    ),
+    (
+        r"the final control structure passes foundatio",
+        "_h_cmidup_passes_validation",
+        "_register",
+    ),
     (r"no new failures are introduced", "_h_sp1_run_existing_tests", "_register"),
-    (r"no new failures are introduced", "_h_sp2_existing_tests_unaffected", "_register"),
+    (
+        r"no new failures are introduced",
+        "_h_sp2_existing_tests_unaffected",
+        "_register",
+    ),
     (r"no new failures are introduced", "_h_sp3_existing_tests", "_register"),
-    (r"a use-case description and risk extraction J", "_h_sp1_use_case_risk_json", "_register"),
+    (
+        r"a use-case description and risk extraction J",
+        "_h_sp1_use_case_risk_json",
+        "_register",
+    ),
     (r"validation fails with error containing", "_h_sp1_validation_fails", "_register"),
-    (r"a control structure where responsibility RES", "_h_sp1_heur_cs_with_constraint", "_register"),
-    (r"a control structure where no responsibility ", "_h_sp1_heur_cs_no_constraint", "_register"),
+    (
+        r"a control structure where responsibility RES",
+        "_h_sp1_heur_cs_with_constraint",
+        "_register",
+    ),
+    (
+        r"a control structure where no responsibility ",
+        "_h_sp1_heur_cs_no_constraint",
+        "_register",
+    ),
     (r"a warning is produced for orphan PM", "_h_sp1_heur_orphan_warn", "_register"),
-    (r"the scenario spec is validated against the c", "_h_sp3_validate_against_cs", "_register"),
+    (
+        r"the scenario spec is validated against the c",
+        "_h_sp3_validate_against_cs",
+        "_register",
+    ),
     (r"the existing test suite is run", "_h_sp3_existing_tests", "_register"),
-    (r"critic findings with unjustified gaps", "_h_connset_critic_unjustified", "_register"),
-    (r"the file contains entries with stage stage_3", "_h_sp2_calls_jsonl_stage", "_register"),
+    (
+        r"critic findings with unjustified gaps",
+        "_h_connset_critic_unjustified",
+        "_register",
+    ),
+    (
+        r"the file contains entries with stage stage_3",
+        "_h_sp2_calls_jsonl_stage",
+        "_register",
+    ),
     (r"the following template files exist", "_h_sp3_template_files_exist", "_register"),
-    (r"the following modules exist and are importab", "_h_sp3_modules_exist", "_register"),
-    (r"responsibility_diversity is a non-negative f", "_h_sp3_diversity_float", "_register"),
-    (r"ica_type_diversity is a non-negative float", "_h_sp3_diversity_float", "_register"),
+    (
+        r"the following modules exist and are importab",
+        "_h_sp3_modules_exist",
+        "_register",
+    ),
+    (
+        r"responsibility_diversity is a non-negative f",
+        "_h_sp3_diversity_float",
+        "_register",
+    ),
+    (
+        r"ica_type_diversity is a non-negative float",
+        "_h_sp3_diversity_float",
+        "_register",
+    ),
     # --- 12 Class B dead registrations (judgement calls) ---
-    (r"Stage 2 calls 1 through 3 are run in sequenc", "_h_sp1_s2_calls_1_3_run", "_register"),
+    (
+        r"Stage 2 calls 1 through 3 are run in sequenc",
+        "_h_sp1_s2_calls_1_3_run",
+        "_register",
+    ),
     (r"Stage 2 control structure derivation is run", "_h_sp1_s2_full_run", "_register"),
     (r"the revision is run", "_h_rev_revision_run", "_register_first"),
     (r"the revision is run", "_h_sp1_rev_run", "_register"),
-    (r"the TemplateLoader can load templates from t", "_h_pqf_template_loader_created", "_register"),
+    (
+        r"the TemplateLoader can load templates from t",
+        "_h_pqf_template_loader_created",
+        "_register",
+    ),
     (r"a file \S+ exists in the run directory", "_h_sp1_file_exists", "_register"),
     (r"the heuristic check fails with error contain", "_h_sp1_heur_fails", "_register"),
     (r"a control structure with responsibility RESP", "_h_sp3_cs_resp1", "_register"),
-    (r"the user prompt contains the control structu", "_h_sp2_user_prompt_contains", "_register"),
+    (
+        r"the user prompt contains the control structu",
+        "_h_sp2_user_prompt_contains",
+        "_register",
+    ),
     (r"the pipeline does not crash", "_h_cmidup_pipeline_no_crash", "_register"),
     (r"uncovered_reason is not empty", "_h_sp3_coverage_field", "_register"),
-    (r"the scorecard validation section has.*", "_h_sp3_scorecard_validation", "_register"),
+    (
+        r"the scorecard validation section has.*",
+        "_h_sp3_scorecard_validation",
+        "_register",
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -235,8 +309,8 @@ CLASS_B_VERDICTS: list[tuple[str, str, str, str]] = [
 # Handler functions that must NOT be deleted (only their registrations
 # are dead — they are still called via delegation from the live handler).
 RETAIN_FUNCTIONS: list[str] = [
-    "_h_rev_revision_run",   # called by _h_bf2_revision_run_with_log_capture
-    "_h_sp1_rev_run",        # called by _h_rev_revision_run as fallthrough
+    "_h_rev_revision_run",  # called by _h_bf2_revision_run_with_log_capture
+    "_h_sp1_rev_run",  # called by _h_rev_revision_run as fallthrough
 ]
 
 # Synthetic step texts that cover known shadowing prefixes.
@@ -266,6 +340,7 @@ SYNTHETIC_STEP_TEXTS: list[str] = [
 # Test framework
 # ---------------------------------------------------------------------------
 
+
 class CheckResult:
     """Result of a single QA check."""
 
@@ -288,9 +363,7 @@ class QARunner:
         self.results: list[CheckResult] = []
 
     def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(
-            CheckResult(name, "PASS" if condition else "FAIL", detail)
-        )
+        self.results.append(CheckResult(name, "PASS" if condition else "FAIL", detail))
 
     def skip(self, name: str, reason: str) -> None:
         self.results.append(CheckResult(name, "SKIP", reason))
@@ -328,6 +401,7 @@ class QARunner:
 # Source helpers
 # ---------------------------------------------------------------------------
 
+
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -345,10 +419,7 @@ def _find_function(tree: ast.Module, name: str) -> ast.FunctionDef | None:
 
 def _grep_pattern(source: str, pattern: str) -> list[str]:
     """Return lines matching a regex pattern."""
-    return [
-        line for line in source.splitlines()
-        if re.search(pattern, line)
-    ]
+    return [line for line in source.splitlines() if re.search(pattern, line)]
 
 
 def _registration_tuples(tree: ast.Module) -> list[tuple[str, str, str]]:
@@ -376,14 +447,19 @@ def _registration_tuples(tree: ast.Module) -> list[tuple[str, str, str]]:
 # Static checks
 # ---------------------------------------------------------------------------
 
+
 def run_static_checks(runner: QARunner) -> None:
     """AST and source-text assertions. No imports, no LLM."""
 
     # --- Core functions exist -----------------------------------------------
     tree = _parse(ACCEPTANCE_RUNTIME)
 
-    for fname in ("_track_registration", "_register", "_register_first",
-                   "find_pattern_conflicts"):
+    for fname in (
+        "_track_registration",
+        "_register",
+        "_register_first",
+        "find_pattern_conflicts",
+    ):
         func = _find_function(tree, fname)
         runner.check(
             f"sc-static-01: {fname} is defined in acceptance_runtime.py",
@@ -446,8 +522,7 @@ def run_static_checks(runner: QARunner) -> None:
             f"sc-static-{i:02d}: dead registration {reg_func_name}("
             f"...{handler_name}) is removed",
             len(matching_calls) == 0,
-            f"Found {len(matching_calls)} remaining call(s): "
-            f"{matching_calls[:2]}",
+            f"Found {len(matching_calls)} remaining call(s): {matching_calls[:2]}",
         )
 
     # --- xfail markers removed from property tests --------------------------
@@ -492,11 +567,10 @@ def run_static_checks(runner: QARunner) -> None:
 # Dynamic checks
 # ---------------------------------------------------------------------------
 
+
 def _ir_files() -> list[Path]:
     """All executable IR files (excluding DRY-checker reports)."""
-    return sorted(
-        p for p in IR_DIR.rglob("*.json") if not p.stem.endswith("_dry")
-    )
+    return sorted(p for p in IR_DIR.rglob("*.json") if not p.stem.endswith("_dry"))
 
 
 def _all_step_texts(ir_path: Path) -> list[str]:
@@ -551,6 +625,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             _REGISTERED_PATTERN_KEYS,
             find_pattern_conflicts,
         )
+
         runner.check(
             "sc-dynamic-01: acceptance_runtime imports without RuntimeError",
             True,
@@ -652,13 +727,18 @@ def run_dynamic_checks(runner: QARunner) -> None:
         try:
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "pytest",
+                    sys.executable,
+                    "-m",
+                    "pytest",
                     f"{PROPERTY_TEST}::TestNoPatternShadowing::"
                     "test_no_global_pattern_conflicts_on_ir_steps",
                     f"{PROPERTY_TEST}::TestNoPatternShadowing::"
                     "test_no_global_pattern_conflicts_on_synthetic_steps",
-                    "-v", "--tb=short", "--no-header",
-                    "-p", "no:cacheprovider",
+                    "-v",
+                    "--tb=short",
+                    "--no-header",
+                    "-p",
+                    "no:cacheprovider",
                 ],
                 capture_output=True,
                 text=True,
@@ -674,8 +754,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
                 f"sc-dynamic-{offset:02d}: both property tests pass "
                 f"(not xfail, not xpass)",
                 result.returncode == 0 and has_pass and not has_xfail and not has_xpass,
-                f"rc={result.returncode}, output snippet: "
-                f"{output[:500]}",
+                f"rc={result.returncode}, output snippet: {output[:500]}",
             )
         except subprocess.TimeoutExpired:
             runner.check(
@@ -749,20 +828,23 @@ def run_pipeline_checks(runner: QARunner, run_dir: Path | None) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=(
-            "QA suite for the shadowed registration cleanup (bead jrds)"
-        ),
+        description=("QA suite for the shadowed registration cleanup (bead jrds)"),
     )
     parser.add_argument("--static", action="store_true", help="Run static checks only")
-    parser.add_argument("--dynamic", action="store_true", help="Run dynamic checks only")
+    parser.add_argument(
+        "--dynamic", action="store_true", help="Run dynamic checks only"
+    )
     parser.add_argument(
         "--pipeline",
         action="store_true",
         help="Run (or list) checks that need a live LLM endpoint",
     )
-    parser.add_argument("--all", action="store_true", help="Run static and dynamic checks")
+    parser.add_argument(
+        "--all", action="store_true", help="Run static and dynamic checks"
+    )
     parser.add_argument(
         "--run-dir",
         type=Path,

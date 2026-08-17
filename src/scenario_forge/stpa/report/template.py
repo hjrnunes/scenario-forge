@@ -59,7 +59,7 @@ def _highlight_yaml(text: str) -> str:
             indent, key, colon, value = m.groups()
             result.append(
                 f'{indent}<span class="yaml-key">{key}</span>{colon}'
-                f'{_highlight_yaml_value(value)}'
+                f"{_highlight_yaml_value(value)}"
             )
             continue
         m = re.match(r"^(\s*-\s+)(.*)", escaped)
@@ -140,7 +140,7 @@ def _apply_gherkin_keyword_highlight(escaped: str) -> str:
             return (
                 escaped[:idx]
                 + f'<span class="{css}">{ekw}</span>'
-                + escaped[idx + len(ekw):]
+                + escaped[idx + len(ekw) :]
             )
     return escaped
 
@@ -172,7 +172,9 @@ def _highlight_gherkin(text: str) -> str:
                 if remainder:
                     docstring_lines.append(remainder)
                 ds_text = "\n".join(docstring_lines).strip()
-                result.append(f'<div class="step-docstring">"""\n{_esc(ds_text)}\n"""</div>')
+                result.append(
+                    f'<div class="step-docstring">"""\n{_esc(ds_text)}\n"""</div>'
+                )
                 in_docstring = False
                 docstring_lines = []
             else:
@@ -206,7 +208,7 @@ def _highlight_gherkin(text: str) -> str:
         ]:
             if stripped.startswith(kw):
                 keyword = kw.strip().rstrip(":")
-                step_text = stripped[len(kw):].strip()
+                step_text = stripped[len(kw) :].strip()
                 step_class = cls
                 break
 
@@ -227,7 +229,7 @@ def _highlight_gherkin(text: str) -> str:
             f'<div class="feature-step {step_class}">'
             f'<span class="step-keyword">{_esc(keyword)}</span> '
             f'<span class="step-text">{_esc(step_text)}</span>'
-            f'</div>'
+            f"</div>"
         )
 
     return "\n".join(result)
@@ -650,9 +652,7 @@ def _build_sticky_nav() -> str:
         ("Calls", "#calls"),
         ("Manifest", "#manifest"),
     ]
-    items = "\n".join(
-        f'    <a href="{href}">{label}</a>' for label, href in links
-    )
+    items = "\n".join(f'    <a href="{href}">{label}</a>' for label, href in links)
     return f'<nav id="sticky-nav" class="sticky-nav">\n{items}\n  </nav>'
 
 
@@ -676,22 +676,24 @@ def _build_hero_summary(
                 f'    <div class="hero-metric">'
                 f'<div class="hero-metric-name">{_esc(name)}</div>'
                 f'<div class="hero-metric-value">{_esc(pct)}</div>'
-                f'</div>'
+                f"</div>"
             )
-        metrics_html = f'  <div class="hero-metrics">\n{chr(10).join(metric_items)}\n  </div>'
+        metrics_html = (
+            f'  <div class="hero-metrics">\n{chr(10).join(metric_items)}\n  </div>'
+        )
     else:
         metrics_html = '  <div class="hero-metrics"><div class="hero-metric"><div class="hero-metric-name">Eval</div><div class="hero-metric-value">N/A</div></div></div>'
 
     return (
         f'<section id="hero" class="hero">\n'
-        f'  <h1>STPA-Sec Report</h1>\n'
+        f"  <h1>STPA-Sec Report</h1>\n"
         f'  <div class="hero-meta">\n'
         f'    <div class="hero-stat"><div class="hero-stat-label">Run ID</div><div class="hero-stat-value">{run_id_html}</div></div>\n'
         f'    <div class="hero-stat"><div class="hero-stat-label">Timestamp</div><div class="hero-stat-value">{ts_html}</div></div>\n'
         f'    <div class="hero-stat"><div class="hero-stat-label">Scenarios</div><div class="hero-stat-value">{count_html}</div></div>\n'
-        f'  </div>\n'
-        f'{metrics_html}\n'
-        f'</section>'
+        f"  </div>\n"
+        f"{metrics_html}\n"
+        f"</section>"
     )
 
 
@@ -701,14 +703,15 @@ def _build_raw_yaml_section(filename: str, raw_text: str) -> str:
     safe_id = re.sub(r"[^a-zA-Z0-9_-]", "-", filename)
     return (
         f'<details class="raw-yaml" data-filename="{_esc(filename)}">\n'
-        f'  <summary>Raw YAML: {_esc(filename)}</summary>\n'
+        f"  <summary>Raw YAML: {_esc(filename)}</summary>\n"
         f'  <div class="code-block" id="raw-{safe_id}">{highlighted}</div>\n'
-        f'</details>'
+        f"</details>"
     )
 
 
 def _build_raw_yaml_sections(
-    raw_texts: dict[str, str] | None, filenames: tuple[str, ...],
+    raw_texts: dict[str, str] | None,
+    filenames: tuple[str, ...],
 ) -> list[str]:
     """Build raw YAML sections for the given filenames if present."""
     if not raw_texts:
@@ -729,13 +732,15 @@ def _build_table_rows(rows_data: list[tuple], cell_count: int) -> str:
 
 
 def _build_data_table(
-    headers: list[str], rows: str, table_id: str = "",
+    headers: list[str],
+    rows: str,
+    table_id: str = "",
 ) -> str:
     """Build a complete ``<table class="data-table">`` element."""
     th = "".join(f"<th>{_esc(h)}</th>" for h in headers)
     return (
         f'    <table class="data-table"><thead><tr>{th}</tr></thead>\n'
-        f'    <tbody>\n{rows}\n    </tbody></table>'
+        f"    <tbody>\n{rows}\n    </tbody></table>"
     )
 
 
@@ -744,7 +749,11 @@ def _build_losses_table(losses: list[dict]) -> str:
     if not losses:
         return ""
     rows = _build_table_rows(
-        [(loss["id"], loss["description"], loss.get("provenance", "")) for loss in losses], 3,
+        [
+            (loss["id"], loss["description"], loss.get("provenance", ""))
+            for loss in losses
+        ],
+        3,
     )
     return _build_data_table(["ID", "Description", "Provenance"], rows)
 
@@ -754,7 +763,8 @@ def _build_hazards_table(hazards: list) -> str:
     if not hazards:
         return ""
     rows = _build_table_rows(
-        [(h.hazard_id, h.description) for h in hazards], 2,
+        [(h.hazard_id, h.description) for h in hazards],
+        2,
     )
     return _build_data_table(["Hazard ID", "Description"], rows)
 
@@ -764,7 +774,8 @@ def _build_constraints_table(constraints: list) -> str:
     if not constraints:
         return ""
     rows = _build_table_rows(
-        [(sc.constraint_id, sc.description) for sc in constraints], 2,
+        [(sc.constraint_id, sc.description) for sc in constraints],
+        2,
     )
     return _build_data_table(["Constraint ID", "Description"], rows)
 
@@ -782,18 +793,20 @@ def _build_sp1_losses_section(loss_analysis: Any) -> str:
         if table:
             parts.append(table)
 
-    parts.append('</div>')
+    parts.append("</div>")
     return "\n".join(parts)
 
 
-def _build_sp1_capability_section(capability_profile: Any, kc_display: dict[str, str] | None = None) -> str:
+def _build_sp1_capability_section(
+    capability_profile: Any, kc_display: dict[str, str] | None = None
+) -> str:
     """Build the capability profile subsection of SP1."""
     parts: list[str] = ['<div class="subsection">']
     parts.append('  <div class="subsection-title">Capability Profile</div>')
     zones = getattr(capability_profile, "zones_active", [])
     if zones:
         chips = " ".join(f'<span class="zone-chip">{_esc(z)}</span>' for z in zones)
-        parts.append(f'    <div>{chips}</div>')
+        parts.append(f"    <div>{chips}</div>")
     kcs = getattr(capability_profile, "kc_subcodes", [])
     if kcs:
         parts.append('    <div class="kc-list" style="margin-top:12px;">')
@@ -804,16 +817,16 @@ def _build_sp1_capability_section(capability_profile: Any, kc_display: dict[str,
                     f'      <div class="kc-item" style="margin-bottom:4px;">'
                     f'<code style="color:var(--accent);font-weight:600;">{_esc(kc)}</code>'
                     f' — <span style="color:var(--text-secondary);font-size:12px;">{_esc(label)}</span>'
-                    f'</div>'
+                    f"</div>"
                 )
             else:
                 parts.append(
                     f'      <div class="kc-item" style="margin-bottom:4px;">'
                     f'<code style="color:var(--accent);font-weight:600;">{_esc(kc)}</code>'
-                    f'</div>'
+                    f"</div>"
                 )
-        parts.append('    </div>')
-    parts.append('</div>')
+        parts.append("    </div>")
+    parts.append("</div>")
     return "\n".join(parts)
 
 
@@ -827,7 +840,7 @@ def _build_sp1_control_section(control_structure: Any) -> str:
             2,
         )
         parts.append(_build_data_table(["Responsibility", "Description"], rows))
-    parts.append('</div>')
+    parts.append("</div>")
     return "\n".join(parts)
 
 
@@ -850,24 +863,28 @@ def build_sp1_card(
     if control_structure is not None:
         body_parts.append(_build_sp1_control_section(control_structure))
 
-    body_parts.extend(_build_raw_yaml_sections(
-        raw_texts,
-        ("loss-analysis.yaml", "capability-profile.yaml", "control-structure.yaml"),
-    ))
+    body_parts.extend(
+        _build_raw_yaml_sections(
+            raw_texts,
+            ("loss-analysis.yaml", "capability-profile.yaml", "control-structure.yaml"),
+        )
+    )
 
     body = "\n".join(body_parts)
     return (
         f'<details id="sp1" class="flow-card">\n'
-        f'  <summary>SP1 — Loss Analysis & Control Structure</summary>\n'
+        f"  <summary>SP1 — Loss Analysis & Control Structure</summary>\n"
         f'  <div class="flow-card-body">\n{body}\n  </div>\n'
-        f'</details>'
+        f"</details>"
     )
 
 
 def _loss_to_dict(loss: Any) -> dict[str, str]:
     """Convert a loss model to a flat dict for rendering."""
     provenance = (
-        loss.provenance.value if hasattr(loss.provenance, "value") else str(loss.provenance)
+        loss.provenance.value
+        if hasattr(loss.provenance, "value")
+        else str(loss.provenance)
     )
     return {
         "id": loss.loss_id,
@@ -892,15 +909,15 @@ def _build_sp2_ica_section(ica_enumeration: Any) -> str:
     parts.append('  <div class="subsection-title">ICA Enumeration</div>')
     if ica_enumeration.slots:
         rows = "\n".join(
-            f'      <tr><td>{_esc(s.slot_id)}</td>'
-            f'<td>{"N/A" if s.is_na else str(len(s.icas))}</td></tr>'
+            f"      <tr><td>{_esc(s.slot_id)}</td>"
+            f"<td>{'N/A' if s.is_na else str(len(s.icas))}</td></tr>"
             for s in ica_enumeration.slots
         )
         parts.append(
             f'    <table class="data-table"><thead><tr><th>Slot ID</th><th>ICAs</th></tr></thead>\n'
-            f'    <tbody>\n{rows}\n    </tbody></table>'
+            f"    <tbody>\n{rows}\n    </tbody></table>"
         )
-    parts.append('</div>')
+    parts.append("</div>")
     return "\n".join(parts)
 
 
@@ -912,12 +929,14 @@ def _build_sp2_enrichment_section(enriched_threats: Any) -> str:
         rows: list[str] = []
         for t in enriched_threats.structural_threats:
             mappings = ", ".join(m.id for m in (t.catalog_mappings or []))
-            rows.append(f'      <tr><td>{_esc(t.ica_slot_id)}</td><td>{_esc(mappings)}</td></tr>')
+            rows.append(
+                f"      <tr><td>{_esc(t.ica_slot_id)}</td><td>{_esc(mappings)}</td></tr>"
+            )
         parts.append(
             f'    <table class="data-table"><thead><tr><th>ICA Slot</th><th>Catalog Mappings</th></tr></thead>\n'
-            f'    <tbody>\n{chr(10).join(rows)}\n    </tbody></table>'
+            f"    <tbody>\n{chr(10).join(rows)}\n    </tbody></table>"
         )
-    parts.append('</div>')
+    parts.append("</div>")
     return "\n".join(parts)
 
 
@@ -932,7 +951,7 @@ def _build_sp2_coverage_section(enriched_threats: Any) -> str:
         if rate is not None:
             pct = f"{float(rate) * 100:.1f}%"
             parts.append(f'    <p class="coverage-rate">{_esc(pct)}</p>')
-    parts.append('</div>')
+    parts.append("</div>")
     return "\n".join(parts)
 
 
@@ -951,17 +970,19 @@ def build_sp2_card(
         body_parts.append(_build_sp2_enrichment_section(enriched_threats))
         body_parts.append(_build_sp2_coverage_section(enriched_threats))
 
-    body_parts.extend(_build_raw_yaml_sections(
-        raw_texts,
-        ("ica-enumeration.yaml", "enriched-threats.yaml"),
-    ))
+    body_parts.extend(
+        _build_raw_yaml_sections(
+            raw_texts,
+            ("ica-enumeration.yaml", "enriched-threats.yaml"),
+        )
+    )
 
     body = "\n".join(body_parts)
     return (
         f'<details id="sp2" class="flow-card">\n'
-        f'  <summary>SP2 — ICA Enumeration & Threat Enrichment</summary>\n'
+        f"  <summary>SP2 — ICA Enumeration & Threat Enrichment</summary>\n"
         f'  <div class="flow-card-body">\n{body}\n  </div>\n'
-        f'</details>'
+        f"</details>"
     )
 
 
@@ -998,10 +1019,10 @@ def _build_attack_tree_visual(tree_dict: dict | None) -> str:
 
     if root:
         parts.append(
-            f'  <details open><summary>'
+            f"  <details open><summary>"
             f'<span class="gate-badge gate-or">&or;</span>'
             f'<span class="tree-node-label">{_esc(root)}</span>'
-            f'</summary>'
+            f"</summary>"
         )
 
     for branch in branches:
@@ -1015,9 +1036,9 @@ def _build_attack_tree_visual(tree_dict: dict | None) -> str:
         )
 
     if root:
-        parts.append('  </details>')
+        parts.append("  </details>")
 
-    parts.append('</div>')
+    parts.append("</div>")
     return "\n".join(parts)
 
 
@@ -1034,16 +1055,16 @@ def _build_tree_branch_node(branch: dict) -> list[str]:
     label = branch.get("label", "")
     cat_display = _CAT_DISPLAY.get(category, category)
     parts: list[str] = [
-        f'  <details open><summary>'
+        f"  <details open><summary>"
         f'<span class="gate-badge gate-and">&and;</span>'
         f'<span class="cat-badge {category}">{_esc(cat_display)}</span>'
         f'<span class="tree-node-label">{_esc(label)}</span>'
-        f'</summary>'
+        f"</summary>"
     ]
     children = branch.get("children", []) or []
     for child in children:
         parts.extend(_render_tree_child(child))
-    parts.append('  </details>')
+    parts.append("  </details>")
     return parts
 
 
@@ -1056,13 +1077,13 @@ def _render_tree_child(child: dict) -> list[str]:
 
     if children:
         parts.append(
-            f'  <details open><summary>'
+            f"  <details open><summary>"
             f'<span class="tree-node-label">{_esc(label)}</span>'
-            f'</summary>'
+            f"</summary>"
         )
         for sub in children:
             parts.extend(_render_tree_child(sub))
-        parts.append('  </details>')
+        parts.append("  </details>")
     else:
         details_html = ""
         if details:
@@ -1071,7 +1092,7 @@ def _render_tree_child(child: dict) -> list[str]:
             f'  <div class="tree-leaf">'
             f'<span class="gate-badge gate-leaf">&bull;</span>'
             f'<span class="tree-node-label">{_esc(label)}</span>'
-            f'{details_html}</div>'
+            f"{details_html}</div>"
         )
     return parts
 
@@ -1084,30 +1105,44 @@ def _attr_list(obj: Any, name: str) -> list:
 def _build_defender_bdi_block(defender: Any) -> str:
     """Build the defender BDI block HTML."""
     parts: list[str] = ['          <div class="bdi-block">']
-    parts.append('            <h4>Defender BDI</h4>')
+    parts.append("            <h4>Defender BDI</h4>")
     for b in _attr_list(defender, "beliefs"):
-        parts.append(f'            <div class="bdi-item"><strong>{_esc(b.pm_id)}</strong>: {_esc(b.content)}</div>')
+        parts.append(
+            f'            <div class="bdi-item"><strong>{_esc(b.pm_id)}</strong>: {_esc(b.content)}</div>'
+        )
         if hasattr(b, "vulnerability") and b.vulnerability:
-            parts.append(f'            <div class="bdi-item-vuln">Vulnerability: {_esc(b.vulnerability)}</div>')
+            parts.append(
+                f'            <div class="bdi-item-vuln">Vulnerability: {_esc(b.vulnerability)}</div>'
+            )
     for d in _attr_list(defender, "desires"):
-        parts.append(f'            <div class="bdi-item"><strong>Desire</strong> ({_esc(d.resp_id)}): {_esc(d.content)}</div>')
+        parts.append(
+            f'            <div class="bdi-item"><strong>Desire</strong> ({_esc(d.resp_id)}): {_esc(d.content)}</div>'
+        )
     for i in _attr_list(defender, "intentions"):
-        parts.append(f'            <div class="bdi-item"><strong>Intention</strong> ({_esc(i.ca_id)}): {_esc(i.content)}</div>')
-    parts.append('          </div>')
+        parts.append(
+            f'            <div class="bdi-item"><strong>Intention</strong> ({_esc(i.ca_id)}): {_esc(i.content)}</div>'
+        )
+    parts.append("          </div>")
     return "\n".join(parts)
 
 
 def _build_attacker_bdi_block(attacker: Any) -> str:
     """Build the attacker BDI block HTML."""
     parts: list[str] = ['          <div class="bdi-block">']
-    parts.append('            <h4>Attacker BDI</h4>')
+    parts.append("            <h4>Attacker BDI</h4>")
     for b in _attr_list(attacker, "beliefs"):
-        parts.append(f'            <div class="bdi-item"><strong>Belief</strong>: {_esc(b)}</div>')
+        parts.append(
+            f'            <div class="bdi-item"><strong>Belief</strong>: {_esc(b)}</div>'
+        )
     for d in _attr_list(attacker, "desires"):
-        parts.append(f'            <div class="bdi-item"><strong>Desire</strong>: {_esc(d)}</div>')
+        parts.append(
+            f'            <div class="bdi-item"><strong>Desire</strong>: {_esc(d)}</div>'
+        )
     for i in _attr_list(attacker, "intentions"):
-        parts.append(f'            <div class="bdi-item"><strong>Intention</strong>: {_esc(i)}</div>')
-    parts.append('          </div>')
+        parts.append(
+            f'            <div class="bdi-item"><strong>Intention</strong>: {_esc(i)}</div>'
+        )
+    parts.append("          </div>")
     return "\n".join(parts)
 
 
@@ -1121,16 +1156,20 @@ def _build_bdi_section(scenario_spec: Any) -> str:
     if defender:
         parts.append(_build_defender_bdi_block(defender))
     else:
-        parts.append('          <div class="bdi-block"><h4>Defender BDI</h4><p class="bdi-item">No data</p></div>')
+        parts.append(
+            '          <div class="bdi-block"><h4>Defender BDI</h4><p class="bdi-item">No data</p></div>'
+        )
 
     attacker = getattr(scenario_spec, "attacker_bdi", None)
     if attacker:
         parts.append(_build_attacker_bdi_block(attacker))
     else:
-        parts.append('          <div class="bdi-block"><h4>Attacker BDI</h4><p class="bdi-item">No data</p></div>')
+        parts.append(
+            '          <div class="bdi-block"><h4>Attacker BDI</h4><p class="bdi-item">No data</p></div>'
+        )
 
-    parts.append('        </div>')
-    parts.append('      </div>')
+    parts.append("        </div>")
+    parts.append("      </div>")
     return "\n".join(parts)
 
 
@@ -1148,15 +1187,27 @@ def _build_system_context_section(ctx: Any) -> list[str]:
     multi_agent = getattr(ctx, "multi_agent", False)
     has_persistent_memory = getattr(ctx, "has_persistent_memory", False)
 
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Target Responsibility</span><span class="metadata-value">{_esc(resp_desc)}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Target Control Action</span><span class="metadata-value">{_esc(ca_desc)}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Tool Inventory</span><span class="metadata-value">{_esc(", ".join(tool_inventory))}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Active Zones</span><span class="metadata-value">{_esc(", ".join(active_zones))}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Multi-Agent</span><span class="metadata-value">{_esc(str(multi_agent))}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Persistent Memory</span><span class="metadata-value">{_esc(str(has_persistent_memory))}</span></div>')
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Target Responsibility</span><span class="metadata-value">{_esc(resp_desc)}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Target Control Action</span><span class="metadata-value">{_esc(ca_desc)}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Tool Inventory</span><span class="metadata-value">{_esc(", ".join(tool_inventory))}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Active Zones</span><span class="metadata-value">{_esc(", ".join(active_zones))}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Multi-Agent</span><span class="metadata-value">{_esc(str(multi_agent))}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Persistent Memory</span><span class="metadata-value">{_esc(str(has_persistent_memory))}</span></div>'
+    )
 
-    parts.append('        </div>')
-    parts.append('      </div>')
+    parts.append("        </div>")
+    parts.append("      </div>")
     return parts
 
 
@@ -1175,16 +1226,30 @@ def _build_consumer_hints_section(hints: Any) -> list[str]:
     garak_testability = getattr(hints, "garak_testability", "") or ""
     midojo_testability = getattr(hints, "midojo_testability", "") or ""
 
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Primary Attack Zone</span><span class="metadata-value">{_esc(primary_attack_zone)}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Requires Tool Execution</span><span class="metadata-value">{_esc(str(requires_tool_execution))}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Requires Multi-Turn</span><span class="metadata-value">{_esc(str(requires_multi_turn))}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Requires Multi-Agent</span><span class="metadata-value">{_esc(str(requires_multi_agent))}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Requires Persistent State</span><span class="metadata-value">{_esc(str(requires_persistent_state))}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Garak Testability</span><span class="metadata-value">{_esc(garak_testability)}</span></div>')
-    parts.append(f'          <div class="metadata-item"><span class="metadata-label">Midojo Testability</span><span class="metadata-value">{_esc(midojo_testability)}</span></div>')
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Primary Attack Zone</span><span class="metadata-value">{_esc(primary_attack_zone)}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Requires Tool Execution</span><span class="metadata-value">{_esc(str(requires_tool_execution))}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Requires Multi-Turn</span><span class="metadata-value">{_esc(str(requires_multi_turn))}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Requires Multi-Agent</span><span class="metadata-value">{_esc(str(requires_multi_agent))}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Requires Persistent State</span><span class="metadata-value">{_esc(str(requires_persistent_state))}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Garak Testability</span><span class="metadata-value">{_esc(garak_testability)}</span></div>'
+    )
+    parts.append(
+        f'          <div class="metadata-item"><span class="metadata-label">Midojo Testability</span><span class="metadata-value">{_esc(midojo_testability)}</span></div>'
+    )
 
-    parts.append('        </div>')
-    parts.append('      </div>')
+    parts.append("        </div>")
+    parts.append("      </div>")
     return parts
 
 
@@ -1203,8 +1268,9 @@ def _build_scenario_envelope_body(envelope: Any) -> list[str]:
     # Narrative tab
     narrative = getattr(envelope, "narrative", "") or ""
     if narrative:
-        tab_contents.append(("narrative",
-            f'<div class="narrative-text">{_esc(narrative)}</div>'))
+        tab_contents.append(
+            ("narrative", f'<div class="narrative-text">{_esc(narrative)}</div>')
+        )
 
     # Attack tree tab
     attack_tree = getattr(envelope, "attack_tree", None)
@@ -1221,22 +1287,31 @@ def _build_scenario_envelope_body(envelope: Any) -> list[str]:
         gherkin_text = getattr(envelope, "gherkin_raw", None) or ""
     if gherkin_text:
         highlighted = _highlight_gherkin(gherkin_text)
-        tab_contents.append(("gherkin",
-            f'<div class="gherkin-block">{highlighted}</div>'))
+        tab_contents.append(
+            ("gherkin", f'<div class="gherkin-block">{highlighted}</div>')
+        )
 
     # Build tab bar + content panels
     if tab_contents:
-        tab_labels = {"narrative": "Narrative", "attack_tree": "Attack Tree", "gherkin": "Gherkin"}
+        tab_labels = {
+            "narrative": "Narrative",
+            "attack_tree": "Attack Tree",
+            "gherkin": "Gherkin",
+        }
         parts.append('      <div class="scenario-tabs-container">')
         parts.append('        <div class="scenario-tabs">')
         for i, (tab_id, _) in enumerate(tab_contents):
             active = " active" if i == 0 else ""
-            parts.append(f'          <div class="scenario-tab{active}" data-tab="{tab_id}">{tab_labels.get(tab_id, tab_id)}</div>')
-        parts.append('        </div>')
+            parts.append(
+                f'          <div class="scenario-tab{active}" data-tab="{tab_id}">{tab_labels.get(tab_id, tab_id)}</div>'
+            )
+        parts.append("        </div>")
         for i, (tab_id, content_html) in enumerate(tab_contents):
             active = " active" if i == 0 else ""
-            parts.append(f'        <div class="scenario-tab-content{active}" data-tab-content="{tab_id}">{content_html}</div>')
-        parts.append('      </div>')
+            parts.append(
+                f'        <div class="scenario-tab-content{active}" data-tab-content="{tab_id}">{content_html}</div>'
+            )
+        parts.append("      </div>")
 
     # System Context section (enrichment, below tabs)
     system_context = getattr(envelope, "system_context", None)
@@ -1269,21 +1344,26 @@ def _build_scenario_card(
         if envelope is not None:
             has_gherkin_in_tabs = bool(
                 getattr(envelope, "gherkin_raw", None)
-                or (hasattr(envelope, "gherkin_spec") and envelope.gherkin_spec is not None)
+                or (
+                    hasattr(envelope, "gherkin_spec")
+                    and envelope.gherkin_spec is not None
+                )
             )
         if not has_gherkin_in_tabs:
             highlighted = _highlight_gherkin(feature_text)
             body_parts.append('      <div class="scenario-section">')
-            body_parts.append('        <div class="scenario-section-title">Gherkin Spec</div>')
+            body_parts.append(
+                '        <div class="scenario-section-title">Gherkin Spec</div>'
+            )
             body_parts.append(f'        <div class="gherkin-block">{highlighted}</div>')
-            body_parts.append('      </div>')
+            body_parts.append("      </div>")
 
     body = "\n".join(body_parts)
     return (
         f'    <details class="scenario-card" data-scenario-id="{_esc(scenario_id)}">\n'
-        f'      <summary><span>{_esc(scenario_id)}</span></summary>\n'
+        f"      <summary><span>{_esc(scenario_id)}</span></summary>\n"
         f'      <div class="scenario-card-body">\n{body}\n      </div>\n'
-        f'    </details>'
+        f"    </details>"
     )
 
 
@@ -1347,7 +1427,7 @@ def _build_eval_gauge(metric_name: str, rate: float) -> str:
         f'    <div class="eval-gauge-track"><div class="eval-gauge-fill {color}" style="width:{pct_str}"></div></div>\n'
         f'    <div class="eval-gauge-pct">{pct_str}</div>\n'
         f'    <span class="scorecard-badge scorecard-badge-{color}">{color.upper()}</span>\n'
-        f'  </div>'
+        f"  </div>"
     )
 
 
@@ -1366,7 +1446,7 @@ def _build_eval_scorecard(eval_data: dict | None) -> str:
         rate = extract_metric_rate(data)
         if rate is not None:
             parts.append(_build_eval_gauge(name, rate))
-    parts.append('</div>')
+    parts.append("</div>")
     return "\n".join(parts)
 
 
@@ -1386,24 +1466,30 @@ def build_sp3_card(
 
     # Scenario list
     body_parts.append('<div class="subsection">')
-    body_parts.append(f'  <div class="subsection-title">Scenarios ({len(scenarios)})</div>')
+    body_parts.append(
+        f'  <div class="subsection-title">Scenarios ({len(scenarios)})</div>'
+    )
     for scenario_id, envelope, feature_text in scenarios:
         body_parts.append(_build_scenario_card(scenario_id, envelope, feature_text))
-    body_parts.append('</div>')
+    body_parts.append("</div>")
 
     # Eval scorecard
     body_parts.append(_build_eval_scorecard(eval_data))
 
     # Raw YAML for eval scorecard
     if raw_texts and "eval-scorecard.yaml" in raw_texts:
-        body_parts.append(_build_raw_yaml_section("eval-scorecard.yaml", raw_texts["eval-scorecard.yaml"]))
+        body_parts.append(
+            _build_raw_yaml_section(
+                "eval-scorecard.yaml", raw_texts["eval-scorecard.yaml"]
+            )
+        )
 
     body = "\n".join(body_parts)
     return (
         f'<details id="sp3" class="flow-card sp3-section">\n'
-        f'  <summary>SP3 — Scenario Production & Evaluation</summary>\n'
+        f"  <summary>SP3 — Scenario Production & Evaluation</summary>\n"
         f'  <div class="flow-card-body">\n{body}\n  </div>\n'
-        f'</details>'
+        f"</details>"
     )
 
 
@@ -1418,22 +1504,28 @@ def build_llm_call_inspector(calls: list[dict]) -> str:
     failed = total - success
 
     parts: list[str] = ['<section id="calls" class="flow-card">']
-    parts.append('  <summary>Calls</summary>')
+    parts.append("  <summary>Calls</summary>")
     parts.append('  <div class="flow-card-body">')
 
     # Summary
     parts.append('    <div class="call-summary-bar">')
-    parts.append(f'      <div class="call-summary-stat">Total: <strong>{total}</strong></div>')
-    parts.append(f'      <div class="call-summary-stat">Successful: <strong>{success}</strong></div>')
-    parts.append(f'      <div class="call-summary-stat">Failed: <strong>{failed}</strong></div>')
-    parts.append('    </div>')
+    parts.append(
+        f'      <div class="call-summary-stat">Total: <strong>{total}</strong></div>'
+    )
+    parts.append(
+        f'      <div class="call-summary-stat">Successful: <strong>{success}</strong></div>'
+    )
+    parts.append(
+        f'      <div class="call-summary-stat">Failed: <strong>{failed}</strong></div>'
+    )
+    parts.append("    </div>")
 
     # Call entries
     for i, entry in enumerate(calls):
         parts.append(_build_call_entry_html(entry, i))
 
-    parts.append('  </div>')
-    parts.append('</section>')
+    parts.append("  </div>")
+    parts.append("</section>")
     return "\n".join(parts)
 
 
@@ -1472,19 +1564,21 @@ def _build_call_entry_html(entry: dict, index: int) -> str:
     sections_html = "\n".join(sections)
     return (
         f'    <details class="{css_class}" data-call-index="{index}">\n'
-        f'      <summary>'
+        f"      <summary>"
         f'<span class="call-meta-stage">{_esc(stage)}/{_esc(step)}</span>'
         f'<span class="call-meta">model={_esc(model)}</span>'
         f'<span class="call-meta">tokens={prompt_tokens}+{completion_tokens}</span>'
         f'<span class="call-meta">duration={duration_ms}ms</span>'
-        f'{indicator}'
-        f'</summary>\n'
+        f"{indicator}"
+        f"</summary>\n"
         f'      <div class="call-entry-body">\n{sections_html}\n      </div>\n'
-        f'    </details>'
+        f"    </details>"
     )
 
 
-def _build_manifest_grid(run_id: Any, created_at: Any, model_name: Any, max_workers: Any) -> str:
+def _build_manifest_grid(
+    run_id: Any, created_at: Any, model_name: Any, max_workers: Any
+) -> str:
     """Build the manifest metadata grid."""
     return (
         '    <div class="manifest-grid">\n'
@@ -1492,23 +1586,23 @@ def _build_manifest_grid(run_id: Any, created_at: Any, model_name: Any, max_work
         f'      <div class="manifest-item"><div class="manifest-label">Created At</div><div class="manifest-value">{_esc(str(created_at))}</div></div>\n'
         f'      <div class="manifest-item"><div class="manifest-label">Model</div><div class="manifest-value">{_esc(str(model_name))}</div></div>\n'
         f'      <div class="manifest-item"><div class="manifest-label">Max Workers</div><div class="manifest-value">{_esc(str(max_workers))}</div></div>\n'
-        '    </div>'
+        "    </div>"
     )
 
 
 def _build_manifest_hashes_table(input_hashes: dict) -> str:
     """Build the input hashes table for the manifest section."""
     rows = "\n".join(
-        f'        <tr><td>{_esc(str(name))}</td><td>{_esc(str(hash_val))}</td></tr>'
+        f"        <tr><td>{_esc(str(name))}</td><td>{_esc(str(hash_val))}</td></tr>"
         for name, hash_val in input_hashes.items()
     )
     return (
         '    <div class="subsection">\n'
         '      <div class="subsection-title">Input Hashes</div>\n'
         '      <table class="data-table"><thead><tr><th>Artifact</th><th>Hash</th></tr></thead><tbody>\n'
-        f'{rows}\n'
-        '      </tbody></table>\n'
-        '    </div>'
+        f"{rows}\n"
+        "      </tbody></table>\n"
+        "    </div>"
     )
 
 
@@ -1540,7 +1634,7 @@ def build_run_manifest(
     input_hashes = manifest.get("input_hashes", {}) or {}
 
     parts: list[str] = ['<section id="manifest" class="flow-card">']
-    parts.append('  <summary>Manifest</summary>')
+    parts.append("  <summary>Manifest</summary>")
     parts.append('  <div class="flow-card-body">')
     parts.append(_build_manifest_grid(run_id, created_at, model_name, max_workers))
 
@@ -1548,10 +1642,12 @@ def build_run_manifest(
         parts.append(_build_manifest_hashes_table(input_hashes))
 
     if raw_texts and "run-manifest.yaml" in raw_texts:
-        parts.append(_build_raw_yaml_section("run-manifest.yaml", raw_texts["run-manifest.yaml"]))
+        parts.append(
+            _build_raw_yaml_section("run-manifest.yaml", raw_texts["run-manifest.yaml"])
+        )
 
-    parts.append('  </div>')
-    parts.append('</section>')
+    parts.append("  </div>")
+    parts.append("</section>")
     return "\n".join(parts)
 
 
@@ -1619,11 +1715,11 @@ def build_html(
         f"{css}\n"
         "</head>\n"
         "<body>\n"
-        f'{nav}\n'
+        f"{nav}\n"
         f'<div class="container">\n'
-        f'{body}\n'
-        f'</div>\n'
-        f'{js}\n'
+        f"{body}\n"
+        f"</div>\n"
+        f"{js}\n"
         "</body>\n"
         "</html>\n"
     )

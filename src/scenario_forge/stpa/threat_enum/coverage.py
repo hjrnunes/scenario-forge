@@ -196,7 +196,8 @@ def metric_na_quality(slots: list[ICASlot]) -> dict:
 
 
 def _breakdown_by_type(
-    slots: list[ICASlot], predicate,
+    slots: list[ICASlot],
+    predicate,
 ) -> dict[str, int]:
     """Break down considered slots by ICA type."""
     counts: dict[str, int] = {}
@@ -209,7 +210,8 @@ def _breakdown_by_type(
 
 
 def _breakdown_by_resp(
-    slots: list[ICASlot], predicate,
+    slots: list[ICASlot],
+    predicate,
 ) -> dict[str, int]:
     """Break down considered slots by responsibility."""
     counts: dict[str, int] = {}

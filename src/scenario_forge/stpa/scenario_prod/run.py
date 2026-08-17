@@ -143,8 +143,15 @@ def run_sp3(
     # --- Stage 6: Concretization (3 LLM calls per scenario, parallelizable) ---
     for spec in scenario_specs:
         envelope = _run_stage6_for_spec(
-            llm_client, spec, control_structure, loss_analysis,
-            run_dir, loader, temperature, max_workers, stage_errors,
+            llm_client,
+            spec,
+            control_structure,
+            loss_analysis,
+            run_dir,
+            loader,
+            temperature,
+            max_workers,
+            stage_errors,
             capability_profile=capability_profile,
         )
         if envelope is not None:
@@ -153,8 +160,11 @@ def run_sp3(
 
     # --- Stage 7: Validation + eval metrics + coverage gaps ---
     _run_stage7_validations(
-        scenario_envelopes, scenario_specs, control_structure,
-        loss_analysis, validation_errors,
+        scenario_envelopes,
+        scenario_specs,
+        control_structure,
+        loss_analysis,
+        validation_errors,
     )
 
     trace_errors = validate_traceability(
@@ -164,12 +174,18 @@ def run_sp3(
     all_validation_errors = validation_errors + trace_error_msgs
 
     coverage_gaps = compute_coverage_gaps(
-        enriched_threat_set, control_structure, scenario_envelopes, loss_analysis,
+        enriched_threat_set,
+        control_structure,
+        scenario_envelopes,
+        loss_analysis,
         precomputed_trace_errors=trace_errors,
     )
 
     eval_scorecard = compute_eval_scorecard(
-        scenario_envelopes, enriched_threat_set, control_structure, loss_analysis,
+        scenario_envelopes,
+        enriched_threat_set,
+        control_structure,
+        loss_analysis,
         stage_local_errors=validation_errors,
         traceability_errors=trace_error_msgs,
         coverage_gaps=coverage_gaps,
@@ -231,7 +247,11 @@ def _run_stage5_for_threat(
         return None
 
     llm_result, error = generate_bdi(
-        llm_client, defender_bdi, threat, control_structure, run_dir,
+        llm_client,
+        defender_bdi,
+        threat,
+        control_structure,
+        run_dir,
         loader=loader,
         capability_profile=capability_profile,
         temperature=temperature,
@@ -295,11 +315,18 @@ def _run_stage6_for_spec(
 
     _collect_stage6_errors(spec.scenario_id, results, stage_errors)
 
-    narrative_text, attack_tree, gherkin_spec, gherkin_raw = _parse_stage6_results(results)
+    narrative_text, attack_tree, gherkin_spec, gherkin_raw = _parse_stage6_results(
+        results
+    )
 
     _validate_stage6_artifacts(
-        attack_tree, gherkin_spec, gherkin_raw,
-        control_structure, loss_analysis, spec, stage_errors,
+        attack_tree,
+        gherkin_spec,
+        gherkin_raw,
+        control_structure,
+        loss_analysis,
+        spec,
+        stage_errors,
     )
 
     return assemble_envelope(
@@ -403,7 +430,9 @@ def _validate_stage6_tree(
             validate_tree_branch_coverage(attack_tree),
             validate_tree_id_references(attack_tree, control_structure),
             validate_attack_tree_root_label(
-                attack_tree, spec.ica_type.value, spec.target_control_action,
+                attack_tree,
+                spec.ica_type.value,
+                spec.target_control_action,
             ),
         ),
         stage_errors,
@@ -417,7 +446,9 @@ def _validate_stage6_gherkin(
     stage_errors: list[str],
 ) -> None:
     """Run Gherkin-related validators for Stage 6 artifacts."""
-    gherkin_for_validation: GherkinSpec | str = gherkin_spec if gherkin_spec is not None else gherkin_raw
+    gherkin_for_validation: GherkinSpec | str = (
+        gherkin_spec if gherkin_spec is not None else gherkin_raw
+    )
     ghk_result = validate_gherkin_structure(gherkin_for_validation)
     if not ghk_result.passed:
         stage_errors.extend(ghk_result.errors)
@@ -448,7 +479,9 @@ def _parallel_stage6_calls(
         ("gherkin", prompts.gherkin),
     ]
 
-    def _run_call(step: str, prompt_pair: tuple[str, str]) -> tuple[str | None, str | None]:
+    def _run_call(
+        step: str, prompt_pair: tuple[str, str]
+    ) -> tuple[str | None, str | None]:
         sys_prompt, user_prompt = prompt_pair
         text, _result, error = safe_llm_call_raw(
             llm_client=llm_client,
@@ -617,7 +650,9 @@ def _write_manifest(
 
     manifest_path = run_dir / "run-manifest.yaml"
     manifest_path.write_text(
-        yaml.dump(manifest, default_flow_style=False, sort_keys=False, allow_unicode=True),
+        yaml.dump(
+            manifest, default_flow_style=False, sort_keys=False, allow_unicode=True
+        ),
         encoding="utf-8",
     )
 

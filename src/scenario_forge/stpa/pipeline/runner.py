@@ -109,7 +109,9 @@ def run_stpa_pipeline(
 
     # --- Step 1: SP1 ---
     skip_sp1 = _maybe_skip_stage(
-        resume, _sp1_artifacts_exist(output_dir), "SP1",
+        resume,
+        _sp1_artifacts_exist(output_dir),
+        "SP1",
     )
     sp1_result = _run_sp1_stage(
         skip=skip_sp1,
@@ -126,23 +128,35 @@ def run_stpa_pipeline(
 
     # Load SP1 artifacts from disk (needed for SP2/SP3 and for resume)
     control_structure = _load_sp1_artifact(
-        output_dir, "control-structure.yaml", ControlStructure,
+        output_dir,
+        "control-structure.yaml",
+        ControlStructure,
     )
     if _abort_if_missing(
-        control_structure, skip_sp1, "SP1", "control-structure.yaml", stage_errors,
+        control_structure,
+        skip_sp1,
+        "SP1",
+        "control-structure.yaml",
+        stage_errors,
     ):
         return STPARunResult(sp1_result=sp1_result, stage_errors=stage_errors)
 
     capability_profile = _load_sp1_artifact(
-        output_dir, "capability-profile.yaml", CapabilityProfile,
+        output_dir,
+        "capability-profile.yaml",
+        CapabilityProfile,
     )
     loss_analysis = _load_sp1_artifact(
-        output_dir, "loss-analysis.yaml", LossAnalysis,
+        output_dir,
+        "loss-analysis.yaml",
+        LossAnalysis,
     )
 
     # --- Step 2: SP2 ---
     skip_sp2 = _maybe_skip_stage(
-        resume, _sp2_artifacts_exist(output_dir), "SP2",
+        resume,
+        _sp2_artifacts_exist(output_dir),
+        "SP2",
     )
     sp2_result = _run_sp2_stage(
         skip=skip_sp2,
@@ -159,10 +173,16 @@ def run_stpa_pipeline(
 
     # Load SP2 artifacts from disk
     enriched_threat_set = _load_sp1_artifact(
-        output_dir, "enriched-threats.yaml", EnrichedThreatSet,
+        output_dir,
+        "enriched-threats.yaml",
+        EnrichedThreatSet,
     )
     if _abort_if_missing(
-        enriched_threat_set, skip_sp2, "SP2", "enriched-threats.yaml", stage_errors,
+        enriched_threat_set,
+        skip_sp2,
+        "SP2",
+        "enriched-threats.yaml",
+        stage_errors,
     ):
         return STPARunResult(
             sp1_result=sp1_result,
@@ -172,7 +192,9 @@ def run_stpa_pipeline(
 
     # --- Step 3: SP3 ---
     skip_sp3 = _maybe_skip_stage(
-        resume, _sp3_artifacts_exist(output_dir), "SP3",
+        resume,
+        _sp3_artifacts_exist(output_dir),
+        "SP3",
     )
     sp3_result = _run_sp3_stage(
         skip=skip_sp3,
@@ -257,12 +279,19 @@ def _validate_inputs(
         raise FileNotFoundError(
             f"Risk extraction file not found: {risk_extraction_path}"
         )
-    if capability_profile_path is not None and not Path(capability_profile_path).exists():
+    if (
+        capability_profile_path is not None
+        and not Path(capability_profile_path).exists()
+    ):
         raise FileNotFoundError(
             f"Capability profile file not found: {capability_profile_path}"
         )
     _validate_profiles_file(
-        profiles_file, profile, sp1_profile, sp2_profile, sp3_profile,
+        profiles_file,
+        profile,
+        sp1_profile,
+        sp2_profile,
+        sp3_profile,
     )
 
 
@@ -274,7 +303,12 @@ def _validate_profiles_file(
     sp3_profile: str | None,
 ) -> None:
     """Validate that the profiles file exists when a profile is requested."""
-    if profile is None and sp1_profile is None and sp2_profile is None and sp3_profile is None:
+    if (
+        profile is None
+        and sp1_profile is None
+        and sp2_profile is None
+        and sp3_profile is None
+    ):
         return
     if not Path(profiles_file).exists():
         raise FileNotFoundError(f"Model profiles file not found: {profiles_file}")
@@ -286,7 +320,9 @@ def _validate_profiles_file(
 
 
 def _maybe_skip_stage(
-    resume: bool, artifacts_exist: bool, stage_name: str,
+    resume: bool,
+    artifacts_exist: bool,
+    stage_name: str,
 ) -> bool:
     """Return True if the stage should be skipped (resume + artifacts on disk)."""
     if resume and artifacts_exist:
@@ -331,7 +367,9 @@ def _run_sp1_stage(
     if skip:
         return None
     llm_client, profile_name = resolve_llm_client(
-        profile, sp1_profile, profiles_file,
+        profile,
+        sp1_profile,
+        profiles_file,
     )
     use_case_text = read_use_case(use_case_path)
     risk_cards = load_risk_extraction(risk_extraction_path)
@@ -436,7 +474,8 @@ def _run_sp3_stage(
     capability_profile: CapabilityProfile | None = None
     if capability_profile_path is not None:
         capability_profile = read_yaml(
-            Path(capability_profile_path), CapabilityProfile,
+            Path(capability_profile_path),
+            CapabilityProfile,
         )
 
     logger.info("Starting SP3 pipeline...")
@@ -573,16 +612,18 @@ def _print_sp1_summary(
     else:
         # Resume: load from disk
         loss_analysis = _load_sp1_artifact(  # type: ignore[assignment]
-            output_dir, "loss-analysis.yaml", LossAnalysis,
+            output_dir,
+            "loss-analysis.yaml",
+            LossAnalysis,
         )
         control_structure = _load_sp1_artifact(  # type: ignore[assignment]
-            output_dir, "control-structure.yaml", ControlStructure,
+            output_dir,
+            "control-structure.yaml",
+            ControlStructure,
         )
 
     if loss_analysis is not None:
-        all_losses = (
-            loss_analysis.risk_card_losses + loss_analysis.use_case_losses
-        )
+        all_losses = loss_analysis.risk_card_losses + loss_analysis.use_case_losses
         print(f"  Losses:           {len(all_losses)}")
         print(f"  Hazards:          {len(loss_analysis.hazards)}")
         print(f"  Constraints:      {len(loss_analysis.security_constraints)}")
@@ -614,10 +655,14 @@ def _print_sp2_summary(
         enriched_threat_set = sp2_result.enriched_threat_set
     else:
         ica_enumeration = _load_sp1_artifact(
-            output_dir, "ica-enumeration.yaml", ICAEnumeration,
+            output_dir,
+            "ica-enumeration.yaml",
+            ICAEnumeration,
         )
         enriched_threat_set = _load_sp1_artifact(  # type: ignore[assignment]
-            output_dir, "enriched-threats.yaml", EnrichedThreatSet,
+            output_dir,
+            "enriched-threats.yaml",
+            EnrichedThreatSet,
         )
 
     _print_ica_summary(ica_enumeration)
