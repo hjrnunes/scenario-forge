@@ -537,6 +537,21 @@ class TestSystemModelDependencyDirection:
             f"heuristics.py imports system_model modules: {imports}"
         )
 
+    def test_repair_passes_keep_required_order(self, system_model_files):
+        """Wrap, then type inference, then rewrite; empty descriptions follow IDs.
+
+        Bare-string wrapping must run first so type inference can stamp the
+        newly created object.  Type inference must run before rewrite so the
+        typed namespace can be selected.
+        """
+        source = system_model_files["id_normalization"].read_text(encoding="utf-8")
+        wrap_at = source.index("_wrap_bare_string_refs(normalized)")
+        type_at = source.index("_repair_element_ref_types(normalized)")
+        rewrite_at = source.index("_rewrite_references_before_id_replacement(")
+        ids_at = source.index("_set_canonical_ids(normalized)")
+        desc_at = source.index("_repair_empty_descriptions(normalized)")
+        assert wrap_at < type_at < rewrite_at < ids_at < desc_at
+
     def test_id_normalization_is_leaf(self, system_model_files):
         """id_normalization.py is high-level policy — no sibling or infra imports."""
         path = system_model_files.get("id_normalization")
@@ -571,6 +586,108 @@ class TestSystemModelDependencyDirection:
             "infra imported id_normalization (dependency-direction "
             "violation):\n" + "\n".join(violations)
         )
+
+    def test_acceptance_uses_public_normalizer_surface(self):
+        """SP1 acceptance handlers may call the public ID policy only."""
+        path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "acceptance"
+            / "runtime_features"
+            / "sp1.py"
+        )
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        private_names = {
+            "_unique_source_map",
+            "_flat_unique_source_map",
+            "_source_id_entries",
+            "_rewrite_typed_reference",
+            "_rewrite_coordination_references",
+        }
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.module != "scenario_forge.stpa.system_model.id_normalization":
+                continue
+            imported.update(alias.name for alias in node.names)
+        leaked = sorted(imported & private_names)
+        assert not leaked, (
+            "acceptance/runtime_features/sp1.py imported private "
+            f"id_normalization names: {leaked}"
+        )
+        assert "_unique_source_map" not in source
+        assert "_flat_unique_source_map" not in source
+
+    def test_acceptance_imports_normalizer_from_leaf(self):
+        """Acceptance must import the normalizer from the leaf, not a facade."""
+        acceptance_root = (
+            Path(__file__).resolve().parent.parent.parent / "acceptance"
+        )
+        facade_modules = {
+            "scenario_forge.stpa.system_model",
+            "scenario_forge.stpa.system_model.control_structure",
+        }
+        leaf = "scenario_forge.stpa.system_model.id_normalization"
+        name = "normalize_control_structure_payload"
+        facade_hits: list[str] = []
+        leaf_hits = 0
+        for path in sorted(acceptance_root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom) or not node.module:
+                    continue
+                imported = {alias.name for alias in node.names}
+                if name not in imported:
+                    continue
+                rel = path.relative_to(acceptance_root)
+                if node.module in facade_modules:
+                    facade_hits.append(f"{rel}: {node.module}")
+                if node.module == leaf:
+                    leaf_hits += 1
+        assert not facade_hits, (
+            "acceptance imported the normalizer via a package facade:\n"
+            + "\n".join(facade_hits)
+        )
+        assert leaf_hits > 0, (
+            "acceptance no longer imports the normalizer from the leaf"
+        )
+
+    def test_package_does_not_reexport_normalizer(self):
+        """The system_model package must not re-export the payload normalizer."""
+        init_path = SYSTEM_MODEL_DIR / "__init__.py"
+        tree = ast.parse(init_path.read_text(encoding="utf-8"), filename=str(init_path))
+        exported: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if not node.module or "id_normalization" not in node.module:
+                continue
+            exported.extend(alias.name for alias in node.names)
+        assert "normalize_control_structure_payload" not in exported
+        package = importlib.import_module("scenario_forge.stpa.system_model")
+        assert "normalize_control_structure_payload" not in package.__all__
+        assert not hasattr(package, "normalize_control_structure_payload")
+
+    def test_control_structure_uses_leaf_normalizer(self, system_model_files):
+        """Stage 2 may use the leaf internally; it must not become a facade."""
+        path = system_model_files["control_structure"]
+        imports = set(_system_model_internal_imports(path))
+        assert "id_normalization" in imports
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        public_names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "__all__":
+                        if isinstance(node.value, ast.List | ast.Tuple):
+                            public_names.update(
+                                elt.value
+                                for elt in node.value.elts
+                                if isinstance(elt, ast.Constant)
+                                and isinstance(elt.value, str)
+                            )
+        assert "normalize_control_structure_payload" not in public_names
 
     def test_critic_stitches_then_delegates_published_ids(
         self, system_model_files
@@ -1076,3 +1193,108 @@ class TestEnrichmentModuleBoundary:
         assert callable(mod.compute_consumer_hints)
         assert "compute_system_context" in mod.__all__
         assert "compute_consumer_hints" in mod.__all__
+
+
+# ---------------------------------------------------------------------------
+# SP3 feedback-bridge and context-propagation architecture
+# ---------------------------------------------------------------------------
+
+THREAT_ENUM_DIR = STPA_ROOT / "threat_enum"
+_BRIDGE_ANCHOR = (
+    "FB-* denotes a logical information dependency that updates a "
+    "process-model belief"
+)
+_BRIDGE_TEMPLATES = (
+    THREAT_ENUM_DIR / "prompts" / "stage3_system.j2",
+    SCENARIO_PROD_DIR / "prompts" / "stage5_system.j2",
+    SCENARIO_PROD_DIR / "prompts" / "stage6a_narrative_system.j2",
+)
+
+
+def _bridge_body(path: Path) -> str:
+    """Return the shared FB-bridge paragraphs of a system prompt template."""
+    text = path.read_text(encoding="utf-8")
+    start = text.index(_BRIDGE_ANCHOR)
+    end = text.index("records that evidence.", start) + len("records that evidence.")
+    return text[start:end].strip()
+
+
+class TestFeedbackBridgeDuplication:
+    """The FB-bridge rule is duplicated across SP3 system prompts on purpose.
+
+    ``TemplateLoader`` is bound to one prompts directory.  Stage 3 lives
+    under ``threat_enum/prompts`` and Stages 5/6a live under
+    ``scenario_prod/prompts``.  A shared Jinja include would either
+    couple those package loaders or invent a third prompt root.  Keep
+    the templates self-contained and lock the shared prose so it cannot
+    drift independently.
+    """
+
+    def test_bridge_prose_is_identical(self):
+        """All three system prompts share the same FB-bridge body."""
+        bodies = [_bridge_body(path) for path in _BRIDGE_TEMPLATES]
+        assert all(_BRIDGE_ANCHOR in body for body in bodies)
+        assert len(set(bodies)) == 1
+
+    def test_no_cross_package_prompt_includes(self):
+        """SP3 templates must not include files from another package."""
+        import re
+
+        include_re = re.compile(r"{%\s*include\s+['\"]([^'\"]+)['\"]")
+        roots = (
+            THREAT_ENUM_DIR / "prompts",
+            SCENARIO_PROD_DIR / "prompts",
+        )
+        violations: list[str] = []
+        for root in roots:
+            for path in sorted(root.glob("*.j2")):
+                for match in include_re.finditer(path.read_text(encoding="utf-8")):
+                    target = match.group(1)
+                    if "/" in target or ".." in target:
+                        violations.append(f"{path.name} includes {target!r}")
+        assert not violations, (
+            "Cross-package prompt includes would couple TemplateLoader roots:\n"
+            + "\n".join(violations)
+        )
+
+
+class TestContextPropagationBoundary:
+    """Technology context flows inward through public prompt builders."""
+
+    def test_bdi_prompts_is_public(self):
+        """Stage 5 prompt assembly is a public seam, not a private helper."""
+        from scenario_forge.stpa.scenario_prod import bdi_generation
+
+        assert "build_bdi_prompts" in bdi_generation.__all__
+        assert hasattr(bdi_generation, "build_bdi_prompts")
+        assert not hasattr(bdi_generation, "_build_bdi_prompts")
+
+    def test_acceptance_uses_public_bdi_prompt_builder(self):
+        """Acceptance handlers must not import the retired private name."""
+        acceptance_root = (
+            Path(__file__).resolve().parent.parent.parent / "acceptance"
+        )
+        leaked: list[str] = []
+        for path in sorted(acceptance_root.rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            if "_build_bdi_prompts" in source:
+                leaked.append(str(path.relative_to(acceptance_root)))
+        assert not leaked, (
+            "acceptance still imports private _build_bdi_prompts:\n"
+            + "\n".join(leaked)
+        )
+
+    def test_prompt_builders_do_not_import_run(self):
+        """Stage 5/6a assemblers stay below the orchestrator."""
+        for name in ("bdi_generation", "narrative"):
+            path = SCENARIO_PROD_DIR / f"{name}.py"
+            imports = set(_scenario_prod_internal_imports(path))
+            assert "run" not in imports, f"{name}.py imports run.py"
+
+    def test_context_for_is_the_omit_policy(self):
+        """The omit-when-absent rule lives next to the context builder."""
+        from scenario_forge.stpa.threat_enum.technology_context import (
+            context_for,
+        )
+
+        assert context_for(None) is None

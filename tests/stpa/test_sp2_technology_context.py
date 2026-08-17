@@ -7,7 +7,10 @@ from scenario_forge.models.capability_profile import (
     EntryPoint,
     ToolInventoryEntry,
 )
-from scenario_forge.stpa.threat_enum.technology_context import build_technology_context
+from scenario_forge.stpa.threat_enum.technology_context import (
+    build_technology_context,
+    context_for,
+)
 
 
 def _make_minimal_profile() -> CapabilityProfile:
@@ -358,6 +361,17 @@ class TestNoLLMCalls:
 # ---------------------------------------------------------------------------
 # Multiple zones (SP2-TECH-11)
 # ---------------------------------------------------------------------------
+
+
+class TestContextFor:
+    """Omit-when-absent policy for prompt assemblers."""
+
+    def test_none_profile_omits_block(self):
+        assert context_for(None) is None
+
+    def test_profile_matches_builder(self):
+        profile = _make_profile_with_zone("input")
+        assert context_for(profile) == build_technology_context(profile)
 
 
 class TestMultipleZones:

@@ -51,3 +51,9 @@ Feature: Tolerant LLM decoding of omitted required fields
     Examples:
       | expected_value |
       | None           |
+
+  # TOLERANT-LLM-DECODE-04 preserves explicitly null optional fields
+  Scenario: TOLERANT-LLM-DECODE-04 preserves explicitly null optional fields
+    Given a Pydantic LLM result explicitly sets optional field unused to null
+    When the LLM result is tolerantly decoded
+    Then field unused remains null

@@ -130,3 +130,53 @@ Feature: SP1 deterministic control-structure ID renumbering
       | coordination source     |
       | coordination target     |
       | coordination shared_pm  |
+
+  # SP1-ID-RENUMBERING-10
+  Scenario Outline: SP1-ID-RENUMBERING-10 rejects ambiguous typed global references
+    Given an otherwise reference-resolvable payload has two <target_scope> using source ID ambiguous-global and <reference_owner> <reference_field> references it as <reference_type>
+    When the payload IDs are normalized
+    Then <reference_owner> <reference_field> still references ambiguous-global
+    When the normalized payload is validated
+    Then validation fails with an error identifying <reference_field>
+
+    Examples:
+      | target_scope         | reference_owner                        | reference_field         | reference_type     |
+      | responsibilities     | responsibility 1 process model part 1 | process feedback_source | responsibility     |
+      | controlled processes | responsibility 1 control action 1     | control action target   | controlled_process |
+      | controlled processes | responsibility 2 feedback channel 1   | feedback source         | controlled_process |
+
+  # SP1-ID-RENUMBERING-11
+  Scenario Outline: SP1-ID-RENUMBERING-11 rejects an ambiguous coordination shared_pm reference
+    Given an otherwise reference-resolvable payload has responsibility 1 and responsibility 2 each containing a process model part with source ID shared-state
+    And coordination link 1 selects shared-state as <coordination_field>
+    When the payload IDs are normalized
+    Then normalization leaves coordination link 1 <coordination_field> as shared-state
+    When the normalized payload is validated
+    Then validation fails with an error identifying <reference_field>
+
+    Examples:
+      | coordination_field | reference_field        |
+      | shared_pm          | coordination shared_pm |
+
+  # SP1-ID-RENUMBERING-12
+  Scenario: SP1-ID-RENUMBERING-12 omits cross-namespace collisions from the flat mapping
+    Given responsibility 1 and controlled process 1 both use source ID shared-element
+    When the payload IDs are normalized
+    Then the flat normalization mapping does not resolve shared-element
+    And the responsibility mapping resolves shared-element to RESP-1
+    And the controlled-process mapping resolves shared-element to CP-1
+
+  # SP1-ID-RENUMBERING-13
+  Scenario: SP1-ID-RENUMBERING-13 tolerates a missing local process-model map
+    Given responsibility reference rewriting receives one responsibility whose feedback updates value is missing-state
+    And no local process-model mapping is available for responsibility 1
+    When the responsibility references are rewritten
+    Then responsibility 1 feedback channel 1 updates missing-state
+    And reference rewriting completes without an error
+
+  # SP1-ID-RENUMBERING-14
+  Scenario: SP1-ID-RENUMBERING-14 sources the acceptance normalizer from the leaf module
+    Given the SP1 acceptance normalizer is resolved
+    Then its module is scenario_forge.stpa.system_model.id_normalization
+    And neither the control-structure module nor the system-model package re-exports the normalizer
+    And it normalizes responsibility 1 source ID controller-alpha to RESP-1

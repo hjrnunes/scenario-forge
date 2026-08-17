@@ -421,6 +421,27 @@ class TestStage1ToCapabilityProfile:
         assert profile.entry_points[1].direction == "output"
         assert profile.entry_points[2].direction == "bidirectional"
 
+    def test_output_zone_is_cleared_on_promotion(self):
+        stage1 = Stage1Profile(
+            has_persistent_memory=False,
+            multi_agent=False,
+            hitl=False,
+            entry_points=[
+                {
+                    "name": "audit logs",
+                    "direction": "output",
+                    "ingress_zone": "reasoning",
+                }
+            ],
+            confidence="high",
+            kc_subcodes=["KC1.1"],
+        )
+
+        profile = stage1.to_capability_profile()
+
+        assert profile.entry_points[0].direction == "output"
+        assert profile.entry_points[0].ingress_zone is None
+
     def test_controllability_preserved_through_promotion(self):
         stage1 = Stage1Profile(
             has_persistent_memory=False,

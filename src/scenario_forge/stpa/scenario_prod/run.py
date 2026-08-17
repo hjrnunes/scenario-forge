@@ -104,9 +104,10 @@ def run_sp3(
         control_structure: SP1 control structure.
         loss_analysis: SP1 loss analysis.
         run_dir: Directory for output artifacts.
-        capability_profile: Optional SP1 capability profile for envelope
-            enrichment.  When provided, envelopes are enriched with
-            ``system_context`` and ``consumer_hints`` blocks.
+        capability_profile: Optional SP1 capability profile for Stage 5/6
+            prompt grounding and envelope enrichment.  When provided,
+            envelopes are enriched with ``system_context`` and
+            ``consumer_hints`` blocks.
         max_workers: Maximum parallel workers for LLM calls.
         temperature: LLM temperature.
 
@@ -126,7 +127,15 @@ def run_sp3(
     # --- Stage 5: BDI generation (1 LLM call per scenario) ---
     for idx, threat in enumerate(enriched_threat_set.structural_threats):
         spec = _run_stage5_for_threat(
-            llm_client, threat, control_structure, run_dir, idx, loader, temperature, stage_errors
+            llm_client,
+            threat,
+            control_structure,
+            run_dir,
+            idx,
+            loader,
+            temperature,
+            stage_errors,
+            capability_profile=capability_profile,
         )
         if spec is not None:
             scenario_specs.append(spec)
@@ -208,6 +217,8 @@ def _run_stage5_for_threat(
     loader: TemplateLoader,
     temperature: float,
     stage_errors: list[str],
+    *,
+    capability_profile: CapabilityProfile | None = None,
 ) -> ScenarioSpec | None:
     """Run Stage 5 BDI generation for a single threat."""
     slot_parts = parse_ica_slot_id(threat.ica_slot_id)
@@ -221,7 +232,9 @@ def _run_stage5_for_threat(
 
     llm_result, error = generate_bdi(
         llm_client, defender_bdi, threat, control_structure, run_dir,
-        loader=loader, temperature=temperature,
+        loader=loader,
+        capability_profile=capability_profile,
+        temperature=temperature,
     )
 
     if error is not None or llm_result is None:
@@ -264,7 +277,13 @@ def _run_stage6_for_spec(
     capability_profile: CapabilityProfile | None = None,
 ) -> ScenarioEnvelope | None:
     """Run Stage 6 concretization for a single scenario spec."""
-    prompts = _build_stage6_prompts(spec, control_structure, loss_analysis, loader)
+    prompts = _build_stage6_prompts(
+        spec,
+        control_structure,
+        loss_analysis,
+        loader,
+        capability_profile=capability_profile,
+    )
 
     results = _parallel_stage6_calls(
         llm_client=llm_client,
@@ -309,9 +328,15 @@ def _build_stage6_prompts(
     control_structure: ControlStructure,
     loss_analysis: LossAnalysis,
     loader: TemplateLoader,
+    *,
+    capability_profile: CapabilityProfile | None = None,
 ) -> _Stage6Prompts:
     """Build system/user prompt pairs for all three Stage 6 calls."""
-    nar_prompts = build_narrative_prompts(spec, loader)
+    nar_prompts = build_narrative_prompts(
+        spec,
+        loader,
+        capability_profile=capability_profile,
+    )
     tree_prompts = build_attack_tree_prompts(spec, control_structure, loader)
     sc = find_security_constraint(spec, loss_analysis)
     ghk_prompts = build_gherkin_prompts(spec, sc, loss_analysis, loader)
@@ -598,5 +623,5 @@ def _write_manifest(
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-10T15:23:47Z","module_hash":"cde11539ce4e279e407ea454a1b5b4840ebbd98b6d576e5d03ed3a5803e5a3eb","functions":[{"id":"func/run_sp3","name":"run_sp3","line":88,"end_line":194,"hash":"939a136013c8560017505570f05fd17344cc4007110b65a6f1fc27a974812a59"},{"id":"func/_format_traceability_errors","name":"_format_traceability_errors","line":197,"end_line":199,"hash":"d92abc2bf22d0b470d038eab787624373096550a906c2b05839c1975f9fe0058"},{"id":"func/_run_stage5_for_threat","name":"_run_stage5_for_threat","line":202,"end_line":235,"hash":"5aa82122b11f2e1dc936ee519614b3de98bf0951bde5651035f287b0abbb4a84"},{"id":"func/_validate_stage5_spec","name":"_validate_stage5_spec","line":238,"end_line":250,"hash":"7afa5ce8b0cf509e1f1d27059af63c025a08def4d8cb8ef33951d6f018898146"},{"id":"func/_run_stage6_for_spec","name":"_run_stage6_for_spec","line":253,"end_line":295,"hash":"0e484651b00403c43bb1fb87508943d26a18117bc66db2989c38c997d4ccc24a"},{"id":"func/_build_stage6_prompts","name":"_build_stage6_prompts","line":307,"end_line":323,"hash":"cafb48ceb728193cafec4b30b9786c20a8459e87529f71c95bf495cef8f25b3b"},{"id":"func/_collect_stage6_errors","name":"_collect_stage6_errors","line":326,"end_line":335,"hash":"09db95ead3f7b029c2c5c203281e27fe70f7cfa7361104d1585748a43ffbe574"},{"id":"func/_parse_stage6_results","name":"_parse_stage6_results","line":338,"end_line":352,"hash":"bf3111c3de5ef646cdf440dfdbce7c6691fb1e45b27259049b0f26ec6807ebe8"},{"id":"func/_validate_stage6_artifacts","name":"_validate_stage6_artifacts","line":355,"end_line":366,"hash":"43429a4a8327ddce0781eb8c836ed6599563cf324f12de3ceb318b4933c34673"},{"id":"func/_validate_stage6_tree","name":"_validate_stage6_tree","line":369,"end_line":385,"hash":"711c2ca2d4cdeedf9331b79e13b3107954aee67df4bab7365dca1baaa6dce3cd"},{"id":"func/_validate_stage6_gherkin","name":"_validate_stage6_gherkin","line":388,"end_line":403,"hash":"ba653b5b60a81191d51d7a4c3c2b6012748ef2818af05d8618337aa2174ea3d5"},{"id":"func/_parallel_stage6_calls","name":"_parallel_stage6_calls","line":406,"end_line":449,"hash":"3d0773dc97069fae22f58eb2f4cc3a4e57da05dde1a7229e7066508d23f09a44"},{"id":"func/_run_stage7_validations","name":"_run_stage7_validations","line":452,"end_line":464,"hash":"4dc9a726c1d3351fded9526f82ee983444f416689040ad720ead87cf105c83fe"},{"id":"func/_validate_spec_stage7","name":"_validate_spec_stage7","line":467,"end_line":479,"hash":"8bc376220e835c7abf658e394c76f149c5f83440354ff24812edfe4620208061"},{"id":"func/_validate_envelope_stage7","name":"_validate_envelope_stage7","line":482,"end_line":513,"hash":"594eb3d9b47eb3a515b0dbe0b1d4fbd33f9f19842fe000eec19a1c7fc8fcf07f"},{"id":"func/_extend_validation_errors","name":"_extend_validation_errors","line":516,"end_line":523,"hash":"94feb985e3b2c4070c96068ab39a4ecfa7c03c805b7363b6b22af01630a3b570"},{"id":"func/_envelope_gherkin_text","name":"_envelope_gherkin_text","line":526,"end_line":536,"hash":"26a3bcbb2542c0ca41e4888ef4af2d2cd8280c1c28178538e42583b9643bff20"},{"id":"func/_write_scenario_artifacts","name":"_write_scenario_artifacts","line":539,"end_line":548,"hash":"d6e964176933855357f4a7ac3302d7a4b22d21c64ef7fc989b683b450bb5b68f"},{"id":"func/_write_manifest","name":"_write_manifest","line":551,"end_line":595,"hash":"70f35d02ff2a8f8daa12c688cd5412bccad3f28e74bc23095a1b09ddb1d36626"}]}
+# {"version":1,"tested_at":"2026-08-14T09:07:58Z","module_hash":"200d0f548357a14ff330793ffda7333b770806361e688a68f84942629aef037c","functions":[{"id":"func/run_sp3","name":"run_sp3","line":88,"end_line":203,"hash":"7552e6af012dc19d157a33816fb9efcb12e765dd23033e49d832e8b6de288788"},{"id":"func/_format_traceability_errors","name":"_format_traceability_errors","line":206,"end_line":208,"hash":"d92abc2bf22d0b470d038eab787624373096550a906c2b05839c1975f9fe0058"},{"id":"func/_run_stage5_for_threat","name":"_run_stage5_for_threat","line":211,"end_line":248,"hash":"c559afdd919d498af53fd5ba10fdd96ea1ea0527ef0da2f95767f8a15d1094bb"},{"id":"func/_validate_stage5_spec","name":"_validate_stage5_spec","line":251,"end_line":263,"hash":"7afa5ce8b0cf509e1f1d27059af63c025a08def4d8cb8ef33951d6f018898146"},{"id":"func/_run_stage6_for_spec","name":"_run_stage6_for_spec","line":266,"end_line":314,"hash":"199cbf2f34634bd23455eb460ea5420bb359d26d3c26fed44351b7e0fee14494"},{"id":"func/_build_stage6_prompts","name":"_build_stage6_prompts","line":326,"end_line":348,"hash":"587cca71de56d0080642fbcd1ce31ec1ba58fa294aaa5dd52bebe0bdb64d3810"},{"id":"func/_collect_stage6_errors","name":"_collect_stage6_errors","line":351,"end_line":360,"hash":"09db95ead3f7b029c2c5c203281e27fe70f7cfa7361104d1585748a43ffbe574"},{"id":"func/_parse_stage6_results","name":"_parse_stage6_results","line":363,"end_line":377,"hash":"bf3111c3de5ef646cdf440dfdbce7c6691fb1e45b27259049b0f26ec6807ebe8"},{"id":"func/_validate_stage6_artifacts","name":"_validate_stage6_artifacts","line":380,"end_line":391,"hash":"43429a4a8327ddce0781eb8c836ed6599563cf324f12de3ceb318b4933c34673"},{"id":"func/_validate_stage6_tree","name":"_validate_stage6_tree","line":394,"end_line":410,"hash":"711c2ca2d4cdeedf9331b79e13b3107954aee67df4bab7365dca1baaa6dce3cd"},{"id":"func/_validate_stage6_gherkin","name":"_validate_stage6_gherkin","line":413,"end_line":428,"hash":"ba653b5b60a81191d51d7a4c3c2b6012748ef2818af05d8618337aa2174ea3d5"},{"id":"func/_parallel_stage6_calls","name":"_parallel_stage6_calls","line":431,"end_line":474,"hash":"3d0773dc97069fae22f58eb2f4cc3a4e57da05dde1a7229e7066508d23f09a44"},{"id":"func/_run_stage7_validations","name":"_run_stage7_validations","line":477,"end_line":489,"hash":"4dc9a726c1d3351fded9526f82ee983444f416689040ad720ead87cf105c83fe"},{"id":"func/_validate_spec_stage7","name":"_validate_spec_stage7","line":492,"end_line":504,"hash":"8bc376220e835c7abf658e394c76f149c5f83440354ff24812edfe4620208061"},{"id":"func/_validate_envelope_stage7","name":"_validate_envelope_stage7","line":507,"end_line":538,"hash":"594eb3d9b47eb3a515b0dbe0b1d4fbd33f9f19842fe000eec19a1c7fc8fcf07f"},{"id":"func/_extend_validation_errors","name":"_extend_validation_errors","line":541,"end_line":548,"hash":"94feb985e3b2c4070c96068ab39a4ecfa7c03c805b7363b6b22af01630a3b570"},{"id":"func/_envelope_gherkin_text","name":"_envelope_gherkin_text","line":551,"end_line":563,"hash":"c02bfffb48480620b2623796151943f7421d96f44840d0b8f0da5fd163813688"},{"id":"func/_write_scenario_artifacts","name":"_write_scenario_artifacts","line":566,"end_line":575,"hash":"d6e964176933855357f4a7ac3302d7a4b22d21c64ef7fc989b683b450bb5b68f"},{"id":"func/_write_manifest","name":"_write_manifest","line":578,"end_line":622,"hash":"70f35d02ff2a8f8daa12c688cd5412bccad3f28e74bc23095a1b09ddb1d36626"}]}
 # mutate4py-manifest-end

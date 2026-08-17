@@ -2,6 +2,11 @@
 
 These stay separate from unit and acceptance tests. They kill surviving
 mutants and cover defensive branches that the happy-path suite leaves open.
+
+The public normalizer already walks malformed collections, missing local
+PM maps, and cross-namespace collisions. Remaining scan noise, if any,
+comes from LCOV not attributing rewritten uniqueness filters rather than
+from untested policy.
 """
 
 from __future__ import annotations
@@ -183,6 +188,20 @@ class TestUnresolvedReferencesStayUnresolved:
 
         assert result.payload["responsibilities"][0]["control_actions"][0]["target"] == {
             "type": "unknown",
+            "id": "process-alpha",
+        }
+
+    def test_non_string_reference_type_is_ignored(self) -> None:
+        payload = _minimal_payload()
+        payload["responsibilities"][0]["control_actions"][0]["target"] = {
+            "type": 7,
+            "id": "process-alpha",
+        }
+
+        result = normalize_control_structure_payload(payload)
+
+        assert result.payload["responsibilities"][0]["control_actions"][0]["target"] == {
+            "type": 7,
             "id": "process-alpha",
         }
 

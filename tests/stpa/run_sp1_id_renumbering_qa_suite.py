@@ -62,6 +62,17 @@ def _source_ids(variant: str) -> dict[str, Any]:
             "link": ["CL-1", "CL-2"],
             "cm": ["CM-1", "CM-2"],
         }
+    if variant == "ambiguous-responsibility":
+        ids = _source_ids("mixed-a")
+        ids["resp"] = ["ambiguous-global", "ambiguous-global"]
+        return ids
+    if variant in {
+        "ambiguous-control-action-target",
+        "ambiguous-feedback-source",
+    }:
+        ids = _source_ids("mixed-a")
+        ids["cp"] = ["ambiguous-global", "ambiguous-global"]
+        return ids
     if variant == "mixed-b":
         return {
             "resp": ["RESP-8", "RESP-4"],
@@ -118,6 +129,14 @@ def _responsibility_response(variant: str) -> dict[str, Any]:
                 ],
             }
         )
+    if variant == "ambiguous-responsibility":
+        for responsibility in responsibilities:
+            for process_model_part in responsibility["process_model_parts"]:
+                process_model_part["feedback_source"] = None
+        responsibilities[0]["process_model_parts"][0]["feedback_source"] = {
+            "type": "responsibility",
+            "id": "ambiguous-global",
+        }
     return {"responsibilities": responsibilities}
 
 
@@ -166,6 +185,24 @@ def _control_element_response(
         control_actions[0]["target"]["id"] = "absent-control-action-target"
     elif unresolved == "feedback-source":
         feedback_channels[0]["source"]["id"] = "absent-feedback-source"
+    if variant == "ambiguous-control-action-target":
+        for control_action in control_actions:
+            control_action["target"] = None
+        for feedback_channel in feedback_channels:
+            feedback_channel["source"] = None
+        control_actions[0]["target"] = {
+            "type": "controlled_process",
+            "id": "ambiguous-global",
+        }
+    elif variant == "ambiguous-feedback-source":
+        for control_action in control_actions:
+            control_action["target"] = None
+        for feedback_channel in feedback_channels:
+            feedback_channel["source"] = None
+        feedback_channels[0]["source"] = {
+            "type": "controlled_process",
+            "id": "ambiguous-global",
+        }
 
     return {
         "control_actions": control_actions,
@@ -216,6 +253,8 @@ def _coordination_response(
     if unresolved in coordination_fields:
         field = coordination_fields[unresolved]
         links[0][field] = f"absent-{unresolved}"
+    if variant == "ambiguous-shared-pm":
+        links[0]["shared_pm"] = "shared-state"
     return {"coordination_links": links, "integrity_findings": []}
 
 
@@ -437,6 +476,10 @@ def _write_inputs(work_dir: Path, port: int) -> tuple[Path, Path, Path, Path]:
         "sp1-unresolved-coordination-source",
         "sp1-unresolved-coordination-target",
         "sp1-unresolved-coordination-shared-pm",
+        "sp1-ambiguous-responsibility",
+        "sp1-ambiguous-control-action-target",
+        "sp1-ambiguous-feedback-source",
+        "sp1-ambiguous-shared-pm",
         "sp2-qa-stub",
         "sp3-qa-stub",
     ]
@@ -633,6 +676,34 @@ def _assert_unresolved_case(
         _run_report(output_dir)
 
 
+def _assert_ambiguous_case(
+    result: subprocess.CompletedProcess[str],
+    output_dir: Path,
+    field: str,
+    source_id: str,
+) -> None:
+    calls_path = output_dir / "calls.jsonl"
+    assert calls_path.exists(), f"missing calls.jsonl for ambiguous {field}"
+    manifest = _manifest_text(output_dir)
+    diagnostics = "\n".join((result.stdout, result.stderr, manifest))
+    assert source_id in diagnostics, (
+        f"user-visible diagnostics do not identify ambiguous source ID {source_id}"
+    )
+    assert field in diagnostics, (
+        f"user-visible diagnostics do not identify ambiguous field {field}"
+    )
+    assert result.returncode != 0 or "error" in manifest.lower(), (
+        "ambiguous reference did not fail validation"
+    )
+
+    structure_path = output_dir / "control-structure.yaml"
+    if structure_path.exists():
+        structure = _load_yaml(structure_path)
+        assert source_id not in json.dumps(structure)
+        _assert_ids_valid_and_unique(_all_ids(structure))
+        _run_report(output_dir)
+
+
 def main() -> int:
     server = ThreadingHTTPServer(("127.0.0.1", 0), _FixtureHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -689,6 +760,36 @@ def main() -> int:
                 _assert_unresolved_case(result, output_dir, field)
             print("PASS QA-SP1-ID-06 (7 unresolved reference fields)")
             passed += 1
+
+            ambiguous_global_cases = (
+                ("responsibility", "feedback_source"),
+                ("control-action-target", "target"),
+                ("feedback-source", "source"),
+            )
+            for profile_suffix, field in ambiguous_global_cases:
+                result, output_dir = _run_cli(
+                    work_dir, f"sp1-ambiguous-{profile_suffix}", inputs
+                )
+                _assert_ambiguous_case(
+                    result,
+                    output_dir,
+                    field,
+                    "ambiguous-global",
+                )
+            print("PASS QA-SP1-ID-09 (3 ambiguous typed global references)")
+            passed += 1
+
+            shared_pm_result, shared_pm_dir = _run_cli(
+                work_dir, "sp1-ambiguous-shared-pm", inputs
+            )
+            _assert_ambiguous_case(
+                shared_pm_result,
+                shared_pm_dir,
+                "shared_pm",
+                "shared-state",
+            )
+            print("PASS QA-SP1-ID-10")
+            passed += 1
     except Exception as exc:  # noqa: BLE001
         print(f"FAIL: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
@@ -697,7 +798,7 @@ def main() -> int:
         server.server_close()
         thread.join(timeout=5)
 
-    print(f"SP1 ID renumbering QA: {passed}/8 procedures passed")
+    print(f"SP1 ID renumbering QA: {passed}/10 procedures passed")
     return 0
 
 

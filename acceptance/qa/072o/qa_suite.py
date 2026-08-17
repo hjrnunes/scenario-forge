@@ -532,7 +532,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             build_attack_tree_prompts,
         )
         from scenario_forge.stpa.scenario_prod.bdi_generation import (
-            _build_bdi_prompts,
+            build_bdi_prompts,
         )
         from scenario_forge.stpa.scenario_prod.gherkin import (
             _extract_valid_hazard_ids,
@@ -566,7 +566,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
 
     # Render prompts
     try:
-        s5_sys, s5_usr = _build_bdi_prompts(
+        s5_sys, s5_usr = build_bdi_prompts(
             defender_bdi, threat, cs, "RESP-1", loader
         )
         s6a_sys, s6a_usr = build_narrative_prompts(spec, loader)

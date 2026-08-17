@@ -3,6 +3,14 @@
 These stay separate from unit and acceptance tests. They kill surviving
 mutants in ``llm_helpers`` decode/construct helpers used before ID
 normalization.
+
+Four remaining mutate4py sites sit on keyword-only default literals
+(``log_llm_call_failure`` token/duration defaults and
+``safe_llm_call(..., allow_unvalidated=False)``). LCOV does not emit DA
+records for those signature lines, so scan reports them uncovered. The
+default paths are already exercised by
+``test_failure_log_defaults_are_zero`` and
+``test_safe_call_default_does_not_use_tolerant_fallback``.
 """
 
 from __future__ import annotations
@@ -16,6 +24,8 @@ from pydantic import BaseModel, ValidationError, field_validator
 
 from scenario_forge.stpa.infra.llm import LLMResult
 from scenario_forge.stpa.infra.llm_helpers import (
+    StageError,
+    _is_unsupported_unvalidated_error,
     _stringify_response_content,
     log_llm_call,
     log_llm_call_failure,
@@ -36,6 +46,13 @@ class _OptionalDumpModel(BaseModel):
 
     name: str
     unused: str | None = "present"
+
+
+class _ConstructFilterModel(BaseModel):
+    """Model used to verify unknown decoded fields are not constructed."""
+
+    name: str
+    optional: str | None = "default"
 
 
 class _UnionItemModel(BaseModel):
@@ -109,6 +126,20 @@ class _FailingClient:
         raise RuntimeError("offline")
 
 
+class _ParseFailureClient:
+    """Client that returns usage telemetry with invalid model content."""
+
+    model = "parse-failure-model"
+
+    def complete(self, **kwargs):
+        return LLMResult(
+            content={"item_id": "malformed"},
+            prompt_tokens=17,
+            completion_tokens=4,
+            duration_ms=230,
+        )
+
+
 class TestStringifyNoneContent:
     """Kill: content is None -> is not None in _stringify_response_content."""
 
@@ -123,6 +154,10 @@ class TestStringifyNoneContent:
         log_llm_call(result, "test-model", tmp_path, "stage_test", "step_test")
         entry = json.loads((tmp_path / "calls.jsonl").read_text().splitlines()[0])
         assert entry["response_content"] == ""
+
+    def test_dict_and_other_content_are_stringified(self) -> None:
+        assert _stringify_response_content({"name": "ok"}) == '{"name": "ok"}'
+        assert _stringify_response_content(12) == "12"
 
 
 class TestDecodePreservesExplicitNone:
@@ -139,6 +174,23 @@ class TestDecodePreservesExplicitNone:
         parsed = parse_llm_result_unvalidated(result, _OptionalDumpModel)
 
         assert parsed.unused is None
+
+
+class TestDecodeConstructsDeclaredFieldsOnly:
+    """Unknown response fields must not become model attributes."""
+
+    def test_unknown_fields_are_filtered_from_unvalidated_model(self) -> None:
+        result = LLMResult(
+            content={"name": "decoded", "unmodeled": "ignore me"},
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_ms=0,
+        )
+
+        parsed = parse_llm_result_unvalidated(result, _ConstructFilterModel)
+
+        assert parsed.model_dump() == {"name": "decoded", "optional": "default"}
+        assert not hasattr(parsed, "unmodeled")
 
 
 class TestConstructUnionSkipsNoneCandidate:
@@ -288,6 +340,71 @@ class TestSafeCallKwargsAndFailureUsage:
         assert entry["completion_tokens"] == 0
         assert entry["duration_ms"] == 0
 
+    @pytest.mark.parametrize(
+        ("error", "allow_unvalidated", "attempts", "succeeds"),
+        [
+            (
+                "unexpected keyword argument 'allow_unvalidated'",
+                True,
+                2,
+                True,
+            ),
+            (
+                "unexpected keyword argument 'allow_unvalidated'",
+                False,
+                1,
+                False,
+            ),
+            (
+                "unexpected keyword argument 'response_format'",
+                True,
+                1,
+                False,
+            ),
+            ("response_format is the wrong type", True, 1, False),
+        ],
+    )
+    def test_compatibility_retry_is_tightly_gated(
+        self,
+        tmp_path: Path,
+        error: str,
+        allow_unvalidated: bool,
+        attempts: int,
+        succeeds: bool,
+    ) -> None:
+        class _CompatibilityClient:
+            model = "compatibility-model"
+
+            def __init__(self) -> None:
+                self.attempt_count = 0
+
+            def complete(self, **kwargs):
+                self.attempt_count += 1
+                if self.attempt_count == 1:
+                    raise TypeError(error)
+                return LLMResult(
+                    content={"item_id": "valid"},
+                    prompt_tokens=1,
+                    completion_tokens=1,
+                    duration_ms=1,
+                )
+
+        client = _CompatibilityClient()
+        parsed, _, call_error = safe_llm_call(
+            llm_client=client,
+            system_prompt="system",
+            user_prompt="user",
+            response_format=_ValidatedModel,
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+            allow_unvalidated=allow_unvalidated,
+        )
+
+        assert client.attempt_count == attempts
+        assert (call_error is None) is succeeds
+        assert (parsed is not None) is succeeds
+
     def test_safe_call_default_does_not_use_tolerant_fallback(
         self, tmp_path: Path
     ) -> None:
@@ -315,6 +432,27 @@ class TestSafeCallKwargsAndFailureUsage:
         assert parsed is None
         assert error is not None
         assert "malformed source ID" in error
+
+    def test_safe_call_keeps_usage_when_response_parsing_fails(
+        self, tmp_path: Path
+    ) -> None:
+        parsed, result, error = safe_llm_call(
+            llm_client=_ParseFailureClient(),
+            system_prompt="system",
+            user_prompt="user",
+            response_format=_ValidatedModel,
+            run_dir=tmp_path,
+            stage="stage_test",
+            step="step_test",
+        )
+
+        assert parsed is None
+        assert result is not None
+        assert error is not None
+        entry = json.loads((tmp_path / "calls.jsonl").read_text().splitlines()[0])
+        assert entry["prompt_tokens"] == 17
+        assert entry["completion_tokens"] == 4
+        assert entry["duration_ms"] == 230
 
     def test_unexpected_type_error_is_not_treated_as_compat(
         self, tmp_path: Path
@@ -353,3 +491,29 @@ class TestSafeCallKwargsAndFailureUsage:
         assert entry["completion_tokens"] == 0
         assert entry["duration_ms"] == 0
         assert entry["error"] == "boom"
+
+
+class TestCompatGateAndStageError:
+    """Cover the compatibility predicate and StageError attributes."""
+
+    def test_compat_gate_requires_flag_and_message(self) -> None:
+        unexpected = TypeError("unexpected keyword argument 'allow_unvalidated'")
+        other = TypeError("response_format is the wrong type")
+
+        assert _is_unsupported_unvalidated_error(unexpected, True) is True
+        assert _is_unsupported_unvalidated_error(unexpected, False) is False
+        assert _is_unsupported_unvalidated_error(other, True) is False
+        assert (
+            _is_unsupported_unvalidated_error(
+                TypeError("unexpected keyword argument 'response_format'"),
+                True,
+            )
+            is False
+        )
+
+    def test_stage_error_keeps_stage_and_step(self) -> None:
+        error = StageError(stage="stage_2", step="call_1", message="offline")
+
+        assert error.stage == "stage_2"
+        assert error.step == "call_1"
+        assert str(error) == "stage_2/call_1: offline"

@@ -1932,6 +1932,190 @@ def _h_sp2_fill_loss_scenario(world: World, text: str, examples: dict) -> tuple[
                     return True, ""
     return False, "No ICA with non-empty loss_scenario found"
 
+
+def _ica_slot(slot_id: str, uca_type: UCAType, ids: list[str]) -> ICASlot:
+    """Build a filled slot for ICA identifier repair scenarios."""
+    return ICASlot(
+        slot_id=slot_id,
+        responsibility="RESP-3",
+        control_action="CA-3-1",
+        uca_type=uca_type,
+        is_na=False,
+        icas=[
+            ICA(
+                ica_id=ica_id,
+                ica_text=f"ICA {index}",
+                hazardous_context=f"Context {index}",
+                loss_scenario=f"Scenario {index}",
+            )
+            for index, ica_id in enumerate(ids, start=1)
+        ],
+    )
+
+
+def _h_sp2_ica_background(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: deterministic SP2 slot placeholders exist."""
+    from scenario_forge.stpa.threat_enum.slot_creation import SlotPlaceholder
+
+    world.ica_slots = [
+        SlotPlaceholder(
+            slot_id=f"RESP-3:CA-3-1:{uca_type.value}",
+            responsibility="RESP-3",
+            control_action="CA-3-1",
+            uca_type=uca_type,
+        )
+        for uca_type in UCAType
+    ]
+    world.ica_fills = {}
+    world.ica_fields = []
+    world.ica_enumeration = None
+    return True, ""
+
+
+def _h_sp2_ica_one(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a slot is filled with one ICA and a supplied identifier."""
+    match = re.search(
+        r"slot (?P<slot>RESP-3:CA-3-1:[A-Z_]+) is filled with "
+        r"one ICA identified as (?P<ica>\S+)",
+        text,
+    )
+    if match is None:
+        return False, f"Could not parse ICA slot from: {text}"
+    slot_id = match.group("slot")
+    slot = next((item for item in world.ica_slots if item.slot_id == slot_id), None)
+    if slot is None:
+        return False, f"Unknown ICA slot: {slot_id}"
+    world.ica_fills[slot_id] = _ica_slot(slot_id, slot.uca_type, [match.group("ica")])
+    return True, ""
+
+
+def _h_sp2_ica_three(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a slot is filled with three ICAs whose IDs have wrong positions."""
+    match = re.search(
+        r"slot (?P<slot>RESP-3:CA-3-1:[A-Z_]+) is filled with "
+        r"3 ICAs whose identifiers do not match their positions",
+        text,
+    )
+    if match is None:
+        return False, f"Could not parse ICA slot from: {text}"
+    slot_id = match.group("slot")
+    slot = next((item for item in world.ica_slots if item.slot_id == slot_id), None)
+    if slot is None:
+        return False, f"Unknown ICA slot: {slot_id}"
+    filled = _ica_slot(
+        slot_id,
+        slot.uca_type,
+        ["wrong-1", "wrong-2", "wrong-3"],
+    )
+    world.ica_fills[slot_id] = filled
+    world.ica_fields = [
+        ica.model_dump(exclude={"ica_id"}) for ica in filled.icas
+    ]
+    return True, ""
+
+
+def _h_sp2_ica_three_types(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the three UCA type slots each contain one ICA."""
+    for uca_type in (
+        UCAType.not_provided,
+        UCAType.incorrect,
+        UCAType.wrong_timing,
+    ):
+        slot_id = f"RESP-3:CA-3-1:{uca_type.value}"
+        world.ica_fills[slot_id] = _ica_slot(
+            slot_id,
+            uca_type,
+            ["RESP-3:CA-3-1:1"],
+        )
+    return True, ""
+
+
+def _h_sp2_ica_full(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: a full response contains varied malformed ICA identifiers."""
+    values = {
+        UCAType.not_provided: ["RESP-3:CA-3-1:NOT_PROVIDED:1"],
+        UCAType.incorrect: ["RESP-3:CA-3-1:1"],
+        UCAType.wrong_timing: [
+            "RESP-9:CA-9-9:7",
+            "RESP-3:CA-3-1:99",
+        ],
+        UCAType.wrong_duration: ["RESP-3:CA-3-1:1"],
+    }
+    for uca_type, ids in values.items():
+        slot_id = f"RESP-3:CA-3-1:{uca_type.value}"
+        world.ica_fills[slot_id] = _ica_slot(slot_id, uca_type, ids)
+    return True, ""
+
+
+def _h_sp2_ica_merge(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: filled slots are merged with their placeholders."""
+    from scenario_forge.stpa.threat_enum.slot_filling import _merge_filled_slots
+
+    world.ica_enumeration = ICAEnumeration(
+        slots=_merge_filled_slots(world.ica_slots, world.ica_fills)
+    )
+    return True, ""
+
+
+def _h_sp2_ica_ids(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: expected repaired ICA identifiers are asserted."""
+    expected = re.findall(
+        r"RESP-3:CA-3-1:(?:NOT_PROVIDED|INCORRECT|WRONG_TIMING|WRONG_DURATION):\d+",
+        text,
+    )
+    actual = [
+        ica.ica_id
+        for slot in world.ica_enumeration.slots
+        for ica in slot.icas
+    ]
+    if actual != expected:
+        return False, f"Expected ICA IDs {expected}, got {actual}"
+    return True, ""
+
+
+def _h_sp2_ica_fields(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: every ICA retains its non-identifier fields."""
+    actual = [
+        ica.model_dump(exclude={"ica_id"})
+        for slot in world.ica_enumeration.slots
+        for ica in slot.icas
+    ]
+    if actual != world.ica_fields:
+        return False, "ICA fields changed while repairing identifiers"
+    return True, ""
+
+
+def _h_sp2_ica_unique(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: all ICA identifiers in the enumeration are unique."""
+    ids = [
+        ica.ica_id
+        for slot in world.ica_enumeration.slots
+        for ica in slot.icas
+    ]
+    if len(ids) != len(set(ids)):
+        return False, f"Duplicate ICA IDs found: {ids}"
+    return True, ""
+
+
+def _h_sp2_ica_valid(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: the ICA enumeration is valid."""
+    try:
+        ICAEnumeration.model_validate(world.ica_enumeration.model_dump())
+    except (TypeError, ValueError) as exc:
+        return False, f"ICA enumeration is invalid: {exc}"
+    return True, ""
+
+
+def _h_sp2_ica_canonical(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Handle: every ICA ID equals its slot ID and one-based position."""
+    for slot in world.ica_enumeration.slots:
+        for index, ica in enumerate(slot.icas, start=1):
+            expected = f"{slot.slot_id}:{index}"
+            if ica.ica_id != expected:
+                return False, f"Expected {expected}, got {ica.ica_id}"
+    return True, ""
+
+
 FEATURE_ID = 'sp2'
 
 def register(api: object) -> None:
@@ -2118,6 +2302,19 @@ def register(api: object) -> None:
     api.register_first('the run manifest prompt_hashes contains SHA-256 hashes for (?:stage3_system|stage3_user)', _h_sp2_manifest_prompt_hashes, source_order=16272)
     api.register('the ICA enumeration has \\d+ total slots', _h_sp2_slot_count_40, source_order=16273)
     api.register('the SP2 threat enumeration module is implemented', _h_sp2_module_implemented, source_order=16274)
+    api.register_first('deterministic SP2 slot placeholders exist for responsibility RESP-3 and control action CA-3-1', _h_sp2_ica_background, source_order=16275)
+    api.register_first('slot RESP-3:CA-3-1:[A-Z_]+ is filled with one ICA identified as \\S+', _h_sp2_ica_one, source_order=16276)
+    api.register_first('slot RESP-3:CA-3-1:[A-Z_]+ is filled with 3 ICAs whose identifiers do not match their positions', _h_sp2_ica_three, source_order=16277)
+    api.register_first('the NOT_PROVIDED, INCORRECT, and WRONG_TIMING slots for RESP-3 and CA-3-1 each contain one ICA identified as RESP-3:CA-3-1:1', _h_sp2_ica_three_types, source_order=16278)
+    api.register_first('a full ICA enumeration response contains correct identifiers, omitted UCA types, wrong slot prefixes, wrong indexes, and duplicate identifiers', _h_sp2_ica_full, source_order=16279)
+    api.register_first('the filled slots are merged with their placeholders', _h_sp2_ica_merge, source_order=16280)
+    api.register_first('the ICA identifier is', _h_sp2_ica_ids, source_order=16281)
+    api.register_first('the ICA identifiers in order are', _h_sp2_ica_ids, source_order=16282)
+    api.register_first('those ICA identifiers are', _h_sp2_ica_ids, source_order=16283)
+    api.register_first('every ICA retains its original non-identifier fields', _h_sp2_ica_fields, source_order=16284)
+    api.register_first('all ICA identifiers in the enumeration are unique', _h_sp2_ica_unique, source_order=16285)
+    api.register_first('every ICA identifier equals its slot identifier followed by its one-based position', _h_sp2_ica_canonical, source_order=16286)
+    api.register_first('the ICA enumeration is valid$', _h_sp2_ica_valid, source_order=16287)
     api.set_feature(None)
 
 __all__ = ["FEATURE_ID", "register"]

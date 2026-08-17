@@ -6,16 +6,20 @@ These cover the high-level policy in ``id_normalization``:
 - unique source IDs map to those structural IDs
 - typed and local references rewrite through that mapping
 - a second pass is a no-op on already-canonical input
+- a duplicated global source ID is omitted from rewrite maps
 """
 
 from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
+from pydantic import ValidationError
 
 from scenario_forge.stpa.system_model.id_normalization import (
     normalize_control_structure_payload,
+    validate_normalized_control_structure,
 )
 
 st_text = st.text(
@@ -357,3 +361,134 @@ class TestOrderAndNonIdFieldsArePreserved:
         assert payload["responsibilities"][0]["resp_id"].startswith("keep-")
         assert len(result.payload["responsibilities"]) == n_resps
         assert len(result.payload["controlled_processes"]) == n_cps
+
+
+def _dup_payload(kind: str, dup: str) -> dict:
+    """Return a unique-ID payload with one duplicated global source ID."""
+    payload = _payload(
+        n_resps=2,
+        n_children=1,
+        n_cps=2,
+        with_links=True,
+        id_prefix="src",
+        descriptions=["First controller", "Second controller", "unused"],
+    )
+    if kind == "resp":
+        for responsibility in payload["responsibilities"]:
+            responsibility["resp_id"] = dup
+        for link in payload["coordination_links"]:
+            link["source"] = "RESP-1"
+            link["target"] = "RESP-2"
+        payload["responsibilities"][0]["process_model_parts"][0]["feedback_source"] = {
+            "type": "responsibility",
+            "id": dup,
+        }
+        return payload
+    if kind == "cp":
+        for process in payload["controlled_processes"]:
+            process["cp_id"] = dup
+        for responsibility in payload["responsibilities"]:
+            for action in responsibility["control_actions"]:
+                if action.get("target"):
+                    action["target"] = {"type": "controlled_process", "id": "CP-1"}
+            for channel in responsibility["feedback_channels"]:
+                if channel.get("source"):
+                    channel["source"] = {"type": "controlled_process", "id": "CP-1"}
+        payload["responsibilities"][0]["control_actions"][0]["target"] = {
+            "type": "controlled_process",
+            "id": dup,
+        }
+        return payload
+    payload["responsibilities"][0]["process_model_parts"][0]["pm_id"] = dup
+    payload["responsibilities"][1]["process_model_parts"][0]["pm_id"] = dup
+    for index, responsibility in enumerate(payload["responsibilities"], start=1):
+        for channel in responsibility["feedback_channels"]:
+            channel["updates"] = f"PM-{index}-1"
+    payload["coordination_links"][0]["shared_pm"] = dup
+    return payload
+
+
+def _dup_probe(kind: str, payload: dict) -> tuple[str, str]:
+    """Return the remaining source ID and the validation field name."""
+    if kind == "resp":
+        return (
+            payload["responsibilities"][0]["process_model_parts"][0]["feedback_source"]["id"],
+            "feedback_source",
+        )
+    if kind == "cp":
+        return (
+            payload["responsibilities"][0]["control_actions"][0]["target"]["id"],
+            "target",
+        )
+    return payload["coordination_links"][0]["shared_pm"], "shared_pm"
+
+
+st_dup = st.text(
+    alphabet=st.characters(
+        whitelist_categories=("Ll", "Lu", "Nd"),
+        whitelist_characters=("-", "_"),
+    ),
+    min_size=1,
+    max_size=16,
+).map(lambda text: f"dup-{text}")
+
+
+class TestAmbiguousGlobalIdsAreNotRewritten:
+    """A duplicated global source ID is left for validation to reject."""
+
+    @given(st.sampled_from(("resp", "cp", "pm")), st_dup)
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_duplicate_global_id_stays_unmapped(self, kind, dup):
+        payload = _dup_payload(kind, dup)
+        result = normalize_control_structure_payload(payload)
+        actual, field = _dup_probe(kind, result.payload)
+
+        assert dup not in result.mapping
+        assert actual == dup
+        with pytest.raises(ValidationError) as caught:
+            validate_normalized_control_structure(result.payload)
+        assert field in str(caught.value)
+
+
+st_shared = st.text(
+    alphabet=st.characters(
+        whitelist_categories=("Ll", "Lu", "Nd"),
+        whitelist_characters=("-", "_"),
+    ),
+    min_size=1,
+    max_size=16,
+).map(lambda text: f"both-{text}")
+
+
+class TestCrossNamespaceCollisionsAreOmitted:
+    """The same source ID in two namespaces stays out of the flat map."""
+
+    @given(st_shared)
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_shared_source_id_is_omitted_from_flat_map(self, shared):
+        payload = _payload(
+            n_resps=1,
+            n_children=1,
+            n_cps=1,
+            with_links=False,
+            id_prefix="ns",
+            descriptions=["Controller", "unused", "unused"],
+        )
+        payload["responsibilities"][0]["resp_id"] = shared
+        payload["controlled_processes"][0]["cp_id"] = shared
+
+        result = normalize_control_structure_payload(payload)
+
+        assert shared not in result.mapping
+        assert result.mappings["responsibility"][shared] == "RESP-1"
+        assert result.mappings["controlled_process"][shared] == "CP-1"
+        assert result.payload["responsibilities"][0]["resp_id"] == "RESP-1"
+        assert result.payload["controlled_processes"][0]["cp_id"] == "CP-1"

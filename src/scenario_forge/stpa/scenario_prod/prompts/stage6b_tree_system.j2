@@ -25,8 +25,12 @@ Root: Induce ICA [type] on [control action]
 │   │   ├── Algorithm was correct but modified (prompt injection)
 │   │   └── Algorithm conflict (contradictory instructions/policies)
 │   ├── Attack feedback channel
-│   │   ├── Delay/block feedback [FB-*]
-│   │   ├── Forge feedback [FB-*]
+│   │   ├── Inject instructions through prompt/context input [FB-*]
+│   │   ├── Poison retrieved content [FB-*]
+│   │   ├── Fabricate a tool result [FB-*]
+│   │   ├── Poison memory state [FB-*]
+│   │   ├── Tamper with an agent message [FB-*]
+│   │   ├── Manipulate model output [FB-*]
 │   │   └── Replay stale feedback [FB-*]
 │   └── Unsafe control input
 │       ├── From higher-level controller (conflicting directives)
@@ -38,8 +42,7 @@ Root: Induce ICA [type] on [control action]
 │   │   ├── Tool executes with modified parameters
 │   │   └── Tool produces crafted output (tool result fabrication)
 │   ├── Control path compromise
-│   │   ├── Action intercepted/modified in transit
-│   │   └── Action delayed beyond effectiveness window
+│   │   └── Infrastructure transport/session mechanism (only with explicit attacker-accessible architecture evidence)
 │   └── Controlled process behavior
 │       ├── External system rejects/ignores correct action
 │       ├── External system responds in unexpected state
@@ -56,6 +59,7 @@ Root: Induce ICA [type] on [control action]
 - The tree MUST use at least 2 of the 3 branch categories.
 - Instantiate relevant branches with scenario-specific content.
 - Reference specific PM-*, FB-*, CA-*, RESP-* IDs where applicable.
+- Permit an infrastructure leaf only when it cites an explicitly attacker-accessible architecture element. Do not infer an infrastructure or session mechanism from a logical feedback channel.
 
 ## Output Format
 
