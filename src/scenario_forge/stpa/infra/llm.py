@@ -111,6 +111,7 @@ class LLMClient:
         extra_headers: dict[str, str] | None = None,
         top_p: float | None = None,
         top_k: int | None = None,
+        use_guided_decoding: bool = False,
     ) -> None:
         self.base_url = _resolve_base_url(base_url)
         self.api_key = _resolve_api_key(api_key)
@@ -129,6 +130,7 @@ class LLMClient:
         )
         self.top_p = top_p
         self.top_k = top_k
+        self.use_guided_decoding = use_guided_decoding
 
         if not self.base_url:
             raise ValueError(
@@ -145,20 +147,33 @@ class LLMClient:
         self,
         effective_max: int | None,
         effective_temp: float,
+        response_format: type[BaseModel] | None = None,
+        use_guided_json: bool = False,
     ) -> dict[str, Any]:
         """Build the extra kwargs dict for the OpenAI completion call.
 
         ``top_k`` is not a standard OpenAI API parameter and raises
         ``TypeError`` on non-OpenAI providers (e.g. OpenRouter). It is
         routed through ``extra_body`` instead of as a top-level kwarg.
+
+        ``guided_json`` enables vLLM's strict JSON schema enforcement via
+        guided decoding, masking invalid tokens during generation.
         """
         kwargs: dict[str, Any] = {"temperature": effective_temp}
         if effective_max is not None:
             kwargs["max_completion_tokens"] = effective_max
         if self.top_p is not None:
             kwargs["top_p"] = self.top_p
+
+        extra_body: dict[str, Any] = {}
         if self.top_k is not None:
-            kwargs["extra_body"] = {"top_k": self.top_k}
+            extra_body["top_k"] = self.top_k
+        if use_guided_json and response_format is not None:
+            extra_body["guided_json"] = response_format.model_json_schema()
+
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+
         return kwargs
 
     def _request_completion(
@@ -202,8 +217,20 @@ class LLMClient:
             {"role": "user", "content": user_prompt},
         ]
 
-        extra_kwargs = self._build_extra_kwargs(effective_max, effective_temp)
-        if allow_unvalidated and response_format is not None:
+        # Use vLLM guided_json for strict schema enforcement when enabled via profile
+        # This enables guided decoding which masks invalid tokens during generation
+        # Only enabled when use_guided_decoding=True in model profile
+        use_guided_json = (
+            self.use_guided_decoding
+            and allow_unvalidated
+            and response_format is not None
+        )
+        extra_kwargs = self._build_extra_kwargs(
+            effective_max, effective_temp, response_format, use_guided_json
+        )
+
+        # Fallback to legacy json_object mode for models without guided decoding
+        if allow_unvalidated and response_format is not None and not use_guided_json:
             extra_kwargs["response_format"] = {"type": "json_object"}
 
         t0 = time.perf_counter_ns()
