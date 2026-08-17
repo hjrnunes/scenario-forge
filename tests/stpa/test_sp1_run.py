@@ -12,121 +12,24 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
 )
-from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
-from scenario_forge.stpa.system_model.critic import CriticFindings
+from scenario_forge.stpa.system_model.critic import CriticFindings, RevisionDelta
 from scenario_forge.stpa.system_model.run import run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient
-
-
-def _make_risk_cards() -> list[RiskCard]:
-    return [
-        RiskCard(
-            risk_id="atlas-001",
-            risk_name="Prompt injection",
-            risk_description="Risk of prompt injection",
-            taxonomy="ibm-risk-atlas",
-            confidence=0.9,
-            grounding_confidence="high",
-        ),
-    ]
-
-
-def _valid_loss_analysis_dict() -> dict:
-    return {
-        "risk_card_losses": [
-            {
-                "loss_id": "L-1",
-                "description": "Unauthorized transaction",
-                "provenance": "risk_card",
-                "source_risk_cards": ["atlas-001"],
-            }
-        ],
-        "use_case_losses": [
-            {
-                "loss_id": "L-2",
-                "description": "Loss of trust",
-                "provenance": "use_case",
-                "source_risk_cards": [],
-            }
-        ],
-        "hazards": [
-            {
-                "hazard_id": "H-1",
-                "description": "Agent executes unintended action",
-                "related_losses": ["L-1", "L-2"],
-            }
-        ],
-        "security_constraints": [
-            {
-                "constraint_id": "SC-1",
-                "description": "Must confirm before action",
-                "related_hazards": ["H-1"],
-            }
-        ],
-    }
-
-
-def _valid_stage1_profile_dict() -> dict:
-    return {
-        "has_persistent_memory": False,
-        "multi_agent": False,
-        "hitl": False,
-        "entry_points": [
-            {"name": "User chat", "direction": "input", "controllability": "direct"},
-        ],
-        "confidence": "medium",
-        "kc_subcodes": ["KC1.1", "KC5.1", "KC6.1.1"],
-        "tool_inventory": [{"name": "tool1", "description": "A tool"}],
-    }
-
-
-def _valid_requirement_set_dict() -> dict:
-    return {
-        "requirements": [
-            {
-                "req_id": "REQ-1",
-                "description": "Verify user identity",
-                "classification": "control",
-                "source_constraint": "SC-1",
-            }
-        ]
-    }
-
-
-def _valid_responsibility_set_dict() -> dict:
-    return {
-        "responsibilities": [
-            {
-                "resp_id": "RESP-1",
-                "description": "Authorization controller",
-                "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"}
-                ],
-                "process_model_parts": [
-                    {"pm_id": "PM-1-1", "description": "User intent state"}
-                ],
-                "control_actions": [
-                    {"ca_id": "CA-1-1", "description": "Execute action"}
-                ],
-                "feedback_channels": [
-                    {
-                        "fb_id": "FB-1-1",
-                        "description": "Action result",
-                        "updates": "PM-1-1",
-                        "source": {"type": "responsibility", "id": "RESP-1"},
-                    }
-                ],
-            }
-        ],
-        "controlled_processes": [],
-    }
+from tests.stpa.sp1_helpers import (
+    MockLLMClient,
+    make_risk_cards,
+    valid_control_element_set_dict,
+    valid_empty_coordination_analysis_dict,
+    valid_requirement_set_dict,
+    valid_responsibility_set_dict,
+    valid_stage1_profile_dict,
+)
 
 
 def _valid_control_structure_dict() -> dict:
-    rs = _valid_responsibility_set_dict()
+    rs = valid_responsibility_set_dict()
     return {
         "responsibilities": rs["responsibilities"],
         "controlled_processes": [],
@@ -170,27 +73,38 @@ def _setup_mock_client(
     """Set up a mock LLM client with valid responses for all stages."""
     client = MockLLMClient()
 
-    # Stage 1a: LossAnalysis
-    client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+    # Stage 1a: two calls (risk_derivation + gap_analysis) both use LossAnalysisDraft
+    from scenario_forge.stpa.models.loss_analysis import LossAnalysisDraft
+    from tests.stpa.sp1_helpers import valid_risk_draft_dict, valid_gap_draft_dict
+    client.set_response_for(
+        LossAnalysisDraft, [valid_risk_draft_dict(), valid_gap_draft_dict()],
+    )
 
     # Stage 1b: Stage1Profile
     from scenario_forge.models.capability_profile import Stage1Profile as S1P
 
-    client.set_response_for(S1P, _valid_stage1_profile_dict())
+    client.set_response_for(S1P, valid_stage1_profile_dict())
 
     # Stage 2 Call 1: RequirementSet
     from scenario_forge.stpa.system_model.control_structure import (
+        ControlElementSet,
+        CoordinationAnalysis,
         RequirementSet,
         ResponsibilitySet,
     )
 
-    client.set_response_for(RequirementSet, _valid_requirement_set_dict())
+    client.set_response_for(RequirementSet, valid_requirement_set_dict())
 
-    # Stage 2 Call 2: ResponsibilitySet
-    client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
+    # Stage 2 Call 2a: ResponsibilitySet
+    client.set_response_for(ResponsibilitySet, valid_responsibility_set_dict())
 
-    # Stage 2 Call 3: ControlStructure
-    client.set_response_for(ControlStructure, _valid_control_structure_dict())
+    # Stage 2 Call 2b: ControlElementSet
+    client.set_response_for(ControlElementSet, valid_control_element_set_dict())
+
+    # Stage 2 Call 3: CoordinationAnalysis
+    client.set_response_for(
+        CoordinationAnalysis, valid_empty_coordination_analysis_dict()
+    )
 
     # Critic: CriticFindings
     if critic_findings is not None:
@@ -205,16 +119,16 @@ def _setup_mock_client(
         }
         client.set_response_for(CriticFindings, no_gap)
 
-    # Revision: ControlStructure (if needed)
+    # Revision: RevisionDelta (if needed)
     if revised_cs is not None:
-        # Need to use a queue for the second ControlStructure response
-        # The first CS response is for Call 3, the second for revision
-        client.set_response_queue([
-            _valid_control_structure_dict(),  # Call 3
-            revised_cs,  # Revision
-        ])
-        # Clear the response_map for ControlStructure so the queue is used
-        client._response_map.pop(ControlStructure, None)
+        # Convert the full CS dict to a RevisionDelta dict (new_responsibilities only)
+        delta_dict = {
+            "new_responsibilities": revised_cs.get("responsibilities", []),
+            "new_controlled_processes": revised_cs.get("controlled_processes", []),
+            "new_coordination_links": revised_cs.get("coordination_links", []),
+            "modified_responsibilities": [],
+        }
+        client.set_response_for(RevisionDelta, delta_dict)
 
     return client
 
@@ -228,7 +142,7 @@ class TestRunOrchestration:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         assert (tmp_path / "loss-analysis.yaml").exists()
@@ -236,12 +150,12 @@ class TestRunOrchestration:
         assert (tmp_path / "control-structure.yaml").exists()
 
     def test_run_02_stages_execute_in_order(self, tmp_path):
-        """SP1-RUN-02: stages execute in order 1a then 1b then 2."""
+        """SP1-RUN-02: stages execute in order 1b then 1a then 2."""
         client = _setup_mock_client()
         result = run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         assert isinstance(result.loss_analysis, LossAnalysis)
@@ -254,10 +168,10 @@ class TestRunOrchestration:
         assert "stage_1a" in stages
         assert "stage_1b" in stages
         assert "stage_2" in stages
-        # Stage 1a should come before stage_1b
-        assert stages.index("stage_1a") < stages.index("stage_1b")
-        # Stage 1b should come before stage_2
-        assert stages.index("stage_1b") < stages.index("stage_2")
+        # Stage 1b should come before stage_1a (reversed ordering)
+        assert stages.index("stage_1b") < stages.index("stage_1a")
+        # Stage 1a should come before stage_2
+        assert stages.index("stage_1a") < stages.index("stage_2")
 
     def test_run_03_all_calls_logged(self, tmp_path):
         """SP1-RUN-03: all LLM calls logged to calls.jsonl."""
@@ -265,7 +179,7 @@ class TestRunOrchestration:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         calls_file = tmp_path / "calls.jsonl"
@@ -282,7 +196,7 @@ class TestRunOrchestration:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         manifest_file = tmp_path / "run-manifest.yaml"
@@ -294,13 +208,31 @@ class TestRunOrchestration:
         assert "stage_1a" in manifest["stage_summary"]
         assert "stage_2" in manifest["stage_summary"]
 
+    def test_run_manifest_records_profile_name(self, tmp_path):
+        """A selected model profile is preserved in the manifest configuration."""
+        client = _setup_mock_client()
+        run_sp1(
+            llm_client=client,
+            use_case_text="Test use case",
+            risk_cards=make_risk_cards(),
+            run_dir=tmp_path,
+            profile_name="production-profile",
+        )
+
+        import yaml
+
+        manifest = yaml.safe_load(
+            (tmp_path / "run-manifest.yaml").read_text()
+        )
+        assert manifest["model_settings"]["profile"] == "production-profile"
+
     def test_run_05_manifest_records_critic_findings(self, tmp_path):
         """SP1-RUN-05: run manifest records critic findings count."""
         client = _setup_mock_client(critic_findings=_valid_critic_findings_dict())
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         manifest_file = tmp_path / "run-manifest.yaml"
@@ -309,6 +241,9 @@ class TestRunOrchestration:
         manifest = yaml.safe_load(manifest_file.read_text())
         assert "critic_findings" in manifest
         assert len(manifest["critic_findings"]) == 2
+        assert manifest["revised"] is True
+        assert len(manifest["post_revision_warnings"]) == 1
+        assert manifest["post_revision_warnings"][0].startswith("Revision failed:")
 
     def test_run_06_manifest_records_input_hashes(self, tmp_path):
         """SP1-RUN-06: run manifest records input hashes."""
@@ -316,7 +251,7 @@ class TestRunOrchestration:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         manifest_file = tmp_path / "run-manifest.yaml"
@@ -333,7 +268,7 @@ class TestRunOrchestration:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         manifest_file = tmp_path / "run-manifest.yaml"
@@ -341,7 +276,7 @@ class TestRunOrchestration:
 
         manifest = yaml.safe_load(manifest_file.read_text())
         assert "prompt_hashes" in manifest
-        assert "stage1a_system.j2" in manifest["prompt_hashes"]
+        assert "stage1a_risk_system.j2" in manifest["prompt_hashes"]
         assert "critic_system.j2" in manifest["prompt_hashes"]
 
     def test_run_08_stage_2_receives_loss_analysis_and_profile(self, tmp_path):
@@ -350,7 +285,7 @@ class TestRunOrchestration:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         # Find the call_1_requirements call (Stage 2 Call 1)
@@ -363,20 +298,29 @@ class TestRunOrchestration:
         assert "SC-1" in call1.user_prompt
 
     def test_run_09_prompt_templates_exist(self):
-        """SP1-RUN-09: all 14 prompt template files exist."""
+        """SP1-RUN-09: all prompt template files exist (updated for stage1a split)."""
         from scenario_forge.stpa.system_model import PROMPTS_DIR
 
         expected = [
-            "stage1a_system.j2", "stage1a_user.j2",
+            "stage1a_risk_system.j2", "stage1a_risk_user.j2",
+            "stage1a_gap_system.j2", "stage1a_gap_user.j2",
             "stage1b_system.j2", "stage1b_user.j2",
             "stage2_call1_system.j2", "stage2_call1_user.j2",
-            "stage2_call2_system.j2", "stage2_call2_user.j2",
+            "stage2_call2a_system.j2", "stage2_call2a_user.j2",
+            "stage2_call2b_system.j2", "stage2_call2b_user.j2",
             "stage2_call3_system.j2", "stage2_call3_user.j2",
             "critic_system.j2", "critic_user.j2",
             "revision_system.j2", "revision_user.j2",
         ]
         for name in expected:
             assert (PROMPTS_DIR / name).exists(), f"Missing template: {name}"
+
+    def test_run_09b_old_stage1a_templates_absent(self):
+        """Old stage1a templates are absent after the split."""
+        from scenario_forge.stpa.system_model import PROMPTS_DIR
+
+        assert not (PROMPTS_DIR / "stage1a_system.j2").exists()
+        assert not (PROMPTS_DIR / "stage1a_user.j2").exists()
 
     def test_run_10_module_layout(self):
         """SP1-RUN-10: all modules exist and are importable."""
@@ -414,9 +358,6 @@ class TestRunOrchestration:
         """SP1-RUN-12: run with profile flag skips Stage 1b LLM call."""
         # Write a pre-built profile
         profile = Stage1Profile(
-            has_persistent_memory=False,
-            multi_agent=False,
-            hitl=False,
             entry_points=[
                 {"name": "User chat", "direction": "input", "controllability": "direct"},
             ],
@@ -431,7 +372,7 @@ class TestRunOrchestration:
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
             profile_path=profile_path,
         )
@@ -440,13 +381,41 @@ class TestRunOrchestration:
         stage_1b_entries = [e for e in entries if e["stage"] == "stage_1b"]
         assert len(stage_1b_entries) == 0
 
+    def test_run_with_external_profile_publishes_capability_artifact(self, tmp_path):
+        """A pre-built profile outside the run directory is copied to outputs."""
+        profile = Stage1Profile(
+            entry_points=[
+                {"name": "User chat", "direction": "input", "controllability": "direct"},
+            ],
+            confidence="medium",
+            kc_subcodes=["KC1.1", "KC5.1", "KC6.1.1"],
+            tool_inventory=[{"name": "tool1", "description": "A tool"}],
+        ).to_capability_profile()
+        input_dir = tmp_path / "inputs"
+        input_dir.mkdir()
+        profile_path = input_dir / "capability-profile.yaml"
+        write_yaml(profile, profile_path)
+        run_dir = tmp_path / "output"
+
+        result = run_sp1(
+            llm_client=_setup_mock_client(),
+            use_case_text="Test use case",
+            risk_cards=make_risk_cards(),
+            run_dir=run_dir,
+            profile_path=profile_path,
+        )
+
+        artifact = run_dir / "capability-profile.yaml"
+        assert artifact.exists()
+        assert result.capability_profile == profile
+
     def test_run_13_temperature_is_0_4(self, tmp_path):
         """SP1-RUN-13: all Stage 2 LLM calls use temperature 0.4."""
         client = _setup_mock_client()
         run_sp1(
             llm_client=client,
             use_case_text="Test use case",
-            risk_cards=_make_risk_cards(),
+            risk_cards=make_risk_cards(),
             run_dir=tmp_path,
         )
         # All calls should have temperature 0.4

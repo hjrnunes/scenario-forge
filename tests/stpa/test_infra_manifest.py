@@ -36,6 +36,8 @@ class TestInfraManifest:
         assert manifest.fill_rate == 0.0
         assert manifest.scenario_count == 0
         assert manifest.critic_findings == []
+        assert manifest.revised is False
+        assert manifest.post_revision_warnings == []
         assert manifest.eval_scorecard_path is None
 
     def test_manifest_02_with_fill_rate_and_counts(self):
@@ -67,6 +69,19 @@ class TestInfraManifest:
         data["eval_scorecard_path"] = "output/test/eval-scorecard.yaml"
         manifest = STPARunManifest(**data)
         assert manifest.eval_scorecard_path == "output/test/eval-scorecard.yaml"
+
+    def test_manifest_records_revision_outcome(self):
+        """Revision attempts and warnings are durable operator diagnostics."""
+        data = self._base_manifest_data()
+        data["revised"] = True
+        data["post_revision_warnings"] = [
+            "Revision delta merge degraded: missing-state"
+        ]
+        manifest = STPARunManifest(**data)
+        assert manifest.revised is True
+        assert manifest.post_revision_warnings == [
+            "Revision delta merge degraded: missing-state"
+        ]
 
     def test_manifest_05_not_coupled_to_existing_manifest(self):
         """InfraManifest-05: module does not import the existing pipeline manifest."""

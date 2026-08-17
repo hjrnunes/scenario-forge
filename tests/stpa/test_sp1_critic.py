@@ -32,6 +32,7 @@ from scenario_forge.stpa.models.loss_analysis import (
 )
 from scenario_forge.stpa.system_model.critic import (
     CriticFindings,
+    RevisionDelta,
     has_unjustified_gaps,
     run_completeness_critic,
     run_revision,
@@ -288,10 +289,20 @@ class TestCriticExecution:
     def test_critic_11_only_justified_gaps_no_revision(self):
         """SP1-CRITIC-11: only justified gaps do not trigger revision."""
         data = _valid_critic_findings_dict()
+        # Clear all three probes so the fixture genuinely matches the
+        # scenario name ("only justified gaps").  The original test only
+        # overrode checklist_results but left gaps and taxonomy_probe_results
+        # from _valid_critic_findings_dict() — which contains real
+        # structural gaps.  Under the corrected three-probe logic
+        # (has_unjustified_gaps checks gaps, checklist, AND taxonomy),
+        # those gaps correctly trigger revision.  Fix the fixture, not
+        # the implementation.
         data["checklist_results"] = {
             "Input validation": "present",
             "Authorization": "absent_justified",
         }
+        data["gaps"] = []
+        data["taxonomy_probe_results"] = {}
         findings = CriticFindings.model_validate(data)
         assert has_unjustified_gaps(findings) is False
 
@@ -302,44 +313,8 @@ class TestRevision:
     def test_rev_01_revised_control_structure_valid(self, tmp_path):
         """SP1-REV-01: revision call produces a valid ControlStructure."""
         client = MockLLMClient()
-        revised_cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller 1",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State 1"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action 1"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB 1",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                },
-                {
-                    "resp_id": "RESP-2",
-                    "description": "Controller 2",
-                    "process_model_parts": [
-                        {"pm_id": "PM-2-1", "description": "State 2"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-2-1", "description": "Action 2"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-2-1",
-                            "description": "FB 2",
-                            "updates": "PM-2-1",
-                            "source": {"type": "responsibility", "id": "RESP-2"},
-                        }
-                    ],
-                },
+        revision_delta_dict = {
+            "new_responsibilities": [
                 {
                     "resp_id": "RESP-3",
                     "description": "Added input validation controller",
@@ -357,10 +332,13 @@ class TestRevision:
                             "source": {"type": "responsibility", "id": "RESP-3"},
                         }
                     ],
-                },
+                }
             ],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, revised_cs_dict)
+        client.set_response_for(RevisionDelta, revision_delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         revised, warnings = run_revision(
             llm_client=client,
@@ -376,30 +354,13 @@ class TestRevision:
     def test_rev_02_revision_logged(self, tmp_path):
         """SP1-REV-02: revision call logged with stage stage_2 and step revision."""
         client = MockLLMClient()
-        # Build a minimal valid CS dict
-        cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                }
-            ],
+        delta_dict = {
+            "new_responsibilities": [],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, cs_dict)
+        client.set_response_for(RevisionDelta, delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         run_revision(
             llm_client=client,
@@ -415,31 +376,20 @@ class TestRevision:
         assert rev_entries[0]["stage"] == "stage_2"
 
     def test_rev_03_prompt_contains_cs_and_findings(self, tmp_path):
-        """SP1-REV-03: revision prompt contains current CS and critic findings."""
+        """SP1-REV-03: revision prompt contains current CS (system) and critic findings (user).
+
+        The control-structure listing was deliberately moved from
+        revision_user.j2 into revision_system.j2 to avoid duplication.
+        The critic findings remain in revision_user.j2.
+        """
         client = MockLLMClient()
-        cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                }
-            ],
+        delta_dict = {
+            "new_responsibilities": [],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, cs_dict)
+        client.set_response_for(RevisionDelta, delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         run_revision(
             llm_client=client,
@@ -448,36 +398,23 @@ class TestRevision:
             use_case_text="Test",
             run_dir=tmp_path,
         )
+        system_prompt = client.calls[0].system_prompt
         user_prompt = client.calls[0].user_prompt
-        assert "RESP-1" in user_prompt or "RESP-2" in user_prompt
+        # Control structure listing is in the system prompt
+        assert "RESP-1" in system_prompt or "RESP-2" in system_prompt
+        # Critic findings are in the user prompt
         assert "Missing input validation" in user_prompt or "gaps" in user_prompt.lower()
 
     def test_rev_04_heuristics_rerun_after_revision(self, tmp_path):
         """SP1-REV-04: structural heuristics are re-run after revision."""
         client = MockLLMClient()
-        cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                }
-            ],
+        delta_dict = {
+            "new_responsibilities": [],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, cs_dict)
+        client.set_response_for(RevisionDelta, delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         revised, warnings = run_revision(
             llm_client=client,
@@ -490,47 +427,83 @@ class TestRevision:
         # Heuristics were re-run — warnings is a list (may be empty)
         assert isinstance(warnings, list)
 
+    def test_revision_dismissal_is_reported_as_warning(self, tmp_path):
+        """Dismissed critic gaps remain visible to downstream callers."""
+        client = MockLLMClient()
+        client.set_response_for(
+            RevisionDelta,
+            {
+                "new_responsibilities": [],
+                "new_controlled_processes": [],
+                "new_coordination_links": [],
+                "modified_responsibilities": [],
+                "dismissed_gaps": ["already covered by RESP-1"],
+            },
+        )
+
+        revised, warnings = run_revision(
+            llm_client=client,
+            control_structure=_make_control_structure(),
+            critic_findings=CriticFindings.model_validate(
+                _valid_critic_findings_dict()
+            ),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+
+        assert isinstance(revised, ControlStructure)
+        assert warnings[0] == "Revision dismissed finding: already covered by RESP-1"
+
+    def test_revision_failure_preserves_control_structure(self, tmp_path):
+        """A failed revision returns the original structure and warning."""
+        client = MockLLMClient()
+        client.set_exception_for(RevisionDelta, RuntimeError("offline"))
+        original = _make_control_structure()
+
+        revised, warnings = run_revision(
+            llm_client=client,
+            control_structure=original,
+            critic_findings=CriticFindings.model_validate(
+                _valid_critic_findings_dict()
+            ),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+
+        assert revised == original
+        assert warnings == ["Revision failed: RuntimeError: offline"]
+
+    def test_revision_none_response_preserves_control_structure(
+        self, tmp_path, monkeypatch
+    ):
+        """An empty revision response returns the original structure."""
+        from scenario_forge.stpa.system_model import critic as critic_module
+
+        monkeypatch.setattr(
+            critic_module,
+            "safe_llm_call",
+            lambda **kwargs: (None, None, None),
+        )
+        original = _make_control_structure()
+
+        revised, warnings = run_revision(
+            llm_client=MockLLMClient(),
+            control_structure=original,
+            critic_findings=CriticFindings.model_validate(
+                _valid_critic_findings_dict()
+            ),
+            use_case_text="Test",
+            run_dir=tmp_path,
+        )
+
+        assert revised == original
+        assert warnings == ["Revision failed: unexpected None response"]
+
     def test_rev_08_revised_cs_replaces_original(self, tmp_path):
         """SP1-REV-08: revised control structure contains new responsibilities and keeps old ones."""
         client = MockLLMClient()
-        revised_cs_dict = {
-            "responsibilities": [
-                {
-                    "resp_id": "RESP-1",
-                    "description": "Controller 1",
-                    "process_model_parts": [
-                        {"pm_id": "PM-1-1", "description": "State 1"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-1-1", "description": "Action 1"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-1-1",
-                            "description": "FB 1",
-                            "updates": "PM-1-1",
-                            "source": {"type": "responsibility", "id": "RESP-1"},
-                        }
-                    ],
-                },
-                {
-                    "resp_id": "RESP-2",
-                    "description": "Controller 2",
-                    "process_model_parts": [
-                        {"pm_id": "PM-2-1", "description": "State 2"}
-                    ],
-                    "control_actions": [
-                        {"ca_id": "CA-2-1", "description": "Action 2"}
-                    ],
-                    "feedback_channels": [
-                        {
-                            "fb_id": "FB-2-1",
-                            "description": "FB 2",
-                            "updates": "PM-2-1",
-                            "source": {"type": "responsibility", "id": "RESP-2"},
-                        }
-                    ],
-                },
+        revision_delta_dict = {
+            "new_responsibilities": [
                 {
                     "resp_id": "RESP-3",
                     "description": "Added controller",
@@ -548,10 +521,13 @@ class TestRevision:
                             "source": {"type": "responsibility", "id": "RESP-3"},
                         }
                     ],
-                },
+                }
             ],
+            "new_controlled_processes": [],
+            "new_coordination_links": [],
+            "modified_responsibilities": [],
         }
-        client.set_response_for(ControlStructure, revised_cs_dict)
+        client.set_response_for(RevisionDelta, revision_delta_dict)
         findings = CriticFindings.model_validate(_valid_critic_findings_dict())
         revised, _ = run_revision(
             llm_client=client,

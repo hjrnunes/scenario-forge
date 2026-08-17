@@ -1,0 +1,46 @@
+## Pre-populated Defender BDI
+
+The defender BDI has been deterministically extracted from the control structure. The `vulnerability` fields are empty — you must fill them in.
+
+{{ defender_bdi_yaml }}
+
+---
+
+## ICA (Insecure Control Action)
+
+**ICA Text:** {{ ica_text }}
+
+**Hazardous Context:** {{ hazardous_context }}
+
+**Loss Scenario:** {{ loss_scenario }}
+
+---
+
+## Control Structure Context (Target Responsibility: {{ target_resp_id }})
+
+{{ control_structure_yaml }}
+
+---
+
+{% if technology_context %}
+## Technology Context
+
+{{ technology_context }}
+
+---
+
+{% endif %}
+
+## Catalog Context
+
+{{ catalog_context }}
+
+---
+
+## Your Task
+
+1. Fill in the `defender_vulnerabilities` field — one entry per defender belief PM ID, describing what makes each process model part exploitable in the context of this ICA.
+
+2. Generate the `attacker_bdi` — beliefs (what the attacker knows about defender weaknesses), desires (which ICA to induce), and intentions (how to manipulate the control loop, referencing specific PM-*, FB-*, or CA-* elements).
+
+Return the result as a JSON object matching the structure defined in the system prompt.

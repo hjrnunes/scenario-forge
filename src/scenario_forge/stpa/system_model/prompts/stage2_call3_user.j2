@@ -4,39 +4,18 @@
 
 ---
 
-## Responsibilities and Controlled Processes
+## Control Structure
 
-{% for resp in responsibility_set.responsibilities %}
-### {{ resp.resp_id }}
-{{ resp.description }}
-
-Responsibility Constraints:
-{% for rc in resp.responsibility_constraints %}
-- {{ rc.rc_id }}: {{ rc.description }}
-{% endfor %}
-
-Process Model Parts:
-{% for pm in resp.process_model_parts %}
-- {{ pm.pm_id }}: {{ pm.description }}
-  {% if pm.feedback_source %}Feedback source: {{ pm.feedback_source.type }} {{ pm.feedback_source.id }}{% endif %}
-{% endfor %}
-
-Control Actions:
-{% for ca in resp.control_actions %}
-- {{ ca.ca_id }}: {{ ca.description }}
-  {% if ca.target %}Target: {{ ca.target.type }} {{ ca.target.id }}{% endif %}
-{% endfor %}
-
-Feedback Channels:
-{% for fb in resp.feedback_channels %}
-- {{ fb.fb_id }}: {{ fb.description }}
-  Updates: {{ fb.updates }}
-  Source: {{ fb.source.type }} {{ fb.source.id }}
-{% endfor %}
+### Responsibilities
+{% for resp in control_structure.responsibilities %}
+- **{{ resp.resp_id }}**: {{ resp.description }}
+  PM parts: {% for pm in resp.process_model_parts %}{{ pm.pm_id }} ({{ pm.description }}){% if not loop.last %}, {% endif %}{% endfor %}
+  Control actions: {% for ca in resp.control_actions %}{{ ca.ca_id }}{% if ca.target %} → {{ ca.target.type }} {{ ca.target.id }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+  Feedback channels: {% for fb in resp.feedback_channels %}{{ fb.fb_id }} (updates {{ fb.updates }}{% if fb.source %}, source: {{ fb.source.type }} {{ fb.source.id }}{% endif %}){% if not loop.last %}, {% endif %}{% endfor %}
 {% endfor %}
 
 ### Controlled Processes
-{% for cp in responsibility_set.controlled_processes %}
+{% for cp in control_structure.controlled_processes %}
 - {{ cp.cp_id }}: {{ cp.description }}
 {% endfor %}
 
@@ -44,4 +23,5 @@ Feedback Channels:
 
 ## Your Task
 
-Apply Poh's two rules to verify and complete connections. Identify coordination links where responsibilities share PM parts not connected by control actions. Assemble the complete ControlStructure.
+1. Identify coordination links: check whether any two responsibilities share PM parts not connected by a control action. For each, create a coordination link with a coordination mechanism.
+2. Verify connection integrity: check that all FB sources, CA targets, and CP references are valid and that every PM has at least one FB updating it. Report any issues.

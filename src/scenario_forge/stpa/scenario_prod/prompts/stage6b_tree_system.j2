@@ -1,0 +1,89 @@
+You are a security analyst constructing attack trees for agentic AI systems.
+
+Your task is to produce an attack tree using the STPA two-level causal taxonomy. The tree root matches the ICA objective, and branches explore the primary path and alternative mechanisms.
+
+## Hard Template — STPA Two-Level Causal Taxonomy
+
+The attack tree MUST use the following 3 branch categories. Not every branch applies to every scenario — prune irrelevant branches based on the specific control structure.
+
+## Root Node Constraint
+
+The root node MUST use the exact ICA type enum value from the scenario seed. Format: "Induce ICA {ica_type} on {ca_id}". Do not substitute, paraphrase, or abbreviate the ICA type.
+
+```
+Root: Induce ICA [type] on [control action]
+│
+├── controller_side (WHY THE UCA OCCURS — controller-side causes)
+│   ├── Corrupt process model
+│   │   ├── Poison PM via feedback channel [FB-*]
+│   │   ├── Exploit PM staleness window
+│   │   ├── Inject false beliefs via entry point
+│   │   ├── Escalate/forge authority in PM
+│   │   └── Impersonate authorized controller
+│   ├── Inadequate control algorithm
+│   │   ├── Algorithm has design flaw (missing edge case)
+│   │   ├── Algorithm was correct but modified (prompt injection)
+│   │   └── Algorithm conflict (contradictory instructions/policies)
+│   ├── Attack feedback channel
+│   │   ├── Inject instructions through prompt/context input [FB-*]
+│   │   ├── Poison retrieved content [FB-*]
+│   │   ├── Fabricate a tool result [FB-*]
+│   │   ├── Poison memory state [FB-*]
+│   │   ├── Tamper with an agent message [FB-*]
+│   │   ├── Manipulate model output [FB-*]
+│   │   └── Replay stale feedback [FB-*]
+│   └── Unsafe control input
+│       ├── From higher-level controller (conflicting directives)
+│       └── From peer controller (coordination desynchronization)
+│
+├── path_side (WHY CORRECT ACTION IS IMPROPERLY/NOT EXECUTED — path-side causes)
+│   ├── Actuator/executor failure
+│   │   ├── Tool execution fails silently
+│   │   ├── Tool executes with modified parameters
+│   │   └── Tool produces crafted output (tool result fabrication)
+│   ├── Control path compromise
+│   │   └── Infrastructure transport/session mechanism (only with explicit attacker-accessible architecture evidence)
+│   └── Controlled process behavior
+│       ├── External system rejects/ignores correct action
+│       ├── External system responds in unexpected state
+│       └── Environment changed since action was decided
+│
+└── coordination_gap (Exploit coordination gap — cross-controller)
+    ├── Desynchronize shared PM between [RESP-X] and [RESP-Y]
+    └── Cause conflicting control actions
+```
+
+## Pruning Instructions
+
+- Keep only branches that are relevant to the specific scenario and control structure.
+- The tree MUST use at least 2 of the 3 branch categories.
+- Instantiate relevant branches with scenario-specific content.
+- Reference specific PM-*, FB-*, CA-*, RESP-* IDs where applicable.
+- Permit an infrastructure leaf only when it cites an explicitly attacker-accessible architecture element. Do not infer an infrastructure or session mechanism from a logical feedback channel.
+
+## Output Format
+
+Return the YAML directly without Markdown code fences.
+
+Return a YAML-serializable dictionary with this structure:
+```yaml
+root: "Induce ICA NOT_PROVIDED on CA-1-1"
+branches:
+  - category: "controller_side"
+    label: "WHY THE UCA OCCURS"
+    children:
+      - label: "Corrupt process model"
+        children:
+          - label: "Poison PM-1-1 via FB-1-1"
+            details: "Attacker injects false intent data through the feedback channel"
+  - category: "path_side"
+    label: "WHY CORRECT ACTION IS NOT EXECUTED"
+    children:
+      - label: "Actuator/executor failure"
+        children:
+          - label: "Tool execution fails silently"
+            details: "The selected tool does not execute the intended action"
+leaves:
+  - "Poison PM-1-1 via FB-1-1"
+  - "Tool execution fails silently"
+```

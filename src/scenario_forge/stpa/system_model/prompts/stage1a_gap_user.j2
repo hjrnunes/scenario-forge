@@ -1,0 +1,59 @@
+## Use-Case Description
+
+{{ use_case_text }}
+
+---
+
+## Previously Derived Analysis (from organizational risks)
+
+The following losses, hazards, and security constraints have already been derived. Do not duplicate them. You may reference their IDs in new hazards or constraints.
+
+### Losses
+{% for loss in existing_losses %}
+- **{{ loss.loss_id }}** ({{ loss.provenance }}): {{ loss.description }}
+  {% if loss.source_risk_cards %}Source risks: {{ loss.source_risk_cards | join(", ") }}{% endif %}
+{% endfor %}
+
+### Hazards
+{% for hazard in existing_hazards %}
+- **{{ hazard.hazard_id }}**: {{ hazard.description }} (related losses: {{ hazard.related_losses | join(", ") }})
+{% endfor %}
+
+### Security Constraints
+{% for sc in existing_constraints %}
+- **{{ sc.constraint_id }}**: {{ sc.description }} (related hazards: {{ sc.related_hazards | join(", ") }})
+{% endfor %}
+
+---
+
+## Capability Profile Context
+
+The following kc_subcodes have been identified for this system:
+{{ kc_subcodes | join(", ") }}
+
+Use these to systematically check whether every capability has corresponding loss/hazard/constraint coverage.
+
+---
+
+## ID Numbering
+
+Continue from the following IDs:
+- Next loss ID: L-{{ next_loss_num }}
+- Next hazard ID: H-{{ next_hazard_num }}
+- Next security constraint ID: SC-{{ next_sc_num }}
+
+---
+
+## Your Task
+
+Review the use-case description and identify losses, hazards, and security constraints NOT covered by the existing analysis. Systematically check:
+
+1. Every architectural component that processes, stores, or transmits sensitive data
+2. Every integration point and external system interface
+3. Every domain-specific feature and capability
+4. Every stakeholder group's interests
+5. Every attack surface an adversary could target
+
+For each gap, derive the complete chain: loss → hazard → security constraint.
+
+Do not duplicate existing entries. New hazards and constraints may reference existing IDs where appropriate. Focus on adversary-actionable threats.

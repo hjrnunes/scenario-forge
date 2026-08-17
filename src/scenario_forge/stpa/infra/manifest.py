@@ -41,9 +41,21 @@ class STPARunManifest(BaseModel):
         default_factory=list,
         description="Gaps identified by the completeness critic.",
     )
+    revised: bool = Field(
+        default=False,
+        description="Whether SP1 attempted a revision after critic findings.",
+    )
+    post_revision_warnings: list[str] = Field(
+        default_factory=list,
+        description="Warnings produced while applying and validating the revision.",
+    )
+    stage_errors: list[str] = Field(
+        default_factory=list,
+        description="Stage failures that occurred during the run (partial failure).",
+    )
     eval_scorecard_path: str | None = None
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T11:55:23Z","module_hash":"79cf053719f37a04c4994d71a572f083a712db8dd06513272708876283e6a329","functions":[]}
+# {"version":1,"tested_at":"2026-08-08T23:13:34Z","module_hash":"5ed1c01dc526997426ea91bb445bf9eb03cb6c8b33932c099c96beace4df8cf0","functions":[]}
 # mutate4py-manifest-end

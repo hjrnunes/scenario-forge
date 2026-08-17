@@ -8,7 +8,7 @@ Call log entry format (Section 6 of the STPA-Sec foundation spec):
 
     {
       "stage": "stage_2",
-      "step": "call_2_responsibilities",
+      "step": "call_2a_responsibilities",
       "slot_id": null,
       "scenario_id": null,
       "system_prompt_hash": "sha256...",
@@ -26,9 +26,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+_call_log_lock = threading.Lock()
 
 
 def _sha256(text: str) -> str:
@@ -47,9 +50,11 @@ def make_call_log_entry(
     completion_tokens: int = 0,
     duration_ms: int = 0,
     success: bool = True,
+    error: str | None = None,
     slot_id: str | None = None,
     scenario_id: str | None = None,
     timestamp: str | None = None,
+    response_content: str | None = None,
 ) -> dict[str, Any]:
     """Build a call-log entry dict following the STPA format (Section 6).
 
@@ -57,33 +62,43 @@ def make_call_log_entry(
         stage: Pipeline stage (e.g. ``stage_2``, ``stage_6_narrative``).
         step: Sub-step within the stage (e.g. ``call_1_requirements``).
         model: LLM model name.
-        system_prompt: System prompt text (hashed in the entry).
-        user_prompt: User prompt text (hashed in the entry).
+        system_prompt: System prompt text (hashed and stored full in the entry).
+        user_prompt: User prompt text (hashed and stored full in the entry).
         prompt_tokens: Prompt tokens consumed.
         completion_tokens: Completion tokens generated.
         duration_ms: Wall-clock duration in milliseconds.
         success: Whether the call succeeded.
+        error: Optional error message for failed calls.
         slot_id: Stage 3 slot ID (e.g. ``RESP-1:CA-1-1:TYPE-1``), or None.
         scenario_id: Stage 5/6 scenario ID (e.g. ``SCN-001``), or None.
         timestamp: ISO 8601 timestamp; defaults to current UTC time.
+        response_content: Optional full response content (string representation).
 
     Returns:
         A dict suitable for JSONL serialization.
     """
-    return {
+    _timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+    entry: dict[str, Any] = {
         "stage": stage,
         "step": step,
         "slot_id": slot_id,
         "scenario_id": scenario_id,
         "system_prompt_hash": _sha256(system_prompt) if system_prompt else "",
         "user_prompt_hash": _sha256(user_prompt) if user_prompt else "",
+        "system_prompt_text": system_prompt,
+        "user_prompt_text": user_prompt,
         "model": model,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "duration_ms": duration_ms,
-        "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+        "timestamp": _timestamp,
         "success": success,
     }
+    if response_content is not None:
+        entry["response_content"] = response_content
+    if error is not None:
+        entry["error"] = error
+    return entry
 
 
 def append_call_log(entries: list[dict], run_dir: Path) -> None:
@@ -94,13 +109,14 @@ def append_call_log(entries: list[dict], run_dir: Path) -> None:
     """
     if not entries:
         return
-    run_dir.mkdir(parents=True, exist_ok=True)
-    calls_path = run_dir / "calls.jsonl"
-    with calls_path.open("a", encoding="utf-8") as fh:
-        for entry in entries:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with _call_log_lock:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        calls_path = run_dir / "calls.jsonl"
+        with calls_path.open("a", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T11:59:51Z","module_hash":"f8fe2a20a8edd0b7aa9e751e9d276bfdb4b60caec8b772bda6fdca102f97a055","functions":[{"id":"func/_sha256","name":"_sha256","line":34,"end_line":36,"hash":"67d51b4b362a429bf5d02c7d0ff6e4f6338360ab956b700e80bf057a0e9a9443"},{"id":"func/make_call_log_entry","name":"make_call_log_entry","line":39,"end_line":86,"hash":"2a780ade31e7be7da08157f09b16f28c4b1a6a11f76c7288fde6e4c11171e44b"},{"id":"func/append_call_log","name":"append_call_log","line":89,"end_line":101,"hash":"54c483e260f97b6586a87149e0a4913e941946248c8a5f8f16f8a4a3051f7f25"}]}
+# {"version":1,"tested_at":"2026-08-09T17:32:48Z","module_hash":"bdd4259849dc001e9ce50ac9e05f4af149ab09e2c47936e3cc4e6651abb12935","functions":[{"id":"func/_sha256","name":"_sha256","line":37,"end_line":39,"hash":"67d51b4b362a429bf5d02c7d0ff6e4f6338360ab956b700e80bf057a0e9a9443"},{"id":"func/make_call_log_entry","name":"make_call_log_entry","line":42,"end_line":101,"hash":"853111b20a56322817d78971f08c532b5013bf36f41b60205fb169e0d396c09d"},{"id":"func/append_call_log","name":"append_call_log","line":104,"end_line":117,"hash":"5c770898b5ddec662466b41f29ab930af8034546067a37e0d08aa4c36b37bad2"}]}
 # mutate4py-manifest-end

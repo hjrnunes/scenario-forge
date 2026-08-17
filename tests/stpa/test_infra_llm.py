@@ -136,6 +136,22 @@ class TestInfraLLMComplete:
         result = client.complete("system", "user", response_format=dict)
         assert result.content == {"key": "value"}
 
+    def test_complete_allow_unvalidated_uses_raw_content(self):
+        """Unvalidated structured calls return raw JSON for post-processing."""
+        client = self._make_mock_client(content='{"key": "value"}')
+        result = client.complete(
+            "system",
+            "user",
+            response_format=dict,
+            allow_unvalidated=True,
+        )
+        assert result.content == '{"key": "value"}'
+        assert client._client.chat.completions.create.called
+        assert client._client.chat.completions.create.call_args.kwargs[
+            "response_format"
+        ] == {"type": "json_object"}
+        assert not client._client.beta.chat.completions.parse.called
+
     def test_complete_passes_effective_max_tokens(self):
         """Complete passes max_completion_tokens to the API."""
         client = self._make_mock_client()

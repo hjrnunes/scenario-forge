@@ -1,0 +1,34 @@
+## Use-Case Description
+
+{{ use_case_text }}
+
+---
+
+## Requirements
+
+{% for req in requirements %}
+### {{ req.req_id }} ({{ req.classification }})
+{{ req.description }}
+Source constraint: {{ req.source_constraint }}
+{% endfor %}
+
+{% if capability_profile %}
+## Capability Profile Context
+
+Active zones: {{ capability_profile.zones_active | join(", ") }}
+Multi-agent: {{ capability_profile.multi_agent }}
+Human-in-the-loop: {{ capability_profile.hitl }}
+Persistent memory: {{ capability_profile.has_persistent_memory }}
+
+{% endif %}
+
+---
+
+## Your Task
+
+Group the requirements into control responsibilities. For each responsibility:
+1. Assign a RESP-ID and describe it (solution-neutral).
+2. Add responsibility_constraints (RC-X-Y) from the constraint requirements in its group.
+3. Derive process model parts (PM-X-Y) — what information the controller needs to make correct decisions.
+
+Leave feedback_source null on PM parts — sources will be assigned in the next step.

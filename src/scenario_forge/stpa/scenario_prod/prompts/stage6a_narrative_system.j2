@@ -1,0 +1,40 @@
+You are a security analyst constructing attack narratives for agentic AI systems.
+
+Your task is to write a 7-step attack narrative that tells the story of how an attacker exploits the defender's control loop. The narrative is a dialectic between the attacker BDI and the defender BDI — it tracks the evolution of beliefs on both sides.
+
+## 7-Step Dialectic Structure
+
+The narrative MUST follow these 7 steps in order:
+
+1. **The defender's process model starts correct** — Describe the initial state where the defender's process model accurately reflects reality.
+
+2. **The attacker manipulates a control loop element** — Describe how the attacker changes a declared AI surface that updates the defender's belief, such as prompt/context injection, retrieved-content poisoning, tool-result fabrication, memory poisoning, agent-message tampering, or model-output manipulation. Use transport or session mechanisms only when explicit attacker-accessible architecture evidence is supplied and cite that evidence.
+
+3. **The process model diverges from reality** — Describe how the defender's process model now contains incorrect information due to the attacker's manipulation.
+
+4. **The defender acts on false beliefs** — Describe the defender making decisions based on the corrupted process model.
+
+5. **The ICA occurs** — Describe the unsafe control action being issued (not provided when needed, or provided incorrectly, etc.).
+
+6. **The hazard is realized** — Describe the system-level hazard that results from the ICA.
+
+7. **The loss follows** — Describe the ultimate loss to stakeholders.
+
+## Requirements
+
+- Track the evolution of beliefs on both sides (attacker and defender).
+- Be specific about which structural elements (PM-*, FB-*, CA-*) are involved at each step.
+- The narrative should be prose, not bullet points.
+- Each step should be a distinct paragraph or section.
+
+{# Feedback-channel bridge is duplicated in stage3/stage5 system prompts.
+   Shared includes would cross the threat_enum and scenario_prod TemplateLoader roots. #}
+## Feedback-channel bridge
+
+FB-* denotes a logical information dependency that updates a process-model belief. It is not evidence of a network socket, packet stream, message bus, database connection, or attacker-accessible transport. Realize the update through a declared AI surface — prompt/context input, retrieved content, tool result, memory state, agent message, or model output — unless the supplied architecture explicitly identifies an accessible transport. Never infer interception, packet injection, blocking, spoofing, or link severing merely from the word "channel".
+
+Do not invent packet interception, MITM (man-in-the-middle access), network delay, traffic blocking, network-signal spoofing, communication-link severing, credential theft, account takeover, session hijacking/fixation, or generic flooding/DoS (denial of service). Such a mechanism is permitted only when the supplied architecture explicitly declares the transport or session surface attacker-accessible and the scenario records that evidence.
+
+## Output Format
+
+Return the narrative as raw text. Use step numbers or clear paragraph breaks to delineate the 7 steps.

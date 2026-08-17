@@ -1,0 +1,34 @@
+## Use-Case Description
+
+{{ use_case_text }}
+
+---
+
+## Responsibilities (from previous step)
+
+{% for resp in responsibilities %}
+### {{ resp.resp_id }}
+{{ resp.description }}
+
+Responsibility Constraints:
+{% for rc in resp.responsibility_constraints %}
+- {{ rc.rc_id }}: {{ rc.description }}
+{% endfor %}
+
+Process Model Parts:
+{% for pm in resp.process_model_parts %}
+- {{ pm.pm_id }}: {{ pm.description }}
+{% endfor %}
+{% endfor %}
+
+---
+
+## Your Task
+
+For the responsibilities above, derive:
+
+1. **Control actions** for each responsibility — discrete outputs the controller produces. Assign a target (RESP-* or CP-*) for each.
+2. **Feedback channels** for each responsibility — how each PM part stays current. Assign a source (RESP-* or CP-*) for each. **Every PM-X-Y must appear in at least one FB's updates field.**
+3. **Controlled processes** — external entities referenced by CA targets or FB sources that are not responsibilities.
+
+Verify before returning: every PM-X-Y listed above has at least one corresponding FB.

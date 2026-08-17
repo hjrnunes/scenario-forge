@@ -15,6 +15,8 @@ from scenario_forge.stpa.infra.yaml_io import read_yaml
 from scenario_forge.stpa.models.control_structure import ControlStructure
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
 from scenario_forge.stpa.system_model.control_structure import (
+    ControlElementSet,
+    CoordinationAnalysis,
     RequirementSet,
     ResponsibilitySet,
     derive_control_structure,
@@ -22,7 +24,11 @@ from scenario_forge.stpa.system_model.control_structure import (
 from scenario_forge.stpa.system_model.critic import CriticFindings, run_completeness_critic
 from scenario_forge.stpa.system_model.heuristics import run_heuristics
 from scenario_forge.models.capability_profile import Stage1Profile
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import (
+    MockLLMClient,
+    valid_empty_coordination_analysis_dict,
+    valid_stage1_profile_dict,
+)
 
 FIXTURES_DIR = (
     Path(__file__).resolve().parent.parent.parent
@@ -53,22 +59,30 @@ def _valid_resp_set_dict() -> dict:
                 "resp_id": "RESP-1",
                 "description": "Authorization controller",
                 "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"}
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"},
+                    {"rc_id": "RC-1-2", "description": "Must protect data"},
+                    {"rc_id": "RC-1-3", "description": "Must audit actions"},
                 ],
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
                 ],
-                "control_actions": [
-                    {"ca_id": "CA-1-1", "description": "Execute action"}
-                ],
-                "feedback_channels": [
-                    {
-                        "fb_id": "FB-1-1",
-                        "description": "Action result",
-                        "updates": "PM-1-1",
-                        "source": {"type": "responsibility", "id": "RESP-1"},
-                    }
-                ],
+            }
+        ],
+    }
+
+
+def _valid_control_element_set_dict() -> dict:
+    """ControlElementSet matching _valid_resp_set_dict (RESP-1)."""
+    return {
+        "control_actions": [
+            {"ca_id": "CA-1-1", "description": "Execute action"}
+        ],
+        "feedback_channels": [
+            {
+                "fb_id": "FB-1-1",
+                "description": "Action result",
+                "updates": "PM-1-1",
+                "source": {"type": "responsibility", "id": "RESP-1"},
             }
         ],
         "controlled_processes": [],
@@ -83,9 +97,9 @@ def _valid_cs_dict() -> dict:
                 "resp_id": "RESP-1",
                 "description": "Authorization controller",
                 "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"},
-                    {"rc_id": "SC-2", "description": "Must protect data"},
-                    {"rc_id": "SC-3", "description": "Must audit actions"},
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"},
+                    {"rc_id": "RC-1-2", "description": "Must protect data"},
+                    {"rc_id": "RC-1-3", "description": "Must audit actions"},
                 ],
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
@@ -124,20 +138,6 @@ def _valid_critic_findings_dict() -> dict:
     }
 
 
-def _valid_stage1_profile_dict() -> dict:
-    return {
-        "has_persistent_memory": False,
-        "multi_agent": False,
-        "hitl": False,
-        "entry_points": [
-            {"name": "User chat", "direction": "input", "controllability": "direct"},
-        ],
-        "confidence": "medium",
-        "kc_subcodes": ["KC1.1", "KC5.1", "KC6.1.1"],
-        "tool_inventory": [{"name": "tool1", "description": "A tool"}],
-    }
-
-
 class TestSP1FixtureIntegration:
     """SP1-FIX-01 and SP1-FIX-02: fixture integration with the SP1 pipeline."""
 
@@ -150,15 +150,23 @@ class TestSP1FixtureIntegration:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_req_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_resp_set_dict())
-        client.set_response_for(ControlStructure, _valid_cs_dict())
+        client.set_response_for(ControlElementSet, _valid_control_element_set_dict())
+        client.set_response_for(
+            CoordinationAnalysis, valid_empty_coordination_analysis_dict()
+        )
 
-        control_structure = derive_control_structure(
+        control_structure, _ = derive_control_structure(
             llm_client=client,
             use_case_text="Klarna payment agent use case",
             loss_analysis=loss_analysis,
             run_dir=tmp_path,
         )
         assert isinstance(control_structure, ControlStructure)
+
+        # Set security_constraint_refs so hazard tracing can link
+        # SC-N IDs from the loss analysis to RESP-1.
+        sc_ids = [sc.constraint_id for sc in loss_analysis.security_constraints]
+        control_structure.responsibilities[0].security_constraint_refs = sc_ids
 
         # Verify the control structure passes structural heuristics
         # when checked with the loss analysis
@@ -176,7 +184,7 @@ class TestSP1FixtureIntegration:
         client = MockLLMClient()
         client.set_response_for(CriticFindings, _valid_critic_findings_dict())
 
-        profile = Stage1Profile(**_valid_stage1_profile_dict()).to_capability_profile()
+        profile = Stage1Profile(**valid_stage1_profile_dict()).to_capability_profile()
 
         findings = run_completeness_critic(
             llm_client=client,

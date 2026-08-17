@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from scenario_forge.stpa.models.enriched_threat_set import CatalogMapping
 from scenario_forge.stpa.models.ica_enumeration import UCAType
-from scenario_forge.stpa.models.scenario_envelope import ScenarioEnvelope
+from scenario_forge.stpa.models.scenario_envelope import GherkinSpec, ScenarioEnvelope
 from scenario_forge.stpa.models.scenario_spec import (
     AttackerBDI,
     DefenderBDI,
@@ -61,7 +61,14 @@ def _make_envelope(
         scenario_spec=spec or _make_scenario_spec(scenario_id),
         narrative="Narrative text",
         attack_tree={"root": {"children": []}},
-        gherkin_spec="Given ... When ... Then ...",
+        gherkin_spec=GherkinSpec(
+            feature="Test",
+            scenario="Test",
+            given=["Given ..."],
+            when=["When ..."],
+            then_expected=["Then should ..."],
+            then_actual=["But ..."],
+        ),
         target_responsibility=target_responsibility,
         ica_type=ica_type,
         catalog_mappings=catalog_mappings or [],

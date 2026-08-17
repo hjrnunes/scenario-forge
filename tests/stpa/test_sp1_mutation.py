@@ -16,9 +16,26 @@ from scenario_forge.models.capability_profile import (
 )
 from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.yaml_io import write_yaml
-from scenario_forge.stpa.models.control_structure import ControlStructure
-from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.models.control_structure import (
+    ControlAction,
+    ControlStructure,
+    ElementRef,
+    FeedbackChannel,
+    ProcessModelPart,
+    ReferenceType,
+    Responsibility,
+)
+from scenario_forge.stpa.models.loss_analysis import (
+    Hazard,
+    Loss,
+    LossAnalysis,
+    LossAnalysisDraft,
+    LossProvenance,
+    SecurityConstraint,
+)
 from scenario_forge.stpa.system_model.control_structure import (
+    ControlElementSet,
+    CoordinationAnalysis,
     RequirementSet,
     ResponsibilitySet,
 )
@@ -30,7 +47,11 @@ from scenario_forge.stpa.system_model.critic import (
     has_unjustified_gaps,
 )
 from scenario_forge.stpa.system_model.run import SP1RunResult, run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import (
+    MockLLMClient,
+    valid_control_element_set_dict,
+    valid_empty_coordination_analysis_dict,
+)
 
 
 def _profile(
@@ -285,6 +306,7 @@ def _make_risk_cards() -> list[RiskCard]:
 
 
 def _valid_loss_analysis_dict() -> dict:
+    """Risk draft for the risk_derivation call."""
     return {
         "risk_card_losses": [
             {
@@ -294,6 +316,28 @@ def _valid_loss_analysis_dict() -> dict:
                 "source_risk_cards": ["atlas-001"],
             }
         ],
+        "use_case_losses": [],
+        "hazards": [
+            {
+                "hazard_id": "H-1",
+                "description": "Agent executes unintended action",
+                "related_losses": ["L-1"],
+            }
+        ],
+        "security_constraints": [
+            {
+                "constraint_id": "SC-1",
+                "description": "Must confirm before action",
+                "related_hazards": ["H-1"],
+            }
+        ],
+    }
+
+
+def _valid_gap_draft_dict() -> dict:
+    """Gap draft for the gap_analysis call."""
+    return {
+        "risk_card_losses": [],
         "use_case_losses": [
             {
                 "loss_id": "L-2",
@@ -304,16 +348,16 @@ def _valid_loss_analysis_dict() -> dict:
         ],
         "hazards": [
             {
-                "hazard_id": "H-1",
-                "description": "Agent executes unintended action",
-                "related_losses": ["L-1", "L-2"],
+                "hazard_id": "H-2",
+                "description": "Agent erodes user trust",
+                "related_losses": ["L-2"],
             }
         ],
         "security_constraints": [
             {
-                "constraint_id": "SC-1",
-                "description": "Must confirm before action",
-                "related_hazards": ["H-1"],
+                "constraint_id": "SC-2",
+                "description": "Must maintain transparency",
+                "related_hazards": ["H-2"],
             }
         ],
     }
@@ -353,7 +397,25 @@ def _valid_responsibility_set_dict() -> dict:
                 "resp_id": "RESP-1",
                 "description": "Authorization controller",
                 "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"}
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"}
+                ],
+                "process_model_parts": [
+                    {"pm_id": "PM-1-1", "description": "User intent state"}
+                ],
+            }
+        ],
+    }
+
+
+def _valid_control_structure_dict() -> dict:
+    """ControlStructure dict for revision mock (RESP-1 with CAs/FBs assembled)."""
+    return {
+        "responsibilities": [
+            {
+                "resp_id": "RESP-1",
+                "description": "Authorization controller",
+                "responsibility_constraints": [
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"}
                 ],
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
@@ -371,14 +433,6 @@ def _valid_responsibility_set_dict() -> dict:
                 ],
             }
         ],
-        "controlled_processes": [],
-    }
-
-
-def _valid_control_structure_dict() -> dict:
-    rs = _valid_responsibility_set_dict()
-    return {
-        "responsibilities": rs["responsibilities"],
         "controlled_processes": [],
         "coordination_links": [],
     }
@@ -427,21 +481,30 @@ def _make_mock_client(
 
     if revised_cs is not None:
         # Queue all responses in call order for the revision path
+        # New ordering: 1b → 1a-1 (risk) → 1a-2 (gap) → Stage 2 → critic → revision
         client.set_response_queue([
-            _valid_loss_analysis_dict(),       # Stage 1a
-            _valid_stage1_profile_dict(),       # Stage 1b
-            _valid_requirement_set_dict(),      # Stage 2 Call 1
-            _valid_responsibility_set_dict(),   # Stage 2 Call 2
-            _valid_control_structure_dict(),    # Stage 2 Call 3
-            findings,                           # Critic
-            revised_cs,                         # Revision
+            _valid_stage1_profile_dict(),               # Stage 1b
+            _valid_loss_analysis_dict(),                # Stage 1a risk_derivation
+            _valid_gap_draft_dict(),                    # Stage 1a gap_analysis
+            _valid_requirement_set_dict(),              # Stage 2 Call 1
+            _valid_responsibility_set_dict(),           # Stage 2 Call 2a
+            valid_control_element_set_dict(),           # Stage 2 Call 2b
+            valid_empty_coordination_analysis_dict(),   # Stage 2 Call 3
+            findings,                                   # Critic
+            revised_cs,                                 # Revision
         ])
     else:
-        client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
+        client.set_response_for(
+            LossAnalysisDraft,
+            [_valid_loss_analysis_dict(), _valid_gap_draft_dict()],
+        )
         client.set_response_for(_S1P, _valid_stage1_profile_dict())
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ControlElementSet, valid_control_element_set_dict())
+        client.set_response_for(
+            CoordinationAnalysis, valid_empty_coordination_analysis_dict()
+        )
         client.set_response_for(CriticFindings, findings)
 
     return client
@@ -472,12 +535,47 @@ class TestSP1RunResultDefault:
         result = SP1RunResult(
             loss_analysis=LossAnalysis(
                 risk_card_losses=[],
-                use_case_losses=[],
-                hazards=[],
-                security_constraints=[],
+                use_case_losses=[
+                    Loss(
+                        loss_id="L-1",
+                        description="A loss",
+                        provenance=LossProvenance.use_case,
+                    )
+                ],
+                hazards=[
+                    Hazard(hazard_id="H-1", description="A hazard", related_losses=["L-1"]),
+                ],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1", description="A constraint", related_hazards=["H-1"]
+                    ),
+                ],
             ),
             capability_profile=_make_profile(),
-            control_structure=ControlStructure(responsibilities=[]),
+            control_structure=ControlStructure(
+                responsibilities=[
+                    Responsibility(
+                        resp_id="RESP-1",
+                        description="Controller",
+                        process_model_parts=[
+                            ProcessModelPart(pm_id="PM-1-1", description="State")
+                        ],
+                        control_actions=[
+                            ControlAction(ca_id="CA-1-1", description="Action")
+                        ],
+                        feedback_channels=[
+                            FeedbackChannel(
+                                fb_id="FB-1-1",
+                                description="FB",
+                                updates="PM-1-1",
+                                source=ElementRef(
+                                    type=ReferenceType.responsibility, id="RESP-1"
+                                ),
+                            )
+                        ],
+                    )
+                ]
+            ),
         )
         assert result.revised is False
 
@@ -568,10 +666,10 @@ class TestRunSp1Mutation:
         manifest = yaml.safe_load((tmp_path / "run-manifest.yaml").read_text())
         assert manifest["stage_summary"]["stage_1b"]["call_count"] == 1
 
-    def test_manifest_stage_1a_call_count_one(self, tmp_path):
-        """Manifest stage_1a.call_count is 1.
+    def test_manifest_stage_1a_call_count_two(self, tmp_path):
+        """Manifest stage_1a.call_count is 2 (risk_derivation + gap_analysis).
 
-        Covers the constant 1 in stage_summary and kills the 1→0 mutant.
+        Covers the constant 2 in stage_summary and kills the 2→0/1 mutants.
         """
         client = _make_mock_client()
         run_sp1(
@@ -581,4 +679,4 @@ class TestRunSp1Mutation:
             run_dir=tmp_path,
         )
         manifest = yaml.safe_load((tmp_path / "run-manifest.yaml").read_text())
-        assert manifest["stage_summary"]["stage_1a"]["call_count"] == 1
+        assert manifest["stage_summary"]["stage_1a"]["call_count"] == 2

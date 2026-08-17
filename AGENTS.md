@@ -126,6 +126,8 @@ bd prime                # Refresh Beads context
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
 
+
+
 <!-- BEGIN swarmforge: startup-tools -->
 ## Startup tools (procure from source)
 
@@ -145,8 +147,19 @@ bd prime                # Refresh Beads context
 - Use github.com/unclebob/Acceptance-Pipeline-Specification for Gherkin acceptance tests.
 - The Acceptance Pipeline Specification supplies `gherkin-parser`, `gherkin-ir-dry-checker`, and `gherkin-mutator`; install or build those commands from that repository instead of reimplementing them in the project.
 - Prefer the Babashka APS tools (`bb gherkin-parser`, `bb gherkin-ir-dry-checker`, `bb gherkin-mutator`). Use Go-based APS tools only if the Babashka APS tools do not work in the current project environment.
-- Project-specific acceptance pipeline components are the acceptance entrypoint generator, acceptance runtime, project step handlers, runner adapter, and convenience scripts.
-- Gherkin acceptance mutation means running `gherkin-mutator` to mutate Gherkin example values. Gherkin acceptance mutation runs must report periodic progress/status so agents can distinguish normal long-running work from a hang.
+- Acceptance-pipeline paths are configured in `.factory/swarmforge/config.sh` with explicit defaults:
+  - `SWARMFORGE_FEATURES_DIR` (default `features`) — Gherkin `.feature` source files.
+  - `SWARMFORGE_ACCEPTANCE_IR_DIR` (default `build/acceptance/ir`) — `gherkin-parser` IR output.
+  - `SWARMFORGE_ACCEPTANCE_DRY_DIR` (default `build/acceptance/dry`) — `gherkin-ir-dry-checker` reports.
+  - `SWARMFORGE_ACCEPTANCE_GENERATED_DIR` (default `build/acceptance/generated`) — entrypoint generator output.
+  - `SWARMFORGE_ACCEPTANCE_MUTATION_DIR` (default `build/acceptance-mutation`) — mutation workspace (ephemeral, always gitignored).
+  - `SWARMFORGE_GENERATION_CMD` — the generation command (set by the scaffolder, e.g., `./scripts/acceptance.sh`).
+  - `SWARMFORGE_FILE_POLICY` (default `generated-output`) — `committed-snapshot` or `generated-output`.
+- All roles, scripts, and hooks consume these configured paths. Do not hardcode `acceptance/ir/`, `acceptance/generated/`, or `tests/stpa/features/`.
+- The `scaffolder` droid builds the entrypoint generator, runtime, step-handler conventions, runner adapter, and generation command at bootstrap. The `coder` adds step handlers for each feature against the existing pipeline. If no `scaffolder` is installed, the orchestrator builds the pipeline inline before the first code phase.
+- The generation command parses features, runs DRY checks, generates tests, cleans stale output, and runs the generated tests. It accepts a `--test` flag to run only the tests without regenerating.
+- **Generated-file policy**: in `generated-output` mode (default), IR/dry/generated artifacts are gitignored and regenerated from source. In `committed-snapshot` mode, those artifacts are committed to git. The mutation workspace is always ephemeral and gitignored. Generated metadata must use relative paths (no absolute paths) for portability across checkout locations.
+- Gherkin acceptance mutation means running `gherkin-mutator` to mutate Gherkin example values. Mutation runs write to the mutation workspace (`SWARMFORGE_ACCEPTANCE_MUTATION_DIR`), not to committed feature files. Gherkin acceptance mutation runs must report periodic progress/status so agents can distinguish normal long-running work from a hang.
 - Run acceptance generation and acceptance tests sequentially. Avoid running whole-suite language test commands concurrently with acceptance generation.
 - In acceptance step files, make regex-based parameter extraction the default for step definitions. Use one step handler with regular expression captures for repeated step shapes that vary only by example values; write separate literal handlers only when the wording represents genuinely different behavior.
 - Keep generated acceptance tests separate from unit tests.
@@ -174,7 +187,7 @@ These Droid skills are optional aids where they add value. They do not replace t
 <!-- BEGIN swarmforge: handoff-protocol -->
 ## Handoff protocol
 
-Inter-role messages are durable files on disk under `.swarmforge/handoffs/<role>/`. The handoff files are the source of truth; the orchestrator is just the sequencer.
+Inter-role messages are durable files on disk under the configured runtime root (default `.swarmforge/handoffs/<role>/`; set `SWARMFORGE_RUNTIME_ROOT` in `.factory/swarmforge/config.sh` to change, e.g. to `.swarmforge-droid` for coexistence with original SwarmForge). The handoff files are the source of truth; the orchestrator is just the sequencer.
 
 - Send a handoff: write a draft with only structured headers, then run
   `SWARMFORGE_ROLE=<role> .factory/swarmforge/scripts/swarm_handoff.sh <role> ./tmp/handoff.txt`.
@@ -189,7 +202,9 @@ Inter-role messages are durable files on disk under `.swarmforge/handoffs/<role>
   priority: NN
   task: <short-stable-task-name>
   commit: <10-character-commit-abbrev>
+  bead: <bead-id>            # optional; set by the orchestrator when Beads is active
   ```
+- Preserve the `bead:` header when forwarding a handoff that carries one (same preserve-when-forwarding rule as `task:`). Handoffs without a `bead:` header work exactly as before.
 - `note` draft:
   ```
   type: note
@@ -201,8 +216,34 @@ Inter-role messages are durable files on disk under `.swarmforge/handoffs/<role>
 - When your role sends the end-of-chain handoff to multiple recipients (QA completion broadcast, `priority: 00`), those recipients merge only (`merge_and_process`). They do not forward that handoff further.
 - Preserve the received task name when forwarding work for the same task. If the handoff starts new work, invent a short stable task name.
 - Do not write long handoff bodies; the helper generates the delivered payload.
-- Do not hand-edit, merge, stage, or commit `.swarmforge/` runtime state.
+- Do not hand-edit, merge, stage, or commit the runtime root (default `.swarmforge/`) runtime state.
 <!-- END swarmforge: handoff-protocol -->
+<!-- BEGIN swarmforge: task-tracking -->
+## Task tracking (optional: Beads)
+
+If this project uses Beads (`bd`), the SwarmForge orchestrator uses it as the
+work source. Beads and handoffs are different layers: beads track project-level
+work items; handoffs track inter-role messages within one work item's execution.
+
+### Quick reference
+bd ready                # Find available work
+bd show <id>            # View issue details
+bd update <id> --claim  # Claim work atomically
+bd close <id>           # Complete work
+bd prime                # Refresh Beads context
+
+### Rules
+- The orchestrator owns all Beads mutations (claim, close, create follow-ups).
+  Role droids never run `bd` commands.
+- The orchestrator closes a bead only after QA verification (SubagentStop hooks
+  pass), not on a role droid's self-report.
+- External agents may file beads with `bd create`; the orchestrator picks them
+  up on the next pass via `bd ready`.
+- Role droids suggest follow-ups in their final report; the orchestrator decides
+  whether to create beads for them.
+- If no beads are ready and no pipeline is in flight, the project is quiescent —
+  do not manufacture work.
+<!-- END swarmforge: task-tracking -->
 <!-- BEGIN swarmforge: commit-byline -->
 ## Commit byline
 
@@ -255,13 +296,13 @@ config.sh placeholders to fill:
 - `drywall` also analyzes Rust, JS, and TS source.
 
 config.sh placeholders to fill:
-  SWARMFORGE_TEST_CMD="pytest"
-  SWARMFORGE_ACCEPTANCE_CMD="REPLACE_ME"
-  SWARMFORGE_COVERAGE_CMD="pytest --cov --cov-branch --cov-report=lcov:lcov.info"
+  SWARMFORGE_TEST_CMD="uv run pytest tests/ -x"
+  SWARMFORGE_ACCEPTANCE_CMD="uv run python acceptance/refresh_snapshot.py --run"
+  SWARMFORGE_COVERAGE_CMD="uv run pytest tests/ --cov=src --cov-branch --cov-report=lcov:lcov.info"
   SWARMFORGE_CRAP_CMD="crap4py src/ --lcov lcov.info --max-crap 6"
   SWARMFORGE_DRY_CMD="drywall --threshold 0.82 ./src"
-  SWARMFORGE_MUTATION_CMD="mutate4py src/ --test-command 'pytest' --lcov lcov.info --max-workers 8"
-  SWARMFORGE_QA_CMD="REPLACE_ME"
+  SWARMFORGE_MUTATION_CMD="mutate4py src/ --test-command 'uv run pytest tests/ -x' --lcov lcov.info --max-workers 8"
+  SWARMFORGE_QA_CMD=""
 <!-- END swarmforge: language-python -->
 <!-- BEGIN swarmforge: language-go -->
 <!-- LANGUAGE: Go

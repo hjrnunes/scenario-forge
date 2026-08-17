@@ -1,0 +1,31 @@
+## Scenario Specification
+
+{{ scenario_spec_yaml }}
+
+---
+
+## Security Constraint
+
+{{ security_constraint }}
+
+---
+
+## ICA
+
+**ICA Type:** {{ ica_type }}
+**Control Action:** {{ control_action }}
+**ICA Text:** {{ ica_text }}
+
+---
+
+## Your Task
+
+Produce a Gherkin behavior specification using the should/but structure defined in the system prompt.
+
+1. The "Given" steps must reference process model states (PM-* IDs or descriptions).
+2. The "should" clause must reflect the security constraint.
+3. The "But" clause must reference the ICA type and control action.
+4. Include a loss reference in the consequences using only the following valid Loss IDs: {{ valid_loss_ids }}.
+   Use only L-* loss IDs. Do not use H-* hazard IDs.
+
+Return a YAML object with fields: feature, scenario, given (list), when (list), then_expected (list), then_actual (list).
