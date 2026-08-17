@@ -12,7 +12,7 @@ from pathlib import Path
 
 from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.llm import LLMClient
-from scenario_forge.stpa.infra.llm_helpers import log_llm_call, parse_llm_result
+from scenario_forge.stpa.infra.llm_helpers import StageError, safe_llm_call
 from scenario_forge.stpa.infra.templates import TemplateLoader
 from scenario_forge.stpa.infra.yaml_io import write_yaml
 from scenario_forge.stpa.models.loss_analysis import LossAnalysis
@@ -50,7 +50,7 @@ def derive_loss_analysis(
         Validated LossAnalysis model.
 
     Raises:
-        ValidationError: If the LLM response does not produce a valid LossAnalysis.
+        StageError: If the LLM call fails or the response fails validation.
     """
     loader = template_loader or TemplateLoader(PROMPTS_DIR)
 
@@ -61,19 +61,23 @@ def derive_loss_analysis(
         risk_cards=risk_cards,
     )
 
-    result = llm_client.complete(
+    loss_analysis, _, error_msg = safe_llm_call(
+        llm_client=llm_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         response_format=LossAnalysis,
+        run_dir=run_dir,
+        stage=STAGE,
+        step=STEP,
         temperature=temperature,
     )
+    if error_msg is not None:
+        raise StageError(stage=STAGE, step=STEP, message=error_msg)
 
-    loss_analysis = parse_llm_result(result, LossAnalysis)
-    log_llm_call(result, llm_client.model, run_dir, STAGE, STEP)
     write_yaml(loss_analysis, run_dir / "loss-analysis.yaml")
     return loss_analysis
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T14:39:00Z","module_hash":"dbb5316a49239d95bc3658b532a9a04fa08722c06b7ff008c94d9a2927d94d50","functions":[{"id":"func/derive_loss_analysis","name":"derive_loss_analysis","line":26,"end_line":74,"hash":"417e25404ba6bfb698e25d39d6422f7358decaa67f39ea786d066e3b40e9186e"}]}
+# {"version":1,"tested_at":"2026-08-09T13:27:21Z","module_hash":"6fbc1bb66686e3d234e6793037cfe366e7474d06e8e8bb49eaa4787708df5ca6","functions":[{"id":"func/derive_loss_analysis","name":"derive_loss_analysis","line":26,"end_line":78,"hash":"d4cb1ff4ffaa970b84b08020c7af05605109aadb8080ed9e8c06cd0036acae9d"}]}
 # mutate4py-manifest-end

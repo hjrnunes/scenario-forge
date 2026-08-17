@@ -1,0 +1,282 @@
+{
+  "name" : "SP2 Stage 4 — Catalog enrichment and coverage analysis",
+  "scenarios" : [ {
+    "name" : "SP2-CAT-01 ICA with prompt injection keywords maps to ATLAS and OWASP",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA with ica_text containing prompt injection and loss_scenario containing attacker manipulates"
+    }, {
+      "keyword" : "When",
+      "text" : "catalog matching is performed"
+    }, {
+      "keyword" : "Then",
+      "text" : "at least one mapping has catalog ATLAS"
+    }, {
+      "keyword" : "And",
+      "text" : "at least one mapping has catalog OWASP_AGENTIC"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-02 ICA with no matching keywords is unmapped",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA with ica_text containing routine status check and loss_scenario containing no attack vector"
+    }, {
+      "keyword" : "When",
+      "text" : "catalog matching is performed"
+    }, {
+      "keyword" : "Then",
+      "text" : "no catalog mappings are returned"
+    }, {
+      "keyword" : "And",
+      "text" : "the ICA is labeled unmapped"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-03 confidence level depends on keyword match count",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA with ica_text containing <keyword_1> and <keyword_2>",
+      "parameters" : [ "keyword_1", "keyword_2" ]
+    }, {
+      "keyword" : "When",
+      "text" : "catalog matching is performed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the mapping confidence is <confidence>",
+      "parameters" : [ "confidence" ]
+    } ],
+    "examples" : [ {
+      "keyword_1" : "prompt injection",
+      "keyword_2" : "instruction override",
+      "confidence" : "high"
+    }, {
+      "keyword_1" : "prompt injection",
+      "keyword_2" : "routine operation",
+      "confidence" : "low"
+    } ]
+  }, {
+    "name" : "SP2-CAT-04 N/A reconciliation flags contradiction when catalog matches N/A slot",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an N/A slot with na_justification no hazard applicable"
+    }, {
+      "keyword" : "And",
+      "text" : "the control action description contains prompt injection"
+    }, {
+      "keyword" : "When",
+      "text" : "N/A reconciliation is performed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a contradiction flag is raised for the slot"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-05 N/A reconciliation passes when no catalog match for N/A slot",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an N/A slot with na_justification action is atomic and stateless"
+    }, {
+      "keyword" : "And",
+      "text" : "the control action description contains routine validation"
+    }, {
+      "keyword" : "When",
+      "text" : "N/A reconciliation is performed"
+    }, {
+      "keyword" : "Then",
+      "text" : "no contradiction flag is raised for the slot"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-06 coverage analysis produces three-way partition",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration with 10 total slots, 7 non-N/A and 3 N/A"
+    }, {
+      "keyword" : "And",
+      "text" : "4 non-N/A ICAs have catalog mappings and 3 do not"
+    }, {
+      "keyword" : "When",
+      "text" : "coverage analysis is computed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the structural coverage total_slots is 10"
+    }, {
+      "keyword" : "And",
+      "text" : "the structural coverage non_na is 7"
+    }, {
+      "keyword" : "And",
+      "text" : "the structural coverage na is 3"
+    }, {
+      "keyword" : "And",
+      "text" : "the catalog correspondence structural_with_match is 4"
+    }, {
+      "keyword" : "And",
+      "text" : "the catalog correspondence structural_unmapped is 3"
+    }, {
+      "keyword" : "And",
+      "text" : "the catalog correspondence catalog_only_supplements is 0"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-07 coverage analysis partitions by ICA type",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration with 4 NOT_PROVIDED ICAs, 3 INCORRECT ICAs, 1 WRONG_TIMING ICA, and 0 WRONG_DURATION ICAs"
+    }, {
+      "keyword" : "When",
+      "text" : "coverage analysis is computed"
+    }, {
+      "keyword" : "Then",
+      "text" : "by_ica_type has NOT_PROVIDED 4"
+    }, {
+      "keyword" : "And",
+      "text" : "by_ica_type has INCORRECT 3"
+    }, {
+      "keyword" : "And",
+      "text" : "by_ica_type has WRONG_TIMING 1"
+    }, {
+      "keyword" : "And",
+      "text" : "by_ica_type has WRONG_DURATION 0"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-08 coverage analysis partitions by controller",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration with 5 ICAs from RESP-1, 3 ICAs from RESP-2, and 2 ICAs from CL-1"
+    }, {
+      "keyword" : "When",
+      "text" : "coverage analysis is computed"
+    }, {
+      "keyword" : "Then",
+      "text" : "by_controller has RESP-1 5"
+    }, {
+      "keyword" : "And",
+      "text" : "by_controller has RESP-2 3"
+    }, {
+      "keyword" : "And",
+      "text" : "by_controller has CL-1 2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-09 structural consideration metric counts considered slots",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration with 10 total slots where 7 have ICAs and 3 are N/A with justification"
+    }, {
+      "keyword" : "When",
+      "text" : "coverage analysis is computed"
+    }, {
+      "keyword" : "Then",
+      "text" : "structural_consideration total_slots is 10"
+    }, {
+      "keyword" : "And",
+      "text" : "structural_consideration considered is 10"
+    }, {
+      "keyword" : "And",
+      "text" : "structural_consideration rate is 1.0"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-10 N/A quality metric counts structural keyword citations",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration with 4 N/A slots where 3 have structural keywords in na_justification"
+    }, {
+      "keyword" : "When",
+      "text" : "coverage analysis is computed"
+    }, {
+      "keyword" : "Then",
+      "text" : "na_quality na_count is 4"
+    }, {
+      "keyword" : "And",
+      "text" : "na_quality quality_count is 3"
+    }, {
+      "keyword" : "And",
+      "text" : "na_quality quality_rate is 0.75"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-11 uncovered OWASP threats are listed",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration where no ICA matches OWASP threat T10 or T15"
+    }, {
+      "keyword" : "When",
+      "text" : "coverage analysis is computed"
+    }, {
+      "keyword" : "Then",
+      "text" : "uncovered_owasp_threats includes T10"
+    }, {
+      "keyword" : "And",
+      "text" : "uncovered_owasp_threats includes T15"
+    }, {
+      "keyword" : "And",
+      "text" : "uncovered_reason is not empty"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-12 catalog enrichment makes no LLM calls",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration with 5 non-N/A ICAs and 2 N/A slots"
+    }, {
+      "keyword" : "When",
+      "text" : "catalog enrichment is performed"
+    }, {
+      "keyword" : "Then",
+      "text" : "no LLM calls are made"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-13 structural threats carry provenance structural",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration with 3 non-N/A ICAs"
+    }, {
+      "keyword" : "When",
+      "text" : "enriched threat set is built from the ICA enumeration"
+    }, {
+      "keyword" : "Then",
+      "text" : "every structural threat has provenance structural"
+    }, {
+      "keyword" : "And",
+      "text" : "the number of structural threats equals the number of non-N/A ICAs"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-14 N/A reconciliation flags are recorded in coverage analysis",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration with 1 N/A slot that has a catalog contradiction"
+    }, {
+      "keyword" : "When",
+      "text" : "catalog enrichment and coverage analysis are computed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the coverage analysis na_reconciliation_flags has 1 entry"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-CAT-15 enriched threat set validates against the EnrichedThreatSet schema",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an ICA enumeration with 2 non-N/A ICAs and 1 N/A slot"
+    }, {
+      "keyword" : "When",
+      "text" : "enriched threat set is built from the ICA enumeration"
+    }, {
+      "keyword" : "Then",
+      "text" : "the enriched threat set validates successfully"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the SP2 catalog enrichment module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "the SP2 coverage module is importable"
+  } ]
+}

@@ -1,0 +1,245 @@
+{
+  "name" : "SP3 Stage 6 Call B — Attack tree",
+  "scenarios" : [ {
+    "name" : "SP3-TREE-01 one LLM call produces a YAML-serializable attack tree",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a YAML attack tree with root, branches, and leaves"
+    }, {
+      "keyword" : "When",
+      "text" : "the attack tree LLM call is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "exactly 1 LLM call is made"
+    }, {
+      "keyword" : "And",
+      "text" : "the call is labeled with stage stage_6"
+    }, {
+      "keyword" : "And",
+      "text" : "the call step is attack_tree"
+    }, {
+      "keyword" : "And",
+      "text" : "the result is a dict with root, branches, and leaves keys"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-02 tree root matches the ICA objective",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ScenarioSpec with ica_type NOT_PROVIDED and target_control_action CA-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the attack tree LLM call is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the tree root references the ICA type NOT_PROVIDED"
+    }, {
+      "keyword" : "And",
+      "text" : "the tree root references the control action CA-1-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-03 hard template defines 3 branch categories",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "the attack tree LLM call is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system prompt contains the branch category controller_side"
+    }, {
+      "keyword" : "And",
+      "text" : "the system prompt contains the branch category path_side"
+    }, {
+      "keyword" : "And",
+      "text" : "the system prompt contains the branch category coordination_gap"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-04 hard template includes sub-branches under each category",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "the attack tree LLM call is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system prompt contains the sub-branch <sub_branch> under <category>",
+      "parameters" : [ "sub_branch", "category" ]
+    } ],
+    "examples" : [ {
+      "category" : "controller_side",
+      "sub_branch" : "Corrupt process model"
+    }, {
+      "category" : "controller_side",
+      "sub_branch" : "Inadequate control algorithm"
+    }, {
+      "category" : "controller_side",
+      "sub_branch" : "Attack feedback channel"
+    }, {
+      "category" : "controller_side",
+      "sub_branch" : "Unsafe control input"
+    }, {
+      "category" : "path_side",
+      "sub_branch" : "Actuator/executor failure"
+    }, {
+      "category" : "path_side",
+      "sub_branch" : "Control path compromise"
+    }, {
+      "category" : "path_side",
+      "sub_branch" : "Controlled process behavior"
+    }, {
+      "category" : "coordination_gap",
+      "sub_branch" : "Desynchronize shared PM"
+    }, {
+      "category" : "coordination_gap",
+      "sub_branch" : "Cause conflicting control actions"
+    } ]
+  }, {
+    "name" : "SP3-TREE-05 LLM prunes irrelevant branches",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a tree with only controller_side and path_side branches"
+    }, {
+      "keyword" : "When",
+      "text" : "the attack tree LLM call is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the tree has 2 branch categories"
+    }, {
+      "keyword" : "And",
+      "text" : "the tree does not contain a coordination_gap branch"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-06 post-call validation requires at least 2 of 3 branch categories",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a tree with only 1 branch category"
+    }, {
+      "keyword" : "When",
+      "text" : "attack tree branch coverage validation is performed"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing branch"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-07 post-call validation passes with 2 branch categories",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a tree with controller_side and path_side branches"
+    }, {
+      "keyword" : "When",
+      "text" : "attack tree branch coverage validation is performed"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-08 post-call validation passes with 3 branch categories",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a tree with all 3 branch categories"
+    }, {
+      "keyword" : "When",
+      "text" : "attack tree branch coverage validation is performed"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-09 branch references to PM IDs must be valid",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a tree branch referencing PM-99-1"
+    }, {
+      "keyword" : "When",
+      "text" : "attack tree ID reference validation is performed against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing PM-99-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-10 branch references to FB IDs must be valid",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a tree branch referencing FB-99-1"
+    }, {
+      "keyword" : "When",
+      "text" : "attack tree ID reference validation is performed against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing FB-99-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-11 valid branch references pass ID reference validation",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a tree with branches referencing PM-1-1 and FB-1-1 and CA-1-1"
+    }, {
+      "keyword" : "When",
+      "text" : "attack tree ID reference validation is performed against the control structure"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation succeeds"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-12 user prompt includes ScenarioSpec and control structure context",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that records the user prompt"
+    }, {
+      "keyword" : "When",
+      "text" : "the attack tree LLM call is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the user prompt contains the ScenarioSpec"
+    }, {
+      "keyword" : "And",
+      "text" : "the user prompt contains the control structure context"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-13 system prompt includes the full hard template and pruning instructions",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "the attack tree LLM call is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system prompt contains the full two-level causal taxonomy template"
+    }, {
+      "keyword" : "And",
+      "text" : "the system prompt contains instructions to prune irrelevant branches"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-TREE-14 all LLM calls are logged to calls.jsonl",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "the attack tree LLM call is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file calls.jsonl exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "the file contains entries with stage stage_6 and step attack_tree"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the SP3 attack tree module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a ScenarioSpec with defender BDI and attacker BDI for scenario SCN-001"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with responsibility RESP-1, PM-1-1, CA-1-1, and FB-1-1"
+  } ]
+}

@@ -1,0 +1,206 @@
+{
+  "name" : "SP2 Stage 3 Phase 2 — LLM slot-filling",
+  "scenarios" : [ {
+    "name" : "SP2-FILL-01 one LLM call per responsibility",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "the number of LLM calls equals 2"
+    }, {
+      "keyword" : "And",
+      "text" : "each call is labeled with stage stage_3"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-02 system prompt defines four ICA types",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "the system prompt contains text for ICA type NOT_PROVIDED"
+    }, {
+      "keyword" : "And",
+      "text" : "the system prompt contains text for ICA type INCORRECT"
+    }, {
+      "keyword" : "And",
+      "text" : "the system prompt contains text for ICA type WRONG_TIMING"
+    }, {
+      "keyword" : "And",
+      "text" : "the system prompt contains text for ICA type WRONG_DURATION"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-03 user prompt includes control structure and technology context and slots",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "the user prompt contains the control structure"
+    }, {
+      "keyword" : "And",
+      "text" : "the user prompt contains hazards and security constraints"
+    }, {
+      "keyword" : "And",
+      "text" : "the user prompt contains the technology context block"
+    }, {
+      "keyword" : "And",
+      "text" : "the user prompt contains the responsibility slot IDs"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-04 filled non-N/A slot has concrete ICA text",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a slot with is_na false and ICA text describing a concrete failure"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "at least one slot has is_na false"
+    }, {
+      "keyword" : "And",
+      "text" : "that slot has at least one ICA with non-empty ica_text"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-05 filled N/A slot has na_justification",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a slot with is_na true and na_justification referencing a structural property"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "at least one slot has is_na true"
+    }, {
+      "keyword" : "And",
+      "text" : "that slot has a non-empty na_justification"
+    }, {
+      "keyword" : "And",
+      "text" : "that slot has an empty icas list"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-06 ICAs reference valid hazard IDs from the loss analysis",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns ICAs referencing hazard H-1"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "the ICA enumeration validates against the loss analysis and control structure"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-07 ICAs referencing invalid hazard IDs are rejected",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns ICAs referencing hazard H-99"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "validation fails with error containing related_hazards"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-08 calls are stateless with no conversation history",
+    "steps" : [ {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "each LLM call receives the full control structure"
+    }, {
+      "keyword" : "And",
+      "text" : "no call receives conversation history from a prior call"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-09 slot-filling calls are parallelizable across responsibilities",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a max_workers value of 2"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities in parallel"
+    }, {
+      "keyword" : "Then",
+      "text" : "results are returned in the same order as the input responsibilities"
+    }, {
+      "keyword" : "And",
+      "text" : "the number of LLM calls equals 2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-10 coordination link slots are filled separately from responsibility slots",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid slot fill results for coordination links"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities and coordination links"
+    }, {
+      "keyword" : "Then",
+      "text" : "coordination link slots have responsibility null"
+    }, {
+      "keyword" : "And",
+      "text" : "coordination link slots are filled with ICAs or N/A justifications"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-11 all LLM calls are logged to calls.jsonl",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file calls.jsonl exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "the file contains entries with stage stage_3"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP2-FILL-12 ICA loss_scenario is present for non-N/A slots",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a slot with is_na false and one ICA with a loss scenario"
+    }, {
+      "keyword" : "When",
+      "text" : "slots are filled for all responsibilities"
+    }, {
+      "keyword" : "Then",
+      "text" : "at least one ICA has a non-empty loss_scenario"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the SP2 slot filling module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with 2 responsibilities having 2 control actions each and 1 coordination link"
+  }, {
+    "keyword" : "And",
+    "text" : "a loss analysis with hazard H-1 and constraint SC-1"
+  }, {
+    "keyword" : "And",
+    "text" : "a technology context block with input zone failure modes"
+  }, {
+    "keyword" : "And",
+    "text" : "an LLM that returns valid slot fill results for each responsibility"
+  } ]
+}

@@ -26,8 +26,8 @@ No risk cards provided. Derive losses from the use-case description only.
 Derive a loss analysis from the use-case description and risk cards above. Produce four categories of output:
 
 1. **risk_card_losses**: Losses traceable to the organizational risk cards. Each must cite its source risk_id(s).
-2. **use_case_losses**: Losses from the use-case that no risk card covers.
-3. **hazards**: System-level hazards, each linking to at least one loss.
+2. **use_case_losses**: Losses specific to this system that no risk card covers. Perform an explicit gap analysis: review each architectural component, integration point, and operational characteristic in the use-case description and identify losses that would occur if it fails or is compromised but that no risk card addresses. An empty list is acceptable only if every system-specific feature is genuinely covered.
+3. **hazards**: System-level hazards grounded in this system's specific architecture and mission. Each hazard must name a concrete component, data flow, or integration point from the use-case description. Each must link to at least one loss.
 4. **security_constraints**: Conditions that prevent hazards, each linking to at least one hazard.
 
 Ensure all cross-references are valid and no IDs are duplicated.

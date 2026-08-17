@@ -72,6 +72,7 @@ def _make_resp(
     cas: list[ControlAction] | None = None,
     fbs: list[FeedbackChannel] | None = None,
     constraints: list[ResponsibilityConstraint] | None = None,
+    security_constraint_refs: list[str] | None = None,
 ) -> Responsibility:
     return Responsibility(
         resp_id=resp_id,
@@ -80,6 +81,7 @@ def _make_resp(
         control_actions=cas if cas is not None else [_make_ca()],
         feedback_channels=fbs if fbs is not None else [_make_fb()],
         responsibility_constraints=constraints or [],
+        security_constraint_refs=security_constraint_refs or [],
     )
 
 
@@ -414,6 +416,34 @@ class TestControlStructureHeuristics:
         assert not result.passed
         assert any("controlled process" in e.lower() for e in result.errors)
 
+    def test_cs_15a_cp_not_referenced_with_fb_source_none_fails(self):
+        """CS-15a: CP not referenced when FB source is None still fails heuristic.
+
+        This covers the case where feedback channels have no source set,
+        ensuring _add_cps_from_feedback correctly skips them.
+        """
+        fb_no_source = FeedbackChannel(
+            fb_id="FB-1-1",
+            description="Feedback",
+            updates="PM-1-1",
+            source=None,
+        )
+        cs = _make_cs(
+            responsibilities=[
+                _make_resp(
+                    pms=[_make_pm()],
+                    cas=[_make_ca()],
+                    fbs=[fb_no_source],
+                )
+            ],
+            controlled_processes=[
+                ControlledProcess(cp_id="CP-1", description="Process"),
+            ],
+        )
+        result = check_structural_heuristics(cs)
+        assert not result.passed
+        assert any("controlled process" in e.lower() for e in result.errors)
+
     def test_cs_15b_cp_referenced_by_ca_target_passes(self):
         """CS-15b: controlled process referenced by CA target passes heuristic."""
         cs = _make_cs(
@@ -489,16 +519,13 @@ class TestControlStructureHeuristics:
                 )
             ],
         )
-        # The hazard is traced via SC-1 -> a responsibility_constraint whose
-        # rc_id matches SC-1 -> RESP-1.
+        # The hazard is traced via SC-1 -> responsibility.security_constraint_refs
+        # containing SC-1 -> RESP-1.
         cs = _make_cs(
             responsibilities=[
                 _make_resp(
-                    constraints=[
-                        ResponsibilityConstraint(
-                            rc_id="SC-1", description="Constraint"
-                        )
-                    ]
+                    constraints=[],
+                    security_constraint_refs=["SC-1"],
                 )
             ]
         )

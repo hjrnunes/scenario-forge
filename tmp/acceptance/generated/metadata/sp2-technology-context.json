@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp2 technology context",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp2_technology_context.json",
+  "implementation_hash": "sha256:d8d24a62d795382c11e7b799d4760851fe745fc268238e100bdd1b9379d2669e",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp2_technology_context_acceptance_test.py"
+  ]
+}

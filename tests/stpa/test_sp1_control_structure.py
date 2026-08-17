@@ -23,6 +23,7 @@ from scenario_forge.stpa.models.loss_analysis import (
     SecurityConstraint,
 )
 from scenario_forge.stpa.system_model.control_structure import (
+    ConnectionSet,
     RequirementSet,
     ResponsibilitySet,
     derive_control_structure,
@@ -158,6 +159,30 @@ def _valid_control_structure_dict() -> dict:
     }
 
 
+def _valid_connection_set_dict() -> dict:
+    """ConnectionSet that matches the Call 2 ResponsibilitySet."""
+    return {
+        "coordination_links": [
+            {
+                "link_id": "CL-1",
+                "source": "RESP-1",
+                "target": "RESP-2",
+                "shared_pm": "PM-2-1",
+                "coordination_mechanism": {
+                    "cm_id": "CM-1",
+                    "description": "Shared response state",
+                    "payload": "Response content status",
+                },
+                "description": "Payment controller coordinates with output controller",
+            }
+        ],
+        "controlled_processes": [
+            {"cp_id": "CP-1", "description": "Payment transaction system"}
+        ],
+        "connection_assignments": [],
+    }
+
+
 class TestRequirementSet:
     """SP1-S2-01 through SP1-S2-04: RequirementSet model and Call 1."""
 
@@ -244,7 +269,7 @@ class TestStage2CallLogging:
         })
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
         derive_control_structure(
             llm_client=client,
@@ -264,7 +289,7 @@ class TestStage2CallLogging:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
         derive_control_structure(
             llm_client=client,
@@ -284,7 +309,7 @@ class TestStage2CallLogging:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
         derive_control_structure(
             llm_client=client,
@@ -308,9 +333,9 @@ class TestStage2Derivation:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
-        cs = derive_control_structure(
+        cs, _ = derive_control_structure(
             llm_client=client,
             use_case_text="Test",
             loss_analysis=_make_loss_analysis(),
@@ -324,9 +349,9 @@ class TestStage2Derivation:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
-        cs = derive_control_structure(
+        cs, _ = derive_control_structure(
             llm_client=client,
             use_case_text="Test",
             loss_analysis=_make_loss_analysis(),
@@ -343,7 +368,7 @@ class TestStage2Derivation:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
         derive_control_structure(
             llm_client=client,
@@ -365,7 +390,7 @@ class TestStage2PromptPassing:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
         derive_control_structure(
             llm_client=client,
@@ -383,7 +408,7 @@ class TestStage2PromptPassing:
         client = MockLLMClient()
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, _valid_connection_set_dict())
 
         derive_control_structure(
             llm_client=client,

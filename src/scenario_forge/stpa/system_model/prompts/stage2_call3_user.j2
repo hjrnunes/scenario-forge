@@ -31,7 +31,7 @@ Feedback Channels:
 {% for fb in resp.feedback_channels %}
 - {{ fb.fb_id }}: {{ fb.description }}
   Updates: {{ fb.updates }}
-  Source: {{ fb.source.type }} {{ fb.source.id }}
+  {% if fb.source %}Source: {{ fb.source.type }} {{ fb.source.id }}{% endif %}
 {% endfor %}
 {% endfor %}
 
@@ -44,4 +44,4 @@ Feedback Channels:
 
 ## Your Task
 
-Apply Poh's two rules to verify and complete connections. Identify coordination links where responsibilities share PM parts not connected by control actions. Assemble the complete ControlStructure.
+Apply Poh's two rules to verify and complete connections. For each feedback channel and control action, provide a connection assignment with the appropriate source or target. Identify coordination links where responsibilities share PM parts not connected by control actions. List all controlled processes. Produce a ConnectionSet.

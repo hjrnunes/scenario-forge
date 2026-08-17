@@ -126,6 +126,7 @@ bd prime                # Refresh Beads context
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
 
+
 <!-- BEGIN swarmforge: startup-tools -->
 ## Startup tools (procure from source)
 
@@ -189,7 +190,9 @@ Inter-role messages are durable files on disk under `.swarmforge/handoffs/<role>
   priority: NN
   task: <short-stable-task-name>
   commit: <10-character-commit-abbrev>
+  bead: <bead-id>            # optional; set by the orchestrator when Beads is active
   ```
+- Preserve the `bead:` header when forwarding a handoff that carries one (same preserve-when-forwarding rule as `task:`). Handoffs without a `bead:` header work exactly as before.
 - `note` draft:
   ```
   type: note
@@ -203,6 +206,32 @@ Inter-role messages are durable files on disk under `.swarmforge/handoffs/<role>
 - Do not write long handoff bodies; the helper generates the delivered payload.
 - Do not hand-edit, merge, stage, or commit `.swarmforge/` runtime state.
 <!-- END swarmforge: handoff-protocol -->
+<!-- BEGIN swarmforge: task-tracking -->
+## Task tracking (optional: Beads)
+
+If this project uses Beads (`bd`), the SwarmForge orchestrator uses it as the
+work source. Beads and handoffs are different layers: beads track project-level
+work items; handoffs track inter-role messages within one work item's execution.
+
+### Quick reference
+bd ready                # Find available work
+bd show <id>            # View issue details
+bd update <id> --claim  # Claim work atomically
+bd close <id>           # Complete work
+bd prime                # Refresh Beads context
+
+### Rules
+- The orchestrator owns all Beads mutations (claim, close, create follow-ups).
+  Role droids never run `bd` commands.
+- The orchestrator closes a bead only after QA verification (SubagentStop hooks
+  pass), not on a role droid's self-report.
+- External agents may file beads with `bd create`; the orchestrator picks them
+  up on the next pass via `bd ready`.
+- Role droids suggest follow-ups in their final report; the orchestrator decides
+  whether to create beads for them.
+- If no beads are ready and no pipeline is in flight, the project is quiescent —
+  do not manufacture work.
+<!-- END swarmforge: task-tracking -->
 <!-- BEGIN swarmforge: commit-byline -->
 ## Commit byline
 

@@ -12,7 +12,7 @@ Your task is to derive losses, hazards, and security constraints from the use-ca
 
 1. **Risk-card-derived losses** — losses directly traceable to organizational risk cards. Every such loss MUST cite its source `risk_id` values in `source_risk_cards`. Provenance is `risk_card`.
 
-2. **Use-case-derived losses** — losses identified from the use-case description that no risk card covers. Provenance is `use_case`. `source_risk_cards` MUST be empty.
+2. **Use-case-derived losses** — losses specific to the use-case that no risk card covers. To find these, perform an explicit gap analysis: (a) List the system's key capabilities, integration points, and operational characteristics from the use-case description. (b) For each, check whether the risk cards address the loss that would occur if that capability fails or is compromised. (c) Any unaddressed capability failure is a use-case-derived loss. A use-case description with multiple integration points, domain-specific features, and stakeholder groups will almost always have losses that generic risk cards do not cover. An empty use_case_losses list should be rare and requires that every system-specific risk is genuinely covered by a risk card. Provenance is `use_case`. `source_risk_cards` MUST be empty.
 
 3. **System-level hazards** — system states/conditions that could lead to a loss. Each hazard MUST link to at least one loss via `related_losses`.
 
@@ -25,6 +25,32 @@ Your task is to derive losses, hazards, and security constraints from the use-ca
 - No duplicate IDs.
 - Risk-card losses have `provenance: risk_card` and non-empty `source_risk_cards`.
 - Use-case losses have `provenance: use_case` and empty `source_risk_cards`.
+
+## Quality requirements
+
+### Hazard specificity
+
+Each hazard MUST name at least one specific component, data flow, integration point, or capability from the use-case description. A hazard that could apply to any LLM system without modification is too generic.
+
+Anti-patterns to REJECT:
+- "LLM outputs are manipulated via prompt injection to bypass security controls"
+- "System generates biased or discriminatory content"
+
+Correct patterns to ACCEPT:
+- "The patient chatbot generates an inaccurate surgical procedure explanation that is uploaded to the EHR via the questionnaire summarisation pipeline"
+- "The refund processing API executes an unauthorized refund amount because the AI assistant misclassifies the customer's intent from the authenticated session context"
+
+### Loss specificity
+
+Losses must describe concrete consequences in terms of THIS system's domain, stakeholders, and operational context — not restatements of the risk card's generic description.
+
+### Loss and hazard grounding
+
+Every loss must be traceable to either a risk card or a specific feature described in the use-case text. Do not invent losses for domains not mentioned in the use case. Every hazard must reference a concrete component, data flow, or capability from the use-case description — not a generic AI hazard.
+
+### Acronym expansion
+
+On first use, expand every acronym: write 'Personally Identifiable Information (PII)' not just 'PII'. After the first expansion, the short form alone is acceptable.
 
 ## ID conventions
 

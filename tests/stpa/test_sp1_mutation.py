@@ -16,9 +16,24 @@ from scenario_forge.models.capability_profile import (
 )
 from scenario_forge.models.risk_card import RiskCard
 from scenario_forge.stpa.infra.yaml_io import write_yaml
-from scenario_forge.stpa.models.control_structure import ControlStructure
-from scenario_forge.stpa.models.loss_analysis import LossAnalysis
+from scenario_forge.stpa.models.control_structure import (
+    ControlAction,
+    ControlStructure,
+    ElementRef,
+    FeedbackChannel,
+    ProcessModelPart,
+    ReferenceType,
+    Responsibility,
+)
+from scenario_forge.stpa.models.loss_analysis import (
+    Hazard,
+    Loss,
+    LossAnalysis,
+    LossProvenance,
+    SecurityConstraint,
+)
 from scenario_forge.stpa.system_model.control_structure import (
+    ConnectionSet,
     RequirementSet,
     ResponsibilitySet,
 )
@@ -30,7 +45,7 @@ from scenario_forge.stpa.system_model.critic import (
     has_unjustified_gaps,
 )
 from scenario_forge.stpa.system_model.run import SP1RunResult, run_sp1
-from tests.stpa.sp1_helpers import MockLLMClient
+from tests.stpa.sp1_helpers import MockLLMClient, valid_empty_connection_set_dict
 
 
 def _profile(
@@ -353,7 +368,7 @@ def _valid_responsibility_set_dict() -> dict:
                 "resp_id": "RESP-1",
                 "description": "Authorization controller",
                 "responsibility_constraints": [
-                    {"rc_id": "SC-1", "description": "Must confirm before action"}
+                    {"rc_id": "RC-1-1", "description": "Must confirm before action"}
                 ],
                 "process_model_parts": [
                     {"pm_id": "PM-1-1", "description": "User intent state"}
@@ -428,20 +443,20 @@ def _make_mock_client(
     if revised_cs is not None:
         # Queue all responses in call order for the revision path
         client.set_response_queue([
-            _valid_loss_analysis_dict(),       # Stage 1a
-            _valid_stage1_profile_dict(),       # Stage 1b
-            _valid_requirement_set_dict(),      # Stage 2 Call 1
-            _valid_responsibility_set_dict(),   # Stage 2 Call 2
-            _valid_control_structure_dict(),    # Stage 2 Call 3
-            findings,                           # Critic
-            revised_cs,                         # Revision
+            _valid_loss_analysis_dict(),               # Stage 1a
+            _valid_stage1_profile_dict(),               # Stage 1b
+            _valid_requirement_set_dict(),              # Stage 2 Call 1
+            _valid_responsibility_set_dict(),           # Stage 2 Call 2
+            valid_empty_connection_set_dict(),          # Stage 2 Call 3
+            findings,                                   # Critic
+            revised_cs,                                 # Revision
         ])
     else:
         client.set_response_for(LossAnalysis, _valid_loss_analysis_dict())
         client.set_response_for(_S1P, _valid_stage1_profile_dict())
         client.set_response_for(RequirementSet, _valid_requirement_set_dict())
         client.set_response_for(ResponsibilitySet, _valid_responsibility_set_dict())
-        client.set_response_for(ControlStructure, _valid_control_structure_dict())
+        client.set_response_for(ConnectionSet, valid_empty_connection_set_dict())
         client.set_response_for(CriticFindings, findings)
 
     return client
@@ -472,12 +487,47 @@ class TestSP1RunResultDefault:
         result = SP1RunResult(
             loss_analysis=LossAnalysis(
                 risk_card_losses=[],
-                use_case_losses=[],
-                hazards=[],
-                security_constraints=[],
+                use_case_losses=[
+                    Loss(
+                        loss_id="L-1",
+                        description="A loss",
+                        provenance=LossProvenance.use_case,
+                    )
+                ],
+                hazards=[
+                    Hazard(hazard_id="H-1", description="A hazard", related_losses=["L-1"]),
+                ],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1", description="A constraint", related_hazards=["H-1"]
+                    ),
+                ],
             ),
             capability_profile=_make_profile(),
-            control_structure=ControlStructure(responsibilities=[]),
+            control_structure=ControlStructure(
+                responsibilities=[
+                    Responsibility(
+                        resp_id="RESP-1",
+                        description="Controller",
+                        process_model_parts=[
+                            ProcessModelPart(pm_id="PM-1-1", description="State")
+                        ],
+                        control_actions=[
+                            ControlAction(ca_id="CA-1-1", description="Action")
+                        ],
+                        feedback_channels=[
+                            FeedbackChannel(
+                                fb_id="FB-1-1",
+                                description="FB",
+                                updates="PM-1-1",
+                                source=ElementRef(
+                                    type=ReferenceType.responsibility, id="RESP-1"
+                                ),
+                            )
+                        ],
+                    )
+                ]
+            ),
         )
         assert result.revised is False
 

@@ -38,3 +38,6 @@ opencode.json
 .swarmforge/
 # APS clone — each developer clones separately
 .factory/swarmforge/aps/
+
+# Real model profiles (contains API keys — copy from ai/model-profiles.example.yaml)
+ai/model-profiles.yaml

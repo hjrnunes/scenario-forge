@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp1 prompt bug fixes",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp1_prompt_bug_fixes.json",
+  "implementation_hash": "sha256:8541625e632df38d4f39832db786b407e4157f24d11ee7e03c7dfafdeb51130f",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp1_prompt_bug_fixes_acceptance_test.py"
+  ]
+}

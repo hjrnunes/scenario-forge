@@ -12,6 +12,16 @@
 Source constraint: {{ req.source_constraint }}
 {% endfor %}
 
+{% if capability_profile %}
+## Capability Profile Context
+
+Active zones: {{ capability_profile.zones_active | join(", ") }}
+Multi-agent: {{ capability_profile.multi_agent }}
+Human-in-the-loop: {{ capability_profile.hitl }}
+Persistent memory: {{ capability_profile.has_persistent_memory }}
+
+{% endif %}
+
 ---
 
 ## Your Task
@@ -21,6 +31,6 @@ Group related requirements into responsibilities. For each responsibility:
 2. Add responsibility_constraints (RC-X-Y) from constraint requirements.
 3. Derive process model parts (PM-X-Y) — what information the controller needs.
 4. Derive control actions (CA-X-Y) — what outputs the controller produces, with targets.
-5. Derive feedback channels (FB-X-Y) — what updates each PM part, with sources.
+5. Derive feedback channels (FB-X-Y) — what updates each PM part, with sources. **One FB per PM part at minimum.** Each PM-X-Y must appear in at least one FB's updates list.
 
 Identify controlled processes (CP-*) for entities that are not responsibilities but are referenced by feedback sources or control action targets.

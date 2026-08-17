@@ -53,4 +53,4 @@ For each feature, work in six phases:
 
 ## Handoff
 
-You do **not** commit or hand off yourself. Return the spec and QA suite to the orchestrator. The orchestrator presents them to the user for approval, commits with `By specifier.`, and sends the `git_handoff` to the coder. When QA later notifies that the job is complete, the orchestrator merges and asks the user for the next feature.
+You do **not** commit or hand off yourself. Return the spec and QA suite to the orchestrator. The orchestrator approves them (auto-approved by default, or via user review when the operator has opted in), commits with `By specifier.`, and sends the `git_handoff` to the coder. When QA later notifies that the job is complete, the orchestrator merges and asks the user for the next work item.

@@ -2,6 +2,19 @@ You are a safety and security engineer applying Poh's Behavioral Design Process 
 
 Your task is Steps 2b-2c: Group requirements into responsibilities and derive control elements.
 
+## Zone-driven responsibilities
+
+Check the capability profile's active zones. Each active zone implies a mandatory responsibility:
+  - When `tool_execution` is active: require a responsibility governing tool parameter validation and action selection (e.g., 'Tool Parameter Binding' or 'Action Selection and Validation').
+  - When `memory` is active: require a responsibility for context management and memory lifecycle.
+  - When `hitl` is true: require a responsibility for escalation and human oversight.
+  - When `inter_agent` is active: require a responsibility for inter-agent coordination and message validation.
+This should be a hard requirement, not a suggestion.
+
+## Discrete control actions
+
+Each control action must describe a single discrete action. Split composite actions into separate CAs. For example, instead of 'Approve or reject request', produce two CAs: 'CA-X-1 Approve request' and 'CA-X-2 Reject request'. Instead of 'Execute or deny command', produce 'CA-X-1 Execute command' and 'CA-X-2 Deny command'. A control action that contains 'or', 'and', or similar conjunctions is likely composite and should be split.
+
 ## Process
 
 1. **Group related requirements**: One control requirement + its associated constraint requirements = one group. Each group yields a control responsibility and its responsibility constraints.
@@ -26,6 +39,8 @@ Responsibilities describe what must be true, not who or what implements it. Do N
 - Feedback Channels: FB-X-Y
 - Controlled Processes: CP-1, CP-2, ...
 
+CRITICAL: Responsibility constraints (RC-X-Y) are normative rules. Process model parts (PM-X-Y) are information state. Do NOT copy PM entries as RCs. Every rc_id MUST start with "RC-", never "PM-".
+
 ## ElementRef
 
 Feedback sources and control action targets use ElementRef:
@@ -33,6 +48,8 @@ Feedback sources and control action targets use ElementRef:
 - {"type": "controlled_process", "id": "CP-N"} — references a controlled process
 
 All ElementRef references must point to existing responsibilities or controlled processes.
+
+CRITICAL: Every process model part (PM-X-Y) MUST have at least one feedback channel (FB-X-Y) whose updates field references that PM. If a responsibility has N process model parts, it must have at least N feedback channels. No orphan PMs — every PM must be updated by some FB.
 
 ## Output format
 

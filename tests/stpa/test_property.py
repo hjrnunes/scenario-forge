@@ -13,6 +13,16 @@ These tests verify invariants that should hold across broad input ranges:
 - **Structural heuristic completeness**: A well-formed control structure
   passes all structural heuristics; removing required children produces
   errors.
+- **merge_connection_set invariants**: The merge function preserves
+  all responsibilities, does not mutate its input, applies assignments
+  correctly, ignores unmatched assignments, deduplicates controlled
+  processes, and passes coordination links through unchanged.
+- **ID format validation**: Valid ID formats are always accepted;
+  wrong-prefix and wrong-structure IDs are always rejected; cross-namespace
+  collisions are always detected even when field validators are bypassed.
+- **KC sub-code display**: Display keys match input codes, values are
+  non-empty strings, unknown codes fall back to themselves, and injection
+  preserves the original kc_subcodes field.
 
 Property tests complement the example-based unit tests by exploring a
 broader input space than hand-written cases can cover.
@@ -58,6 +68,12 @@ from scenario_forge.stpa.models.scenario_spec import (
     DefenderIntention,
     ScenarioSpec,
     ThreatSource,
+)
+from scenario_forge.stpa.system_model.control_structure import (
+    ConnectionAssignment,
+    ConnectionSet,
+    ResponsibilitySet,
+    merge_connection_set,
 )
 from tests.stpa.helpers import (
     make_ica,
@@ -271,8 +287,14 @@ class TestDuplicateIdRejection:
                         provenance=LossProvenance.use_case,
                     ),
                 ],
-                hazards=[],
-                security_constraints=[],
+                hazards=[
+                    Hazard(hazard_id="H-1", description="H", related_losses=[dup_id]),
+                ],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1", description="C", related_hazards=["H-1"]
+                    )
+                ],
             )
 
     @given(dup_id=st.from_regex(r"H-[1-9][0-9]*", fullmatch=True))
@@ -293,7 +315,11 @@ class TestDuplicateIdRejection:
                     Hazard(hazard_id=dup_id, description="A", related_losses=["L-1"]),
                     Hazard(hazard_id=dup_id, description="B", related_losses=["L-1"]),
                 ],
-                security_constraints=[],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1", description="C", related_hazards=[dup_id]
+                    )
+                ],
             )
 
     @given(dup_id=st.from_regex(r"SC-[1-9][0-9]*", fullmatch=True))
@@ -429,7 +455,11 @@ class TestInvalidReferenceRejection:
                         hazard_id="H-1", description="H", related_losses=[bad_ref]
                     ),
                 ],
-                security_constraints=[],
+                security_constraints=[
+                    SecurityConstraint(
+                        constraint_id="SC-1", description="C", related_hazards=["H-1"]
+                    )
+                ],
             )
 
     @given(bad_ref=st.from_regex(r"H-[9][0-9]+", fullmatch=True))
@@ -577,3 +607,1091 @@ class TestStructuralHeuristics:
             )
         else:
             assert result.passed
+
+
+# ---------------------------------------------------------------------------
+# merge_connection_set property tests
+# ---------------------------------------------------------------------------
+
+
+def _make_mergeable_responsibility_set(
+    n_resps: int = 2,
+) -> ResponsibilitySet:
+    """Build a ResponsibilitySet with n responsibilities, each with 1 FB and 1 CA.
+
+    Feedback sources and CA targets are left as None so that connection
+    assignments can fill them in during merge.
+    """
+    responsibilities = []
+    for i in range(1, n_resps + 1):
+        resp_id = f"RESP-{i}"
+        responsibilities.append(
+            Responsibility(
+                resp_id=resp_id,
+                description=f"Controller {i}",
+                process_model_parts=[
+                    ProcessModelPart(pm_id=f"PM-{i}-1", description=f"State {i}")
+                ],
+                control_actions=[
+                    ControlAction(ca_id=f"CA-{i}-1", description=f"Action {i}")
+                ],
+                feedback_channels=[
+                    FeedbackChannel(
+                        fb_id=f"FB-{i}-1",
+                        description=f"Feedback {i}",
+                        updates=f"PM-{i}-1",
+                    )
+                ],
+            )
+        )
+    return ResponsibilitySet(responsibilities=responsibilities)
+
+
+class TestMergeConnectionSetProperties:
+    """Property tests for merge_connection_set invariants."""
+
+    @given(n_resps=st.integers(min_value=1, max_value=5))
+    @settings(max_examples=20, deadline=None)
+    def test_merge_preserves_all_responsibilities(self, n_resps):
+        """Conservation: every responsibility from ResponsibilitySet appears in output."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = ConnectionSet()
+        cs = merge_connection_set(resp_set, conn_set)
+
+        input_ids = {r.resp_id for r in resp_set.responsibilities}
+        output_ids = {r.resp_id for r in cs.responsibilities}
+        assert input_ids == output_ids
+
+    @given(n_resps=st.integers(min_value=1, max_value=4))
+    @settings(max_examples=15, deadline=None)
+    def test_merge_does_not_mutate_original(self, n_resps):
+        """Non-mutation: merge does not modify the original ResponsibilitySet."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        # Snapshot original source/target states
+        original_sources = {
+            fb.fb_id: fb.source
+            for r in resp_set.responsibilities
+            for fb in r.feedback_channels
+        }
+        original_targets = {
+            ca.ca_id: ca.target
+            for r in resp_set.responsibilities
+            for ca in r.control_actions
+        }
+
+        conn_set = ConnectionSet(
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id=f"FB-{i}-1",
+                    source={"type": "responsibility", "id": "RESP-1"},
+                )
+                for i in range(1, n_resps + 1)
+            ],
+        )
+        merge_connection_set(resp_set, conn_set)
+
+        # Verify originals are unchanged
+        for r in resp_set.responsibilities:
+            for fb in r.feedback_channels:
+                assert fb.source == original_sources[fb.fb_id], (
+                    f"Original {fb.fb_id}.source was mutated by merge"
+                )
+            for ca in r.control_actions:
+                assert ca.target == original_targets[ca.ca_id], (
+                    f"Original {ca.ca_id}.target was mutated by merge"
+                )
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=4),
+        source_type=st.sampled_from(["responsibility", "controlled_process"]),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_feedback_assignment_sets_source(self, n_resps, source_type):
+        """Assignment application: matching FB assignment sets the source."""
+        from scenario_forge.stpa.models.control_structure import ControlledProcess
+
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        source_ref = ElementRef(
+            type=ReferenceType(source_type),
+            id="RESP-1" if source_type == "responsibility" else "CP-1",
+        )
+        conn_set = ConnectionSet(
+            controlled_processes=(
+                [ControlledProcess(cp_id="CP-1", description="CP")]
+                if source_type == "controlled_process"
+                else []
+            ),
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id=f"FB-{i}-1",
+                    source=source_ref,
+                )
+                for i in range(1, n_resps + 1)
+            ],
+        )
+        cs = merge_connection_set(resp_set, conn_set)
+
+        for resp in cs.responsibilities:
+            for fb in resp.feedback_channels:
+                assert fb.source is not None
+                assert fb.source == source_ref
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=4),
+        target_type=st.sampled_from(["responsibility", "controlled_process"]),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_control_action_assignment_sets_target(self, n_resps, target_type):
+        """Assignment application: matching CA assignment sets the target."""
+        from scenario_forge.stpa.models.control_structure import ControlledProcess
+
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        target_ref = ElementRef(
+            type=ReferenceType(target_type),
+            id="RESP-1" if target_type == "responsibility" else "CP-1",
+        )
+        conn_set = ConnectionSet(
+            controlled_processes=(
+                [ControlledProcess(cp_id="CP-1", description="CP")]
+                if target_type == "controlled_process"
+                else []
+            ),
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id=f"CA-{i}-1",
+                    target=target_ref,
+                )
+                for i in range(1, n_resps + 1)
+            ],
+        )
+        cs = merge_connection_set(resp_set, conn_set)
+
+        for resp in cs.responsibilities:
+            for ca in resp.control_actions:
+                assert ca.target is not None
+                assert ca.target == target_ref
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=3),
+        n_unmatched=st.integers(min_value=1, max_value=5),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_unmatched_assignments_are_noops(self, n_resps, n_unmatched):
+        """Unmatched assignments: assignments with non-existent element IDs are ignored."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = ConnectionSet(
+            connection_assignments=[
+                ConnectionAssignment(
+                    element_id=f"FB-99-{j}",
+                    source={"type": "responsibility", "id": "RESP-1"},
+                )
+                for j in range(1, n_unmatched + 1)
+            ],
+        )
+        cs = merge_connection_set(resp_set, conn_set)
+
+        # No feedback channel should have a source set
+        for resp in cs.responsibilities:
+            for fb in resp.feedback_channels:
+                assert fb.source is None
+            for ca in resp.control_actions:
+                assert ca.target is None
+
+    @given(
+        n_call2=st.integers(min_value=0, max_value=3),
+        n_call3=st.integers(min_value=0, max_value=3),
+        n_overlap=st.integers(min_value=0, max_value=2),
+    )
+    @settings(max_examples=25, deadline=None)
+    def test_controlled_process_deduplication(self, n_call2, n_call3, n_overlap):
+        """Deduplication: merging CPs from Call 2 and Call 3 deduplicates by cp_id."""
+        from scenario_forge.stpa.models.control_structure import ControlledProcess
+
+        cp_call2 = [
+            ControlledProcess(cp_id=f"CP-{i}", description=f"CP2 {i}")
+            for i in range(1, n_call2 + 1)
+        ]
+        # Call 3 CPs: some overlap with Call 2, some new
+        overlap_ids = [f"CP-{i}" for i in range(1, min(n_overlap, n_call2) + 1)]
+        new_ids = [f"CP-{100 + i}" for i in range(1, n_call3 + 1)]
+        cp_call3 = [
+            ControlledProcess(cp_id=cp_id, description=f"CP3 {cp_id}")
+            for cp_id in overlap_ids + new_ids
+        ]
+
+        resp_set = ResponsibilitySet(
+            responsibilities=[
+                Responsibility(
+                    resp_id="RESP-1",
+                    description="Controller",
+                    process_model_parts=[
+                        ProcessModelPart(pm_id="PM-1-1", description="State")
+                    ],
+                    control_actions=[
+                        ControlAction(ca_id="CA-1-1", description="Action")
+                    ],
+                    feedback_channels=[
+                        FeedbackChannel(
+                            fb_id="FB-1-1",
+                            description="FB",
+                            updates="PM-1-1",
+                            source=ElementRef(
+                                type=ReferenceType.responsibility, id="RESP-1"
+                            ),
+                        )
+                    ],
+                )
+            ],
+            controlled_processes=cp_call2,
+        )
+        conn_set = ConnectionSet(controlled_processes=cp_call3)
+        cs = merge_connection_set(resp_set, conn_set)
+
+        cp_ids = [cp.cp_id for cp in cs.controlled_processes]
+        assert len(cp_ids) == len(set(cp_ids)), "Duplicate cp_ids in merged output"
+        expected = {cp.cp_id for cp in cp_call2 + cp_call3}
+        assert set(cp_ids) == expected
+
+    @given(n_links=st.integers(min_value=0, max_value=3))
+    @settings(max_examples=15, deadline=None)
+    def test_coordination_links_pass_through(self, n_links):
+        """Pass-through: coordination links from ConnectionSet appear in output."""
+        from scenario_forge.stpa.models.control_structure import (
+            CoordinationLink,
+            CoordinationMechanism,
+        )
+
+        resp_set = _make_mergeable_responsibility_set(2)
+        links = [
+            CoordinationLink(
+                link_id=f"CL-{i}",
+                source="RESP-1",
+                target="RESP-2",
+                shared_pm="PM-2-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id=f"CM-{i}",
+                    description=f"Mechanism {i}",
+                    payload="Payload",
+                ),
+                description=f"Link {i}",
+            )
+            for i in range(1, n_links + 1)
+        ]
+        conn_set = ConnectionSet(coordination_links=links)
+        cs = merge_connection_set(resp_set, conn_set)
+
+        assert len(cs.coordination_links) == n_links
+        for i, cl in enumerate(cs.coordination_links):
+            assert cl.link_id == links[i].link_id
+            assert cl.source == links[i].source
+            assert cl.target == links[i].target
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=4),
+        n_extra=st.integers(min_value=0, max_value=5),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_empty_connection_set_preserves_responsibilities(self, n_resps, n_extra):
+        """Empty ConnectionSet: merge with no assignments preserves responsibilities as-is."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = ConnectionSet()
+        cs = merge_connection_set(resp_set, conn_set)
+
+        assert len(cs.responsibilities) == n_resps
+        # All sources and targets remain None
+        for resp in cs.responsibilities:
+            for fb in resp.feedback_channels:
+                assert fb.source is None
+            for ca in resp.control_actions:
+                assert ca.target is None
+
+
+# ---------------------------------------------------------------------------
+# _merge_with_fallback property tests
+# ---------------------------------------------------------------------------
+
+from scenario_forge.stpa.system_model.control_structure import (  # noqa: E402
+    _merge_with_fallback,
+)
+
+
+def _invalid_coord_link_connection_set(n_resps: int) -> ConnectionSet:
+    """Build a ConnectionSet with a coordination link referencing a non-existent
+    responsibility, guaranteeing a merge failure."""
+    from scenario_forge.stpa.models.control_structure import (
+        CoordinationLink,
+        CoordinationMechanism,
+    )
+
+    return ConnectionSet(
+        coordination_links=[
+            CoordinationLink(
+                link_id="CL-1",
+                source="RESP-999",
+                target=f"RESP-{n_resps}",
+                shared_pm=f"PM-{n_resps}-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id="CM-1",
+                    description="Bad mechanism",
+                    payload="Payload",
+                ),
+                description="Invalid link",
+            )
+        ],
+    )
+
+
+def _invalid_shared_pm_connection_set() -> ConnectionSet:
+    """Build a ConnectionSet with a coordination link referencing a non-existent PM."""
+    from scenario_forge.stpa.models.control_structure import (
+        CoordinationLink,
+        CoordinationMechanism,
+    )
+
+    return ConnectionSet(
+        coordination_links=[
+            CoordinationLink(
+                link_id="CL-1",
+                source="RESP-1",
+                target="RESP-2",
+                shared_pm="PM-999-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id="CM-1",
+                    description="Bad mechanism",
+                    payload="Payload",
+                ),
+                description="Invalid shared_pm",
+            )
+        ],
+    )
+
+
+class TestMergeWithFallbackProperties:
+    """Property tests for _merge_with_fallback invariants.
+
+    These tests verify the fallback behavior when merge_connection_set
+    fails due to invalid cross-references in the ConnectionSet.
+    """
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    @given(n_resps=st.integers(min_value=1, max_value=5))
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_preserves_all_responsibilities(
+        self, tmp_path, invalid_conn_fn, n_resps
+    ):
+        """Conservation: every responsibility from ResponsibilitySet appears in fallback CS."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = invalid_conn_fn(n_resps)
+        cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        input_ids = {r.resp_id for r in resp_set.responsibilities}
+        output_ids = {r.resp_id for r in cs.responsibilities}
+        assert input_ids == output_ids
+        assert len(warnings) == 1
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    @given(n_resps=st.integers(min_value=1, max_value=5))
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_has_empty_coordination_links(
+        self, tmp_path, invalid_conn_fn, n_resps
+    ):
+        """Invariant: fallback CS always has empty coordination_links."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = invalid_conn_fn(n_resps)
+        cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        assert cs.coordination_links == []
+        assert len(warnings) == 1
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=4),
+        n_cps=st.integers(min_value=0, max_value=3),
+    )
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_preserves_controlled_processes(
+        self, tmp_path, n_resps, n_cps
+    ):
+        """Preservation: controlled processes from ResponsibilitySet appear in fallback CS."""
+        from scenario_forge.stpa.models.control_structure import ControlledProcess
+
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        resp_set.controlled_processes = [
+            ControlledProcess(cp_id=f"CP-{i}", description=f"Process {i}")
+            for i in range(1, n_cps + 1)
+        ]
+        conn_set = _invalid_coord_link_connection_set(n_resps)
+        cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        input_cp_ids = {cp.cp_id for cp in resp_set.controlled_processes}
+        output_cp_ids = {cp.cp_id for cp in cs.controlled_processes}
+        assert input_cp_ids == output_cp_ids
+        assert len(warnings) == 1
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    @given(n_resps=st.integers(min_value=1, max_value=5))
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_produces_exactly_one_warning(
+        self, tmp_path, invalid_conn_fn, n_resps
+    ):
+        """Warning count: merge failure always produces exactly 1 warning with step name."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = invalid_conn_fn(n_resps)
+        _cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        assert len(warnings) == 1
+        assert "merge_connection_set" in warnings[0]
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    @given(n_resps=st.integers(min_value=1, max_value=4))
+    @settings(
+        max_examples=15,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_fallback_does_not_mutate_input(
+        self, tmp_path, invalid_conn_fn, n_resps
+    ):
+        """Non-mutation: fallback does not modify the original ResponsibilitySet."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        original_resp_count = len(resp_set.responsibilities)
+        original_cp_count = len(resp_set.controlled_processes)
+        conn_set = invalid_conn_fn(n_resps)
+        _cs, _warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        assert len(resp_set.responsibilities) == original_resp_count
+        assert len(resp_set.controlled_processes) == original_cp_count
+
+    @given(n_resps=st.integers(min_value=1, max_value=4))
+    @settings(
+        max_examples=15,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_successful_merge_produces_no_warnings(self, tmp_path, n_resps):
+        """Success path: valid ConnectionSet produces 0 warnings."""
+        resp_set = _make_mergeable_responsibility_set(n_resps)
+        conn_set = ConnectionSet()
+        cs, warnings = _merge_with_fallback(
+            resp_set, conn_set, tmp_path, "test-model",
+        )
+        assert warnings == []
+        assert isinstance(cs, ControlStructure)
+
+    @pytest.mark.parametrize(
+        "invalid_conn_fn",
+        [
+            lambda n: _invalid_coord_link_connection_set(n),
+            lambda n: _invalid_shared_pm_connection_set() if n >= 2 else _invalid_coord_link_connection_set(n),
+        ],
+        ids=["invalid_link_source", "invalid_shared_pm"],
+    )
+    def test_fallback_failure_logged_to_calls_jsonl(
+        self, tmp_path, invalid_conn_fn
+    ):
+        """Logging: merge failure is logged to calls.jsonl with success=false."""
+        import json
+
+        resp_set = _make_mergeable_responsibility_set(3)
+        conn_set = invalid_conn_fn(3)
+        _merge_with_fallback(resp_set, conn_set, tmp_path, "test-model")
+
+        calls_path = tmp_path / "calls.jsonl"
+        assert calls_path.exists()
+        entries = [json.loads(line) for line in calls_path.read_text().splitlines()]
+        merge_entries = [e for e in entries if e["step"] == "merge_connection_set"]
+        assert len(merge_entries) == 1
+        assert merge_entries[0]["success"] is False
+        assert merge_entries[0]["error"]  # non-empty
+
+
+# ---------------------------------------------------------------------------
+# ID format validation property tests
+# ---------------------------------------------------------------------------
+
+from scenario_forge.stpa.models.control_structure import (  # noqa: E402
+    ControlledProcess,
+    CoordinationLink,
+    CoordinationMechanism,
+    ResponsibilityConstraint,
+)
+
+# Regex strategies for each ID namespace.
+# Two-segment IDs: RC-X-Y, PM-X-Y, CA-X-Y, FB-X-Y
+st_two_seg_ids = st.from_regex(r"[A-Z]{2}-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True)
+# One-segment IDs: RESP-N, CP-N, CM-N, CL-N
+st_one_seg_ids = st.from_regex(r"[A-Z]{2,4}-[1-9][0-9]*", fullmatch=True)
+
+# Per-field valid-ID strategies (correct prefix + correct structure).
+st_rc_ids = st.from_regex(r"RC-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True)
+st_pm_ids = st.from_regex(r"PM-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True)
+st_ca_ids = st.from_regex(r"CA-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True)
+st_fb_ids = st.from_regex(r"FB-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True)
+st_resp_ids = st.from_regex(r"RESP-[1-9][0-9]*", fullmatch=True)
+st_cp_ids = st.from_regex(r"CP-[1-9][0-9]*", fullmatch=True)
+st_cm_ids = st.from_regex(r"CM-[1-9][0-9]*", fullmatch=True)
+st_cl_ids = st.from_regex(r"CL-[1-9][0-9]*", fullmatch=True)
+
+# Wrong-prefix strategies: valid two-segment structure but a different prefix.
+st_wrong_prefix_two_seg = st.sampled_from(["PM", "CA", "FB", "RC"]).flatmap(
+    lambda prefix: st.from_regex(
+        rf"{prefix}-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True
+    )
+)
+
+# Wrong-structure strategies: correct prefix but wrong number of segments.
+st_rc_wrong_struct = st.from_regex(r"RC-[1-9][0-9]*", fullmatch=True)
+st_pm_wrong_struct = st.from_regex(r"PM-[1-9][0-9]*", fullmatch=True)
+st_ca_wrong_struct = st.from_regex(r"CA-[1-9][0-9]*", fullmatch=True)
+st_fb_wrong_struct = st.from_regex(r"FB-[1-9][0-9]*", fullmatch=True)
+st_resp_wrong_struct = st.from_regex(r"RESP-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True)
+st_cp_wrong_struct = st.from_regex(r"CP-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True)
+st_cm_wrong_struct = st.from_regex(r"CM-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True)
+st_cl_wrong_struct = st.from_regex(r"CL-[1-9][0-9]*-[1-9][0-9]*", fullmatch=True)
+
+
+class TestIdFormatAcceptance:
+    """Valid ID formats for each field type are always accepted."""
+
+    @given(rc_id=st_rc_ids)
+    @settings(max_examples=30, deadline=None)
+    def test_valid_rc_id_accepted(self, rc_id):
+        """Any RC-X-Y format ID passes rc_id field validation."""
+        rc = ResponsibilityConstraint(rc_id=rc_id, description="C")
+        assert rc.rc_id == rc_id
+
+    @given(pm_id=st_pm_ids)
+    @settings(max_examples=30, deadline=None)
+    def test_valid_pm_id_accepted(self, pm_id):
+        """Any PM-X-Y format ID passes pm_id field validation."""
+        pm = ProcessModelPart(pm_id=pm_id, description="P")
+        assert pm.pm_id == pm_id
+
+    @given(ca_id=st_ca_ids)
+    @settings(max_examples=30, deadline=None)
+    def test_valid_ca_id_accepted(self, ca_id):
+        """Any CA-X-Y format ID passes ca_id field validation."""
+        ca = ControlAction(ca_id=ca_id, description="A")
+        assert ca.ca_id == ca_id
+
+    @given(fb_id=st_fb_ids)
+    @settings(max_examples=30, deadline=None)
+    def test_valid_fb_id_accepted(self, fb_id):
+        """Any FB-X-Y format ID passes fb_id field validation."""
+        fb = FeedbackChannel(fb_id=fb_id, description="F", updates="PM-1-1")
+        assert fb.fb_id == fb_id
+
+    @given(resp_id=st_resp_ids)
+    @settings(max_examples=30, deadline=None)
+    def test_valid_resp_id_accepted(self, resp_id):
+        """Any RESP-N format ID passes resp_id field validation."""
+        resp = Responsibility(resp_id=resp_id, description="R")
+        assert resp.resp_id == resp_id
+
+    @given(cp_id=st_cp_ids)
+    @settings(max_examples=30, deadline=None)
+    def test_valid_cp_id_accepted(self, cp_id):
+        """Any CP-N format ID passes cp_id field validation."""
+        cp = ControlledProcess(cp_id=cp_id, description="C")
+        assert cp.cp_id == cp_id
+
+    @given(cm_id=st_cm_ids)
+    @settings(max_examples=30, deadline=None)
+    def test_valid_cm_id_accepted(self, cm_id):
+        """Any CM-N format ID passes cm_id field validation."""
+        cm = CoordinationMechanism(cm_id=cm_id, description="C", payload="p")
+        assert cm.cm_id == cm_id
+
+    @given(cl_id=st_cl_ids)
+    @settings(max_examples=30, deadline=None)
+    def test_valid_cl_id_accepted(self, cl_id):
+        """Any CL-N format ID passes link_id field validation."""
+        link = CoordinationLink(
+            link_id=cl_id,
+            source="RESP-1",
+            target="RESP-2",
+            shared_pm="PM-1-1",
+            coordination_mechanism=CoordinationMechanism(
+                cm_id="CM-1", description="C", payload="p"
+            ),
+            description="L",
+        )
+        assert link.link_id == cl_id
+
+
+class TestIdFormatPrefixRejection:
+    """IDs with a valid structure but wrong prefix are always rejected.
+
+    This is the key invariant that prevents cross-namespace ID confusion:
+    an RC-formatted value must not be accepted as a pm_id, and vice versa.
+    """
+
+    @given(rc_id=st_wrong_prefix_two_seg)
+    @settings(max_examples=30, deadline=None)
+    def test_wrong_prefix_rc_id_rejected(self, rc_id):
+        """A two-segment ID with a non-RC prefix is rejected by rc_id."""
+        if rc_id.startswith("RC-"):
+            return  # skip if hypothesis happens to generate an RC prefix
+        with pytest.raises(ValidationError):
+            ResponsibilityConstraint(rc_id=rc_id, description="C")
+
+    @given(pm_id=st_wrong_prefix_two_seg)
+    @settings(max_examples=30, deadline=None)
+    def test_wrong_prefix_pm_id_rejected(self, pm_id):
+        """A two-segment ID with a non-PM prefix is rejected by pm_id."""
+        if pm_id.startswith("PM-"):
+            return
+        with pytest.raises(ValidationError):
+            ProcessModelPart(pm_id=pm_id, description="P")
+
+    @given(ca_id=st_wrong_prefix_two_seg)
+    @settings(max_examples=30, deadline=None)
+    def test_wrong_prefix_ca_id_rejected(self, ca_id):
+        """A two-segment ID with a non-CA prefix is rejected by ca_id."""
+        if ca_id.startswith("CA-"):
+            return
+        with pytest.raises(ValidationError):
+            ControlAction(ca_id=ca_id, description="A")
+
+    @given(fb_id=st_wrong_prefix_two_seg)
+    @settings(max_examples=30, deadline=None)
+    def test_wrong_prefix_fb_id_rejected(self, fb_id):
+        """A two-segment ID with a non-FB prefix is rejected by fb_id."""
+        if fb_id.startswith("FB-"):
+            return
+        with pytest.raises(ValidationError):
+            FeedbackChannel(fb_id=fb_id, description="F", updates="PM-1-1")
+
+
+class TestIdFormatStructureRejection:
+    """IDs with the correct prefix but wrong segment count are always rejected.
+
+    Two-segment fields (RC, PM, CA, FB) must reject single-segment values,
+    and one-segment fields (RESP, CP, CM, CL) must reject two-segment values.
+    """
+
+    @given(rc_id=st_rc_wrong_struct)
+    @settings(max_examples=20, deadline=None)
+    def test_single_seg_rc_id_rejected(self, rc_id):
+        """A single-segment RC-N value is rejected by rc_id (expects RC-X-Y)."""
+        with pytest.raises(ValidationError):
+            ResponsibilityConstraint(rc_id=rc_id, description="C")
+
+    @given(pm_id=st_pm_wrong_struct)
+    @settings(max_examples=20, deadline=None)
+    def test_single_seg_pm_id_rejected(self, pm_id):
+        """A single-segment PM-N value is rejected by pm_id (expects PM-X-Y)."""
+        with pytest.raises(ValidationError):
+            ProcessModelPart(pm_id=pm_id, description="P")
+
+    @given(ca_id=st_ca_wrong_struct)
+    @settings(max_examples=20, deadline=None)
+    def test_single_seg_ca_id_rejected(self, ca_id):
+        """A single-segment CA-N value is rejected by ca_id (expects CA-X-Y)."""
+        with pytest.raises(ValidationError):
+            ControlAction(ca_id=ca_id, description="A")
+
+    @given(fb_id=st_fb_wrong_struct)
+    @settings(max_examples=20, deadline=None)
+    def test_single_seg_fb_id_rejected(self, fb_id):
+        """A single-segment FB-N value is rejected by fb_id (expects FB-X-Y)."""
+        with pytest.raises(ValidationError):
+            FeedbackChannel(fb_id=fb_id, description="F", updates="PM-1-1")
+
+    @given(resp_id=st_resp_wrong_struct)
+    @settings(max_examples=20, deadline=None)
+    def test_two_seg_resp_id_rejected(self, resp_id):
+        """A two-segment RESP-X-Y value is rejected by resp_id (expects RESP-N)."""
+        with pytest.raises(ValidationError):
+            Responsibility(resp_id=resp_id, description="R")
+
+    @given(cp_id=st_cp_wrong_struct)
+    @settings(max_examples=20, deadline=None)
+    def test_two_seg_cp_id_rejected(self, cp_id):
+        """A two-segment CP-X-Y value is rejected by cp_id (expects CP-N)."""
+        with pytest.raises(ValidationError):
+            ControlledProcess(cp_id=cp_id, description="C")
+
+    @given(cm_id=st_cm_wrong_struct)
+    @settings(max_examples=20, deadline=None)
+    def test_two_seg_cm_id_rejected(self, cm_id):
+        """A two-segment CM-X-Y value is rejected by cm_id (expects CM-N)."""
+        with pytest.raises(ValidationError):
+            CoordinationMechanism(cm_id=cm_id, description="C", payload="p")
+
+    @given(cl_id=st_cl_wrong_struct)
+    @settings(max_examples=20, deadline=None)
+    def test_two_seg_cl_id_rejected(self, cl_id):
+        """A two-segment CL-X-Y value is rejected by link_id (expects CL-N)."""
+        with pytest.raises(ValidationError):
+            CoordinationLink(
+                link_id=cl_id,
+                source="RESP-1",
+                target="RESP-2",
+                shared_pm="PM-1-1",
+                coordination_mechanism=CoordinationMechanism(
+                    cm_id="CM-1", description="C", payload="p"
+                ),
+                description="L",
+            )
+
+
+class TestCrossNamespaceCollisionProperty:
+    """Cross-namespace collision: any shared ID value across two namespaces
+    is always detected by the model validator, even when field validators
+    are bypassed."""
+
+    @given(
+        colliding_id=st_rc_ids,
+        target_field=st.sampled_from(["pm_id", "ca_id", "fb_id"]),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_rc_collision_with_other_namespace_detected(
+        self, colliding_id, target_field
+    ):
+        """An RC-X-Y value placed in a non-RC namespace is detected as a collision.
+
+        Uses model_construct to bypass field validators so the cross-namespace
+        collision check is the only thing that catches it.
+        """
+        # Build a responsibility with an RC ID and a colliding ID in another field.
+        rc = ResponsibilityConstraint.model_construct(
+            rc_id=colliding_id, description="C"
+        )
+        pm = ProcessModelPart.model_construct(
+            pm_id=colliding_id if target_field == "pm_id" else "PM-1-1",
+            description="P",
+        )
+        ca = ControlAction.model_construct(
+            ca_id=colliding_id if target_field == "ca_id" else "CA-1-1",
+            description="A",
+        )
+        fb = FeedbackChannel.model_construct(
+            fb_id=colliding_id if target_field == "fb_id" else "FB-1-1",
+            description="F",
+            updates="PM-1-1",
+            source=ElementRef(type=ReferenceType.responsibility, id="RESP-1"),
+        )
+        resp = Responsibility.model_construct(
+            resp_id="RESP-1",
+            description="R",
+            responsibility_constraints=[rc],
+            process_model_parts=[pm],
+            control_actions=[ca],
+            feedback_channels=[fb],
+        )
+        cs = ControlStructure.model_construct(
+            responsibilities=[resp],
+            controlled_processes=[],
+            coordination_links=[],
+        )
+        with pytest.raises((ValidationError, ValueError)) as exc_info:
+            ControlStructure.validate_references_and_duplicates(cs)
+        msg = str(exc_info.value).lower()
+        assert "namespace" in msg or "collision" in msg
+
+    @given(
+        colliding_id=st_two_seg_ids,
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_cp_collision_with_two_seg_namespace_detected(self, colliding_id):
+        """A two-segment ID value shared between a child namespace and CP is detected.
+
+        Uses model_construct to bypass field validators.
+        """
+        rc = ResponsibilityConstraint.model_construct(
+            rc_id=colliding_id, description="C"
+        )
+        pm = ProcessModelPart.model_construct(
+            pm_id="PM-1-1", description="P",
+        )
+        ca = ControlAction.model_construct(
+            ca_id="CA-1-1", description="A",
+        )
+        fb = FeedbackChannel.model_construct(
+            fb_id="FB-1-1",
+            description="F",
+            updates="PM-1-1",
+            source=ElementRef(type=ReferenceType.responsibility, id="RESP-1"),
+        )
+        resp = Responsibility.model_construct(
+            resp_id="RESP-1",
+            description="R",
+            responsibility_constraints=[rc],
+            process_model_parts=[pm],
+            control_actions=[ca],
+            feedback_channels=[fb],
+        )
+        cp = ControlledProcess.model_construct(
+            cp_id=colliding_id, description="CP"
+        )
+        cs = ControlStructure.model_construct(
+            responsibilities=[resp],
+            controlled_processes=[cp],
+            coordination_links=[],
+        )
+        with pytest.raises((ValidationError, ValueError)) as exc_info:
+            ControlStructure.validate_references_and_duplicates(cs)
+        msg = str(exc_info.value).lower()
+        assert "namespace" in msg or "collision" in msg
+
+    @given(
+        colliding_id=st_one_seg_ids,
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_resp_cp_collision_detected(self, colliding_id):
+        """A one-segment ID shared between RESP and CP namespaces is detected.
+
+        Uses model_construct to bypass field validators.
+        """
+        rc = ResponsibilityConstraint.model_construct(
+            rc_id="RC-1-1", description="C"
+        )
+        pm = ProcessModelPart.model_construct(
+            pm_id="PM-1-1", description="P",
+        )
+        ca = ControlAction.model_construct(
+            ca_id="CA-1-1", description="A",
+        )
+        fb = FeedbackChannel.model_construct(
+            fb_id="FB-1-1",
+            description="F",
+            updates="PM-1-1",
+            source=ElementRef(type=ReferenceType.responsibility, id="RESP-1"),
+        )
+        resp = Responsibility.model_construct(
+            resp_id=colliding_id,
+            description="R",
+            responsibility_constraints=[rc],
+            process_model_parts=[pm],
+            control_actions=[ca],
+            feedback_channels=[fb],
+        )
+        cp = ControlledProcess.model_construct(
+            cp_id=colliding_id, description="CP"
+        )
+        cs = ControlStructure.model_construct(
+            responsibilities=[resp],
+            controlled_processes=[cp],
+            coordination_links=[],
+        )
+        with pytest.raises((ValidationError, ValueError)) as exc_info:
+            ControlStructure.validate_references_and_duplicates(cs)
+        msg = str(exc_info.value).lower()
+        assert "namespace" in msg or "collision" in msg
+
+    @given(
+        n_resps=st.integers(min_value=1, max_value=3),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_no_false_positive_cross_namespace_collision(self, n_resps):
+        """Well-formed IDs with no cross-namespace sharing do NOT trigger collision.
+
+        This is the negative case: distinct prefixes guarantee no collision
+        is reported, regardless of how many responsibilities exist.
+        """
+        responsibilities = []
+        for i in range(1, n_resps + 1):
+            rc = ResponsibilityConstraint.model_construct(
+                rc_id=f"RC-{i}-1", description="C"
+            )
+            pm = ProcessModelPart.model_construct(
+                pm_id=f"PM-{i}-1", description="P",
+            )
+            ca = ControlAction.model_construct(
+                ca_id=f"CA-{i}-1", description="A",
+            )
+            fb = FeedbackChannel.model_construct(
+                fb_id=f"FB-{i}-1",
+                description="F",
+                updates=f"PM-{i}-1",
+                source=ElementRef(type=ReferenceType.responsibility, id=f"RESP-{i}"),
+            )
+            resp = Responsibility.model_construct(
+                resp_id=f"RESP-{i}",
+                description="R",
+                responsibility_constraints=[rc],
+                process_model_parts=[pm],
+                control_actions=[ca],
+                feedback_channels=[fb],
+            )
+            responsibilities.append(resp)
+        cps = [
+            ControlledProcess.model_construct(cp_id=f"CP-{i}", description="CP")
+            for i in range(1, n_resps + 1)
+        ]
+        cs = ControlStructure.model_construct(
+            responsibilities=responsibilities,
+            controlled_processes=cps,
+            coordination_links=[],
+        )
+        # Should NOT raise — no cross-namespace collision.
+        ControlStructure.validate_references_and_duplicates(cs)
+
+
+class TestKcSubcodesDisplayProperty:
+    """Property tests for KC sub-code display invariants.
+
+    Verifies that build_kc_subcodes_display and inject_kc_subcodes_display
+    preserve key invariants across broad input ranges.
+    """
+
+    @given(
+        codes=st.lists(
+            st.from_regex(r"KC[0-9]+\.[0-9]+", fullmatch=True),
+            min_size=0,
+            max_size=10,
+            unique=True,
+        )
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_display_keys_match_input_codes(self, codes):
+        """Conservation: display dict keys exactly match input codes."""
+        from scenario_forge.models.capability_profile import build_kc_subcodes_display
+
+        result = build_kc_subcodes_display(codes)
+        assert set(result.keys()) == set(codes)
+
+    @given(
+        codes=st.lists(
+            st.from_regex(r"KC[0-9]+\.[0-9]+", fullmatch=True),
+            min_size=0,
+            max_size=10,
+            unique=True,
+        )
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_display_values_are_nonempty_strings(self, codes):
+        """Type invariant: all display values are non-empty strings."""
+        from scenario_forge.models.capability_profile import build_kc_subcodes_display
+
+        result = build_kc_subcodes_display(codes)
+        for val in result.values():
+            assert isinstance(val, str)
+            assert len(val) > 0
+
+    @given(
+        codes=st.lists(
+            st.from_regex(r"KCX-[A-Z]+", fullmatch=True),
+            min_size=1,
+            max_size=10,
+            unique=True,
+        )
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_unknown_kcx_codes_fall_back_to_self(self, codes):
+        """Fallback invariant: unknown KCX codes map to the code string itself."""
+        from scenario_forge.models.capability_profile import (
+            KC_SUBCODE_NAMES,
+            KCX_SUBCODES,
+            build_kc_subcodes_display,
+        )
+
+        result = build_kc_subcodes_display(codes)
+        for code in codes:
+            if code not in KC_SUBCODE_NAMES and code not in KCX_SUBCODES:
+                assert result[code] == code
+
+    @given(
+        codes=st.lists(
+            st.from_regex(r"KC[0-9]+\.[0-9]+", fullmatch=True),
+            min_size=0,
+            max_size=10,
+            unique=True,
+        )
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_inject_preserves_kc_subcodes_field(self, codes):
+        """Non-mutation: inject_kc_subcodes_display does not alter kc_subcodes."""
+        from scenario_forge.models.capability_profile import inject_kc_subcodes_display
+
+        data = {"kc_subcodes": codes}
+        result = inject_kc_subcodes_display(data)
+        assert result["kc_subcodes"] == codes
+        assert "kc_subcodes_display" in result
+
+    @given(
+        codes=st.lists(
+            st.from_regex(r"KC[0-9]+\.[0-9]+", fullmatch=True),
+            min_size=1,
+            max_size=10,
+            unique=True,
+        )
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_inject_display_consistent_with_build(self, codes):
+        """Consistency: inject produces the same display dict as build."""
+        from scenario_forge.models.capability_profile import (
+            build_kc_subcodes_display,
+            inject_kc_subcodes_display,
+        )
+
+        data = {"kc_subcodes": codes}
+        result = inject_kc_subcodes_display(data)
+        assert result["kc_subcodes_display"] == build_kc_subcodes_display(codes)
+
+    @given(
+        data=st.dictionaries(
+            keys=st.text(min_size=1, max_size=10),
+            values=st.text(min_size=1, max_size=20),
+            min_size=0,
+            max_size=5,
+        )
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_inject_without_kc_subcodes_is_noop(self, data):
+        """Safety: inject on a dict without kc_subcodes leaves it unchanged."""
+        from scenario_forge.models.capability_profile import inject_kc_subcodes_display
+
+        original = dict(data)
+        result = inject_kc_subcodes_display(data)
+        assert result == original
+        assert "kc_subcodes_display" not in result

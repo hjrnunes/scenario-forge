@@ -1,0 +1,352 @@
+{
+  "name" : "SP3 — Run orchestration",
+  "scenarios" : [ {
+    "name" : "SP3-RUN-01 full run produces scenario envelopes and eval scorecard",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid BDI generation, narrative, attack tree, and Gherkin results"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a directory scenarios exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "at least one file *.yaml exists in the scenarios directory"
+    }, {
+      "keyword" : "And",
+      "text" : "at least one file *.feature exists in the scenarios directory"
+    }, {
+      "keyword" : "And",
+      "text" : "a file eval-scorecard.yaml exists in the run directory"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-02 stages execute in order Stage 5 then Stage 6 then Stage 7",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "Stage 5 BDI generation is produced first"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 6 concretization is produced second"
+    }, {
+      "keyword" : "And",
+      "text" : "Stage 7 validation and eval is produced last"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-03 all LLM calls are logged to calls.jsonl",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file calls.jsonl exists in the run directory"
+    }, {
+      "keyword" : "And",
+      "text" : "the file contains entries with stage stage_5"
+    }, {
+      "keyword" : "And",
+      "text" : "the file contains entries with stage stage_6"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-04 Stage 7 makes no LLM calls",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "no call log entries have stage stage_7"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-05 run manifest is written at run end",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file run-manifest.yaml exists in the run directory"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-06 run manifest records stage summary",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run manifest has stage_summary with call counts for stage_5"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest has stage_summary with call counts for stage_6"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-07 run manifest records input hashes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run manifest input_hashes contains a hash for the enriched threat set"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest input_hashes contains a hash for the control structure"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest input_hashes contains a hash for the loss analysis"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-08 run manifest records prompt hashes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run manifest prompt_hashes contains SHA-256 hashes for stage5_system.j2"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest prompt_hashes contains SHA-256 hashes for stage5_user.j2"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest prompt_hashes contains SHA-256 hashes for stage6a_narrative_system.j2"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest prompt_hashes contains SHA-256 hashes for stage6b_tree_system.j2"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest prompt_hashes contains SHA-256 hashes for stage6c_gherkin_system.j2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-09 prompt templates exist for all stages",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP3 prompt templates directory"
+    }, {
+      "keyword" : "Then",
+      "text" : "the following template files exist:"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-10 module layout matches spec",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP3 scenario production module"
+    }, {
+      "keyword" : "Then",
+      "text" : "the following modules exist and are importable:"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-11 SP1 and SP2 artifacts are consumed as input",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the scenario specs are validated against the control structure"
+    }, {
+      "keyword" : "And",
+      "text" : "the eval metrics consume the enriched threat set coverage analysis"
+    }, {
+      "keyword" : "And",
+      "text" : "the traceability validation consumes the loss analysis"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-12 run_sp3.py CLI script exists and accepts arguments",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the scripts directory"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file run_sp3.py exists in the scripts directory"
+    }, {
+      "keyword" : "And",
+      "text" : "run_sp3.py accepts an enriched-threats argument"
+    }, {
+      "keyword" : "And",
+      "text" : "run_sp3.py accepts a control-structure argument"
+    }, {
+      "keyword" : "And",
+      "text" : "run_sp3.py accepts a loss-analysis argument"
+    }, {
+      "keyword" : "And",
+      "text" : "run_sp3.py accepts an output-dir argument"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-13 max-workers flag controls parallelism for Stage 6 calls",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "And",
+      "text" : "a max_workers value of 2"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed with max_workers 2"
+    }, {
+      "keyword" : "Then",
+      "text" : "Stage 6 calls are parallelized across scenarios"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-14 coverage gaps are written to coverage-gaps.json",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "And",
+      "text" : "a run directory for output"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "a file coverage-gaps.json exists in the run directory"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-15 scenario envelope files validate against ScenarioEnvelope schema",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "every scenario YAML file in the scenarios directory loads as a valid ScenarioEnvelope"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-16 scenario count equals the number of structural threats",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an enriched threat set with 10 structural threats"
+    }, {
+      "keyword" : "And",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "10 scenario envelopes are produced"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-17 eval scorecard includes coverage gaps",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the eval scorecard contains coverage_gaps"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-18 existing pipeline tests are unaffected",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the SP3 scenario production module is implemented"
+    }, {
+      "keyword" : "When",
+      "text" : "the existing test suite is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "no new failures are introduced"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-19 run manifest records scenario count and validation status",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns valid results for all stages"
+    }, {
+      "keyword" : "When",
+      "text" : "the full SP3 run is executed"
+    }, {
+      "keyword" : "Then",
+      "text" : "the run manifest records the total scenario count"
+    }, {
+      "keyword" : "And",
+      "text" : "the run manifest records the number of validation errors"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP3-RUN-20 Stage 6 calls are parallelizable across the 3 call types per scenario",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "a ScenarioSpec and 3 LLM call specifications for narrative, attack_tree, and gherkin"
+    }, {
+      "keyword" : "When",
+      "text" : "the 3 calls are executed in parallel for the scenario"
+    }, {
+      "keyword" : "Then",
+      "text" : "results are returned in the same order as the input specifications"
+    }, {
+      "keyword" : "And",
+      "text" : "the number of LLM calls equals 3"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the SP3 run module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "an enriched threat set fixture for Klarna is available"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure fixture for Klarna is available"
+  }, {
+    "keyword" : "And",
+    "text" : "a loss analysis fixture for Klarna is available"
+  } ]
+}

@@ -1,0 +1,109 @@
+"""Stage 3 Phase 1 — Deterministic slot creation.
+
+Creates one slot per ``(responsibility × control_action × UCA_type)``
+triple plus one slot per ``(coordination_link × UCA_type)``.
+
+Four UCA types: NOT_PROVIDED, INCORRECT, WRONG_TIMING, WRONG_DURATION.
+
+Slot count formula::
+
+    (sum of control_actions per responsibility × 4)
+    + (N_coordination_links × 4)
+
+Purely deterministic — no LLM calls.
+
+Phase 1 creates :class:`SlotPlaceholder` objects (not :class:`ICASlot`)
+because the ``ICASlot`` model's ``validate_na_exclusivity`` validator
+rejects the unfilled state (``is_na=False, icas=[]``).  Placeholders are
+converted to ``ICASlot`` by the LLM slot-filling phase after the LLM
+provides either concrete ICAs or an N/A justification.
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+from scenario_forge.stpa.models.control_structure import ControlStructure
+from scenario_forge.stpa.models.ica_enumeration import ICA, UCAType
+
+__all__ = ["SlotPlaceholder", "create_slots"]
+
+
+class SlotPlaceholder(BaseModel):
+    """An unfilled ICA slot created by Phase 1.
+
+    Has the same fields as :class:`ICASlot` but without the
+    ``validate_na_exclusivity`` validator, allowing the unfilled state
+    (``is_na=False, icas=[], na_justification=None``).
+
+    Converted to :class:`ICASlot` after LLM slot-filling.
+    """
+
+    slot_id: str
+    responsibility: str | None = None
+    coordination_link: str | None = None
+    control_action: str
+    uca_type: UCAType
+    is_na: bool = False
+    icas: list[ICA] = Field(default_factory=list)
+    na_justification: str | None = None
+
+
+def create_slots(control_structure: ControlStructure) -> list[SlotPlaceholder]:
+    """Create ICA slot placeholders for every responsibility and coordination link.
+
+    Each responsibility produces ``len(control_actions) × 4`` slots
+    (one per UCA type). Each coordination link produces ``4`` slots.
+
+    Slot IDs follow the format:
+    - ``RESP-X:CA-Y:UCA_TYPE`` for responsibility slots
+    - ``CL-X:CM-Y:UCA_TYPE`` for coordination link slots
+
+    All slots start with ``is_na=False``, ``icas=[]``, and
+    ``na_justification=None`` — they are filled by the LLM in Phase 2.
+
+    Args:
+        control_structure: The control structure to derive slots from.
+
+    Returns:
+        A list of :class:`SlotPlaceholder` objects in deterministic order:
+        responsibility slots first (in responsibility → control_action →
+        UCA type order), then coordination link slots.
+    """
+    slots: list[SlotPlaceholder] = []
+
+    for resp in control_structure.responsibilities:
+        for ca in resp.control_actions:
+            for uca_type in UCAType:
+                slots.append(
+                    SlotPlaceholder(
+                        slot_id=f"{resp.resp_id}:{ca.ca_id}:{uca_type.value}",
+                        responsibility=resp.resp_id,
+                        coordination_link=None,
+                        control_action=ca.ca_id,
+                        uca_type=uca_type,
+                        is_na=False,
+                        icas=[],
+                    )
+                )
+
+    for link in control_structure.coordination_links:
+        for uca_type in UCAType:
+            slots.append(
+                SlotPlaceholder(
+                    slot_id=f"{link.link_id}:{link.coordination_mechanism.cm_id}:{uca_type.value}",
+                    responsibility=None,
+                    coordination_link=link.link_id,
+                    control_action=link.coordination_mechanism.cm_id,
+                    uca_type=uca_type,
+                    is_na=False,
+                    icas=[],
+                )
+            )
+
+    return slots
+
+
+# mutate4py-manifest-begin
+# {"version":1,"tested_at":"2026-08-10T00:18:09Z","module_hash":"71cb5d3f26b28eefa4786a06656e3fb682b8e5407a8f2f571ba14bdc54a83743","functions":[{"id":"func/create_slots","name":"create_slots","line":52,"end_line":104,"hash":"e46420f0c3e13f06794476442bbb7f8acbdd45099034a92fac327a1bcded3792"}]}
+# mutate4py-manifest-end

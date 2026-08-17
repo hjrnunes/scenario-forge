@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "sp2 catalog enrichment",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/sp2_catalog_enrichment.json",
+  "implementation_hash": "sha256:f7e1b96011d19c221600f02f88c4027d491dab921cc0a56f9416bc701c6a5948",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "sp2_catalog_enrichment_acceptance_test.py"
+  ]
+}

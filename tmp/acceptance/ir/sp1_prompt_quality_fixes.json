@@ -1,0 +1,268 @@
+{
+  "name" : "SP1 Stage 1 prompt quality fixes",
+  "scenarios" : [ {
+    "name" : "PQF-01 stage1a_system.j2 Quality requirements section exists after Structural requirements",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"## Quality requirements\""
+    }, {
+      "keyword" : "And",
+      "text" : "the Quality requirements section appears after the Structural requirements section"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "PQF-02 stage1a_system.j2 contains Hazard specificity patterns",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"### Hazard specificity\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"at least one specific component\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"too generic\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"<pattern_text>\"",
+      "parameters" : [ "pattern_text" ]
+    } ],
+    "examples" : [ {
+      "pattern_text" : "LLM outputs are manipulated via prompt injection to bypass security controls"
+    }, {
+      "pattern_text" : "System generates biased or discriminatory content"
+    }, {
+      "pattern_text" : "patient chatbot generates an inaccurate surgical procedure explanation"
+    }, {
+      "pattern_text" : "refund processing API executes an unauthorized refund amount"
+    } ]
+  }, {
+    "name" : "PQF-03 stage1a_system.j2 contains Loss specificity sub-section",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"### Loss specificity\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"concrete consequences\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"not restatements of the risk card\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "PQF-04 stage1a_system.j2 contains Acronym expansion sub-section",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"### Acronym expansion\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Personally Identifiable Information (PII)\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"first expansion\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"short form alone is acceptable\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "PQF-05 stage1a_system.j2 contains gap analysis procedure for use-case losses",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"gap analysis\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"key capabilities, integration points, and operational characteristics\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"unaddressed capability failure is a use-case-derived loss\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"empty use_case_losses list should be rare\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text does not contain \"losses identified from the use-case description that no risk card covers\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "PQF-06 stage1a_user.j2 contains updated hazards instruction",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_user.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"grounded in this system's specific architecture and mission\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"concrete component, data flow, or integration point\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text does not contain \"System-level hazards, each linking to at least one loss.\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "PQF-07 stage1a_user.j2 contains updated use_case_losses instruction with gap analysis",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_user.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"explicit gap analysis\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"architectural component, integration point, and operational characteristic\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"empty list is acceptable only if\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text does not contain \"Losses from the use-case that no risk card covers.\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "PQF-08 stage1b_system.j2 contains Quality requirements section with acronym expansion",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"## Quality requirements\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"<content_fragment>\"",
+      "parameters" : [ "content_fragment" ]
+    } ],
+    "examples" : [ {
+      "content_fragment" : "Retrieval-Augmented Generation (RAG)"
+    }, {
+      "content_fragment" : "first expansion"
+    }, {
+      "content_fragment" : "short form alone is acceptable"
+    }, {
+      "content_fragment" : "KC sub-code identifiers"
+    }, {
+      "content_fragment" : "KCX-HITL"
+    } ]
+  }, {
+    "name" : "PQF-09 system templates render quality requirements content without errors",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template <template_name> is loaded",
+      "parameters" : [ "template_name" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the template is rendered with no variables"
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendered text contains \"<content_fragment>\"",
+      "parameters" : [ "content_fragment" ]
+    } ],
+    "examples" : [ {
+      "template_name" : "stage1a_system.j2",
+      "content_fragment" : "Quality requirements"
+    }, {
+      "template_name" : "stage1a_system.j2",
+      "content_fragment" : "Hazard specificity"
+    }, {
+      "template_name" : "stage1a_system.j2",
+      "content_fragment" : "Loss specificity"
+    }, {
+      "template_name" : "stage1a_system.j2",
+      "content_fragment" : "Acronym expansion"
+    }, {
+      "template_name" : "stage1a_system.j2",
+      "content_fragment" : "gap analysis"
+    }, {
+      "template_name" : "stage1b_system.j2",
+      "content_fragment" : "Quality requirements"
+    }, {
+      "template_name" : "stage1b_system.j2",
+      "content_fragment" : "Retrieval-Augmented Generation (RAG)"
+    } ]
+  }, {
+    "name" : "PQF-10 stage1a_user.j2 renders with use_case_text and risk_cards variables",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_user.j2 is loaded"
+    }, {
+      "keyword" : "When",
+      "text" : "the template is rendered with use_case_text \"A patient chatbot integrated with EHR systems\" and an empty risk_cards list"
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendered text contains \"grounded in this system's specific architecture\""
+    }, {
+      "keyword" : "And",
+      "text" : "the rendered text contains \"explicit gap analysis\""
+    }, {
+      "keyword" : "And",
+      "text" : "the rendered text contains \"A patient chatbot integrated with EHR systems\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "PQF-11 stage1a_user.j2 preserves Jinja2 template variables",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_user.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"{{ use_case_text }}\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"{% if risk_cards %}\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "PQF-12 stage1a_system.j2 preserves existing sections",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"<section_header>\"",
+      "parameters" : [ "section_header" ]
+    } ],
+    "examples" : [ {
+      "section_header" : "## Structural requirements"
+    }, {
+      "section_header" : "## ID conventions"
+    }, {
+      "section_header" : "## Definitions"
+    }, {
+      "section_header" : "## Output categories (four)"
+    } ]
+  }, {
+    "name" : "PQF-13 stage1b_system.j2 Quality requirements section appears after Emphasis section",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"## Emphasis\""
+    }, {
+      "keyword" : "And",
+      "text" : "the Quality requirements section appears after the Emphasis section in stage1b_system.j2"
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model prompts directory is available"
+  }, {
+    "keyword" : "And",
+    "text" : "the TemplateLoader can load templates from the prompts directory"
+  } ]
+}

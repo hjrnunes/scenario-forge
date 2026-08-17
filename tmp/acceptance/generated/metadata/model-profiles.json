@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "feature_path": "model profiles",
+  "ir_path": "/Users/hjrnunes/workspace/redhat/hjrnunes/scenario-forge/tmp/acceptance/ir/model_profiles.json",
+  "implementation_hash": "sha256:55fe4f85173f62213f38aa84ca19a26db3ff9e8ca38b533068ffb4efcf4b2631",
+  "hash_scope": "generated_files",
+  "generated_files": [
+    "model_profiles_acceptance_test.py"
+  ]
+}

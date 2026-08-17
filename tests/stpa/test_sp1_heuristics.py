@@ -16,7 +16,7 @@ from scenario_forge.stpa.models.control_structure import (
     ProcessModelPart,
     ReferenceType,
     Responsibility,
-    ResponsibilityConstraint,
+
 )
 from scenario_forge.stpa.models.loss_analysis import (
     Hazard,
@@ -183,9 +183,7 @@ class TestStructuralHeuristics:
         resp = Responsibility(
             resp_id="RESP-1",
             description="Controller",
-            responsibility_constraints=[
-                ResponsibilityConstraint(rc_id="SC-1", description="Must verify")
-            ],
+            security_constraint_refs=["SC-1"],
             process_model_parts=[ProcessModelPart(pm_id="PM-1-1", description="State")],
             control_actions=[ControlAction(ca_id="CA-1-1", description="Action")],
             feedback_channels=[

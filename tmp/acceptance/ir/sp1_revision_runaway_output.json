@@ -1,0 +1,197 @@
+{
+  "name" : "SP1 — Prevent RevisionDelta runaway output",
+  "scenarios" : [ {
+    "name" : "RevRunaway-01 revision_system.j2 instructs modified_responsibilities contains only changes",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"modified_responsibilities list must contain ONLY responsibilities you are CHANGING\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Do not include unmodified responsibilities\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"If a responsibility needs no changes, do not include it in the delta at all\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-02 revision_user.j2 does not include use_case_text",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_user.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text does not contain \"use_case_text\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text does not contain \"{{ use_case_text }}\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-03 revision_user.j2 still contains control structure listing",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_user.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"Current Control Structure\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Responsibilities\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Critic Findings\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-04 safe_llm_call accepts a max_completion_tokens parameter",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the safe_llm_call function signature is inspected"
+    }, {
+      "keyword" : "Then",
+      "text" : "the function accepts a max_completion_tokens parameter with default None"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-05 safe_llm_call passes max_completion_tokens to complete",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM client with a mocked complete method"
+    }, {
+      "keyword" : "When",
+      "text" : "safe_llm_call is called with max_completion_tokens 4096"
+    }, {
+      "keyword" : "Then",
+      "text" : "the complete method is called with max_completion_tokens 4096"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-06 safe_llm_call without max_completion_tokens does not override client default",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM client with a mocked complete method"
+    }, {
+      "keyword" : "When",
+      "text" : "safe_llm_call is called without max_completion_tokens"
+    }, {
+      "keyword" : "Then",
+      "text" : "the complete method is called with max_completion_tokens None"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-07 run_revision passes max_completion_tokens 4096",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a valid RevisionDelta"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the LLM complete call is made with max_completion_tokens 4096"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-08 new_responsibilities with existing resp_id is rejected",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_responsibilities containing RESP-1"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the final control structure does not contain a duplicate RESP-1"
+    }, {
+      "keyword" : "And",
+      "text" : "a warning is logged about the rejected duplicate resp_id RESP-1"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-09 new_responsibilities with genuinely new resp_id is accepted",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with new_responsibilities containing RESP-3 with valid PM, CA, and FB elements"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the final control structure contains RESP-3"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-10 duplicate rejection does not affect modified_responsibilities replacement",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "an LLM that returns a RevisionDelta with modified_responsibilities containing RESP-1 with an updated description"
+    }, {
+      "keyword" : "And",
+      "text" : "the RevisionDelta also has new_responsibilities containing RESP-2"
+    }, {
+      "keyword" : "When",
+      "text" : "the revision is run"
+    }, {
+      "keyword" : "Then",
+      "text" : "the final control structure contains RESP-1 with the updated description"
+    }, {
+      "keyword" : "And",
+      "text" : "a warning is logged about the rejected duplicate resp_id RESP-2"
+    }, {
+      "keyword" : "And",
+      "text" : "the final control structure does not contain a duplicate RESP-2"
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-11 revision_system.j2 preserves existing delta and ID rules",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"Do NOT restate the entire control structure\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"ID format rules\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"solution-neutrality\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "RevRunaway-12 revision_system.j2 renders successfully with the new instruction",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template revision_system.j2 is loaded"
+    }, {
+      "keyword" : "When",
+      "text" : "the template is rendered with control_structure and next_ids"
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendered text contains \"modified_responsibilities list must contain ONLY\""
+    }, {
+      "keyword" : "And",
+      "text" : "the rendered text does not contain \"{{\""
+    } ],
+    "examples" : [ ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model revision module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "the STPA system model llm_helpers module is importable"
+  }, {
+    "keyword" : "And",
+    "text" : "a control structure with responsibilities RESP-1 and RESP-2 is available"
+  }, {
+    "keyword" : "And",
+    "text" : "CriticFindings with unjustified gaps are available"
+  }, {
+    "keyword" : "And",
+    "text" : "a run directory for call logging"
+  } ]
+}

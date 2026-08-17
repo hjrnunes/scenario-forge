@@ -18,7 +18,7 @@ The following loss analysis was derived from the use-case and risk cards. Use it
 - **{{ hazard.hazard_id }}**: {{ hazard.description }} (related losses: {{ hazard.related_losses | join(", ") }})
 {% endfor %}
 
-### Security Constraints
+### Security Constraints (requirements for future control structure, NOT existing capabilities)
 {% for sc in loss_analysis.security_constraints %}
 - **{{ sc.constraint_id }}**: {{ sc.description }} (related hazards: {{ sc.related_hazards | join(", ") }})
 {% endfor %}

@@ -12,6 +12,7 @@ from scenario_forge.models.capability_profile import (
     CapabilityProfile,
     Stage1Profile,
 )
+from scenario_forge.stpa.infra.llm_helpers import StageError
 from scenario_forge.stpa.infra.yaml_io import read_yaml, write_yaml
 from scenario_forge.stpa.models.loss_analysis import (
     Hazard,
@@ -171,7 +172,7 @@ class TestStage1bProfile:
         bad["kc_subcodes"] = ["KC1.1", "KC9.9"]
         client = MockLLMClient()
         client.set_response_for(Stage1Profile, bad)
-        with pytest.raises((ValidationError, ValueError), match="(?i)Invalid KC sub-code"):
+        with pytest.raises((ValidationError, ValueError, StageError), match="(?i)Invalid KC sub-code"):
             derive_capability_profile(
                 llm_client=client,
                 use_case_text="Test use case",

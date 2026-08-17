@@ -1,0 +1,169 @@
+{
+  "name" : "SP1 prompt bug fixes",
+  "scenarios" : [ {
+    "name" : "SP1 prompt bug fixes-01 Stage 1a prohibits hallucinated losses and hazards",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1a_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"Every loss must be traceable to either a risk card or a specific feature described in the use-case text\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Every hazard must reference a concrete component, data flow, or capability from the use-case description\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1 prompt bug fixes-02 Stage 1b prohibits hallucinated tools and entry points",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage1b_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"Every tool in tool_inventory must be explicitly mentioned or directly implied by the use-case description\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Every entry point must correspond to an actual interface described in the use case\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1 prompt bug fixes-03 Stage 2 Call 3 defines coordination links",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage2_call3_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"Coordination links capture dependencies between responsibilities\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"share state, data, or control flow\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"inter-controller coordination\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Two responsibilities sharing a process model part not connected by a control action\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"One responsibility's feedback channel updates a PM part that another responsibility controls\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Two responsibilities need to agree on a shared resource\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"An empty coordination_links list is acceptable only when no two responsibilities share state, data, or control flow\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1 prompt bug fixes-04 Call 2 requires zone-driven responsibilities",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage2_call2_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"Check the capability profile's active zones\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"When `tool_execution` is active: require a responsibility governing tool parameter validation and action selection\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"When `memory` is active: require a responsibility for context management and memory lifecycle\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"When `hitl` is true: require a responsibility for escalation and human oversight\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"When `inter_agent` is active: require a responsibility for inter-agent coordination and message validation\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"This should be a hard requirement, not a suggestion\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1 prompt bug fixes-05 Call 2 requires discrete control actions",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template stage2_call2_system.j2 is loaded"
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"Each control action must describe a single discrete action\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Split composite actions into separate CAs\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Approve or reject request\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"CA-X-1 Approve request\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"CA-X-2 Reject request\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"Execute or deny command\""
+    }, {
+      "keyword" : "And",
+      "text" : "the template text contains \"A control action that contains 'or', 'and', or similar conjunctions is likely composite and should be split\""
+    } ],
+    "examples" : [ ]
+  }, {
+    "name" : "SP1 prompt bug fixes-06 updated system prompts render successfully",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template <template_name> is loaded",
+      "parameters" : [ "template_name" ]
+    }, {
+      "keyword" : "When",
+      "text" : "the template is rendered with no variables"
+    }, {
+      "keyword" : "Then",
+      "text" : "the rendered text contains \"<rendered_text>\"",
+      "parameters" : [ "rendered_text" ]
+    } ],
+    "examples" : [ {
+      "template_name" : "stage1a_system.j2",
+      "rendered_text" : "Every loss must be traceable"
+    }, {
+      "template_name" : "stage1b_system.j2",
+      "rendered_text" : "Every tool in tool_inventory"
+    }, {
+      "template_name" : "stage2_call2_system.j2",
+      "rendered_text" : "Each control action must describe"
+    }, {
+      "template_name" : "stage2_call3_system.j2",
+      "rendered_text" : "Coordination links capture dependencies"
+    } ]
+  }, {
+    "name" : "SP1 prompt bug fixes-07 existing prompt sections remain present",
+    "steps" : [ {
+      "keyword" : "Given",
+      "text" : "the template <template_name> is loaded",
+      "parameters" : [ "template_name" ]
+    }, {
+      "keyword" : "Then",
+      "text" : "the template text contains \"<section_header>\"",
+      "parameters" : [ "section_header" ]
+    } ],
+    "examples" : [ {
+      "template_name" : "stage1a_system.j2",
+      "section_header" : "## Quality requirements"
+    }, {
+      "template_name" : "stage1b_system.j2",
+      "section_header" : "## Quality requirements"
+    }, {
+      "template_name" : "stage2_call2_system.j2",
+      "section_header" : "## ID conventions"
+    }, {
+      "template_name" : "stage2_call3_system.j2",
+      "section_header" : "## Structural requirements"
+    } ]
+  } ],
+  "background" : [ {
+    "keyword" : "Given",
+    "text" : "the STPA system model prompts directory is available"
+  }, {
+    "keyword" : "And",
+    "text" : "the TemplateLoader can load templates from the prompts directory"
+  } ]
+}

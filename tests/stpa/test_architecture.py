@@ -147,6 +147,9 @@ class TestCleanCopyEnforcement:
             "math",
             "itertools",
             "contextlib",
+            "argparse",
+            "threading",
+            "concurrent",
         )
         violations: list[str] = []
         for path in infra_python_files:
@@ -175,10 +178,14 @@ class TestNoImportCycles:
             "scenario_forge.stpa",
             "scenario_forge.stpa.infra",
             "scenario_forge.stpa.infra.llm",
+            "scenario_forge.stpa.infra.llm_helpers",
             "scenario_forge.stpa.infra.call_log",
+            "scenario_forge.stpa.infra.calls_html",
+            "scenario_forge.stpa.infra.model_profiles",
             "scenario_forge.stpa.infra.yaml_io",
             "scenario_forge.stpa.infra.templates",
             "scenario_forge.stpa.infra.manifest",
+            "scenario_forge.stpa.infra.parallel_llm",
             "scenario_forge.stpa.models",
             "scenario_forge.stpa.models._validation",
             "scenario_forge.stpa.models.loss_analysis",
@@ -264,6 +271,64 @@ class TestModelDependencyDirection:
         path = model_files["enriched_threat_set"]
         imports = _stpa_model_imports(path)
         assert not imports, f"enriched_threat_set.py imports stpa models: {imports}"
+
+
+class TestModelsDoNotImportHigherLayers:
+    """Boundary schema models must not import from scenario_prod, report,
+    or any other higher-level stpa module.
+
+    Models are the lowest-level architectural layer in stpa/; they must
+    remain free of dependencies on the pipeline that consumes them.
+    """
+
+    @pytest.fixture
+    def model_python_files(self) -> list[Path]:
+        return sorted(
+            p for p in MODELS_DIR.glob("*.py")
+            if p.name != "__init__.py"
+        )
+
+    def test_no_scenario_prod_imports(self, model_python_files):
+        """No model file imports from scenario_forge.stpa.scenario_prod."""
+        violations: list[str] = []
+        for path in model_python_files:
+            for imp in _extract_imports(path):
+                if imp.startswith("scenario_forge.stpa.scenario_prod"):
+                    violations.append(
+                        f"{path.name}: imports '{imp}' — "
+                        f"models must not depend on scenario_prod"
+                    )
+        assert not violations, (
+            "Model → scenario_prod dependency violations:\n" + "\n".join(violations)
+        )
+
+    def test_no_report_imports(self, model_python_files):
+        """No model file imports from scenario_forge.stpa.report."""
+        violations: list[str] = []
+        for path in model_python_files:
+            for imp in _extract_imports(path):
+                if imp.startswith("scenario_forge.stpa.report"):
+                    violations.append(
+                        f"{path.name}: imports '{imp}' — "
+                        f"models must not depend on report"
+                    )
+        assert not violations, (
+            "Model → report dependency violations:\n" + "\n".join(violations)
+        )
+
+    def test_no_system_model_imports(self, model_python_files):
+        """No model file imports from scenario_forge.stpa.system_model."""
+        violations: list[str] = []
+        for path in model_python_files:
+            for imp in _extract_imports(path):
+                if imp.startswith("scenario_forge.stpa.system_model"):
+                    violations.append(
+                        f"{path.name}: imports '{imp}' — "
+                        f"models must not depend on system_model"
+                    )
+        assert not violations, (
+            "Model → system_model dependency violations:\n" + "\n".join(violations)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -468,3 +533,491 @@ class TestSystemModelDependencyDirection:
         assert not imports, (
             f"heuristics.py imports system_model modules: {imports}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Graceful degradation architecture guards
+# ---------------------------------------------------------------------------
+
+
+class TestSafeLlmCallExceptionSafety:
+    """``safe_llm_call`` must catch ``Exception`` but NOT ``BaseException``
+    subclasses like ``KeyboardInterrupt`` or ``SystemExit``.
+
+    Catching ``BaseException`` would prevent the user from interrupting
+    a long-running pipeline and would swallow process-exit signals.
+    """
+
+    def test_keyboard_interrupt_not_caught(self, tmp_path):
+        """KeyboardInterrupt propagates through safe_llm_call."""
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+        from pydantic import BaseModel
+
+        class _Dummy(BaseModel):
+            x: int = 1
+
+        client = MockLLMClient()
+        client.set_exception_for(_Dummy, KeyboardInterrupt("Ctrl-C"))
+
+        with pytest.raises(KeyboardInterrupt):
+            safe_llm_call(
+                llm_client=client,
+                system_prompt="s",
+                user_prompt="u",
+                response_format=_Dummy,
+                run_dir=tmp_path,
+                stage="test",
+                step="test",
+            )
+
+    def test_system_exit_not_caught(self, tmp_path):
+        """SystemExit propagates through safe_llm_call."""
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+        from pydantic import BaseModel
+
+        class _Dummy(BaseModel):
+            x: int = 1
+
+        client = MockLLMClient()
+        client.set_exception_for(_Dummy, SystemExit(1))
+
+        with pytest.raises(SystemExit):
+            safe_llm_call(
+                llm_client=client,
+                system_prompt="s",
+                user_prompt="u",
+                response_format=_Dummy,
+                run_dir=tmp_path,
+                stage="test",
+                step="test",
+            )
+
+    def test_runtime_exception_caught_and_logged(self, tmp_path):
+        """RuntimeError is caught by safe_llm_call (not propagated)."""
+        from scenario_forge.stpa.infra.llm_helpers import safe_llm_call
+        from tests.stpa.sp1_helpers import MockLLMClient
+        from pydantic import BaseModel
+
+        class _Dummy(BaseModel):
+            x: int = 1
+
+        client = MockLLMClient()
+        client.set_exception_for(_Dummy, RuntimeError("API down"))
+
+        model, result, error = safe_llm_call(
+            llm_client=client,
+            system_prompt="s",
+            user_prompt="u",
+            response_format=_Dummy,
+            run_dir=tmp_path,
+            stage="test",
+            step="test",
+        )
+        assert model is None
+        assert error is not None
+        assert "RuntimeError" in error
+
+
+class TestSafeLlmCallCanonicalEntryPoint:
+    """``safe_llm_call`` must be the sole caller of ``llm_client.complete()``
+    in the STPA pipeline.  No stage function should call ``complete()``
+    directly, bypassing error handling and call logging."""
+
+    def test_no_direct_complete_calls_in_system_model(self):
+        """No system_model module calls llm_client.complete() directly."""
+        violations: list[str] = []
+        for path in sorted(SYSTEM_MODEL_DIR.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if ".complete(" in source:
+                # Exclude safe_llm_call itself (which is in infra, not here)
+                violations.append(
+                    f"{path.name}: calls .complete() directly — "
+                    f"must use safe_llm_call() instead"
+                )
+        assert not violations, (
+            "Direct .complete() calls in system_model/:\n" + "\n".join(violations)
+        )
+
+    def test_complete_only_called_from_safe_llm_call(self):
+        """llm_client.complete() is called only from safe_llm_call in infra."""
+        import re
+
+        violations: list[str] = []
+        for path in sorted(STPA_ROOT.rglob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            # Find all .complete( calls
+            for match in re.finditer(r"\.complete\(", source):
+                # Check if it's inside safe_llm_call function
+                # Get the function context by looking backwards for 'def '
+                pos = match.start()
+                # Find the enclosing function definition
+                lines_before = source[:pos].split("\n")
+                enclosing_func = None
+                for line in reversed(lines_before):
+                    stripped = line.lstrip()
+                    if stripped.startswith("def "):
+                        enclosing_func = stripped
+                        break
+                if enclosing_func and "safe_llm_call" not in enclosing_func:
+                    violations.append(
+                        f"{path.name}: .complete() called outside safe_llm_call "
+                        f"(in '{enclosing_func.strip()}')"
+                    )
+        assert not violations, (
+            ".complete() called outside safe_llm_call:\n" + "\n".join(violations)
+        )
+
+
+class TestStageErrorLocation:
+    """``StageError`` must be defined in the infra layer, not in system_model.
+
+    This ensures downstream SPs (SP2, SP3) can import ``StageError`` from
+    the shared infra layer without depending on SP1's system_model.
+    """
+
+    def test_stage_error_defined_in_infra(self):
+        """StageError is defined in infra/llm_helpers.py."""
+        from scenario_forge.stpa.infra import llm_helpers
+
+        assert hasattr(llm_helpers, "StageError")
+        assert llm_helpers.StageError.__module__ == "scenario_forge.stpa.infra.llm_helpers"
+
+    def test_stage_error_not_defined_in_system_model(self):
+        """No system_model module defines its own StageError class."""
+        import ast
+
+        for path in sorted(SYSTEM_MODEL_DIR.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and node.name == "StageError":
+                    pytest.fail(
+                        f"{path.name}: defines StageError — "
+                        f"must use the infra layer's StageError"
+                    )
+
+    def test_stage_error_importable_without_system_model(self):
+        """StageError can be imported without importing system_model."""
+        import importlib
+
+        mod = importlib.import_module("scenario_forge.stpa.infra.llm_helpers")
+        assert hasattr(mod, "StageError")
+
+
+# ---------------------------------------------------------------------------
+# SP3 Scenario Production architecture guards
+# ---------------------------------------------------------------------------
+
+SCENARIO_PROD_DIR = STPA_ROOT / "scenario_prod"
+
+# Dependency layers within scenario_prod (lower = closer to leaf).
+# A module at layer N may import from modules at layer <= N.
+_SCENARIO_PROD_LAYERS: dict[str, int] = {
+    "_constants": 0,
+    "enrichment": 0,
+    "assembly": 1,
+    "bdi_generation": 1,
+    "narrative": 1,
+    "attack_tree": 1,
+    "gherkin": 1,
+    "validators": 1,
+    "eval_metrics": 2,
+    "coverage": 2,
+    "run": 3,
+}
+
+
+def _scenario_prod_internal_imports(file_path: Path) -> list[str]:
+    """Return bare module names imported from within scenario_prod.
+
+    Relative imports like ``from .validators import X`` yield ``"validators"``.
+    """
+    result: list[str] = []
+    for imp in _extract_imports(file_path):
+        prefix = "scenario_forge.stpa.scenario_prod."
+        if imp.startswith(prefix):
+            result.append(imp[len(prefix):].split(".")[0])
+    # Also handle relative imports (from .xxx import ...)
+    source = file_path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(file_path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level == 1 and node.module:
+                result.append(node.module)
+    return result
+
+
+def _has_local_imports(file_path: Path) -> list[str]:
+    """Return descriptions of import statements inside function bodies."""
+    source = file_path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(file_path))
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.walk(node):
+                if isinstance(child, ast.Import):
+                    for alias in child.names:
+                        violations.append(
+                            f"{file_path.name}:{node.name}: "
+                            f"local import '{alias.name}'"
+                        )
+                elif isinstance(child, ast.ImportFrom):
+                    mod = child.module or ""
+                    violations.append(
+                        f"{file_path.name}:{node.name}: "
+                        f"local from-import '{mod}'"
+                    )
+    return violations
+
+
+def _private_imports_across_modules(file_path: Path) -> list[str]:
+    """Return names starting with '_' imported from scenario_prod siblings."""
+    source = file_path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(file_path))
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            # Check relative imports from scenario_prod siblings
+            is_sp3_sibling = (
+                node.level == 1
+                or (node.module and node.module.startswith("scenario_forge.stpa.scenario_prod"))
+            )
+            if not is_sp3_sibling:
+                continue
+            for alias in node.names:
+                if alias.name.startswith("_") and alias.name != "_":
+                    violations.append(
+                        f"{file_path.name}: imports private name "
+                        f"'{alias.name}' from sibling module"
+                    )
+    return violations
+
+
+class TestScenarioProdNoImportCycles:
+    """All scenario_prod modules must import without circular dependency errors."""
+
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "scenario_forge.stpa.scenario_prod",
+            "scenario_forge.stpa.scenario_prod._constants",
+            "scenario_forge.stpa.scenario_prod.enrichment",
+            "scenario_forge.stpa.scenario_prod.assembly",
+            "scenario_forge.stpa.scenario_prod.bdi_generation",
+            "scenario_forge.stpa.scenario_prod.narrative",
+            "scenario_forge.stpa.scenario_prod.attack_tree",
+            "scenario_forge.stpa.scenario_prod.gherkin",
+            "scenario_forge.stpa.scenario_prod.validators",
+            "scenario_forge.stpa.scenario_prod.eval_metrics",
+            "scenario_forge.stpa.scenario_prod.coverage",
+            "scenario_forge.stpa.scenario_prod.run",
+        ],
+    )
+    def test_module_imports_cleanly(self, module_name):
+        """Module can be imported without errors."""
+        mod = importlib.import_module(module_name)
+        assert mod is not None
+
+
+class TestScenarioProdDependencyDirection:
+    """scenario_prod modules must follow layer ordering."""
+
+    @pytest.fixture
+    def scenario_prod_files(self) -> dict[str, Path]:
+        files: dict[str, Path] = {}
+        for path in sorted(SCENARIO_PROD_DIR.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            files[path.stem] = path
+        return files
+
+    def test_no_reverse_dependencies(self, scenario_prod_files):
+        """A module at layer N must not import from a module at layer > N."""
+        violations: list[str] = []
+        for name, path in scenario_prod_files.items():
+            my_layer = _SCENARIO_PROD_LAYERS.get(name, 99)
+            for imported in _scenario_prod_internal_imports(path):
+                target_layer = _SCENARIO_PROD_LAYERS.get(imported, 99)
+                if target_layer > my_layer:
+                    violations.append(
+                        f"{name} (layer {my_layer}) imports "
+                        f"{imported} (layer {target_layer}) — "
+                        f"dependency direction violation"
+                    )
+        assert not violations, (
+            "scenario_prod dependency direction violations:\n"
+            + "\n".join(violations)
+        )
+
+    def test_constants_is_leaf(self, scenario_prod_files):
+        """_constants.py must not import any other module."""
+        path = scenario_prod_files.get("_constants")
+        assert path is not None, "_constants.py not found"
+        all_imports = _extract_imports(path)
+        non_stdlib = [
+            imp for imp in all_imports
+            if not imp.startswith("_") and imp not in ("pathlib",)
+        ]
+        assert not non_stdlib, (
+            f"_constants.py imports non-stdlib modules: {non_stdlib}"
+        )
+
+    def test_stage_modules_do_not_import_eval_or_coverage(self, scenario_prod_files):
+        """Stage modules must not import eval_metrics, coverage, or run."""
+        stage_modules = {
+            "assembly", "bdi_generation", "narrative",
+            "attack_tree", "gherkin", "validators",
+        }
+        forbidden = {"eval_metrics", "coverage", "run"}
+        for name in stage_modules:
+            path = scenario_prod_files[name]
+            imports = set(_scenario_prod_internal_imports(path))
+            found = imports & forbidden
+            assert not found, (
+                f"{name}.py imports higher-level module(s): {found}"
+            )
+
+    def test_eval_metrics_does_not_import_run(self, scenario_prod_files):
+        """eval_metrics.py must not import the orchestrator."""
+        path = scenario_prod_files["eval_metrics"]
+        imports = set(_scenario_prod_internal_imports(path))
+        assert "run" not in imports, (
+            "eval_metrics.py imports run.py — direction violation"
+        )
+
+
+class TestScenarioProdNoPrivateCrossModuleImports:
+    """No scenario_prod module should import private (_-prefixed) names
+    from a sibling module within scenario_prod."""
+
+    @pytest.fixture
+    def scenario_prod_python_files(self) -> list[Path]:
+        return sorted(
+            p for p in SCENARIO_PROD_DIR.glob("*.py")
+            if p.name != "__init__.py"
+        )
+
+    def test_no_private_imports(self, scenario_prod_python_files):
+        """No file in scenario_prod/ imports private names from siblings."""
+        violations: list[str] = []
+        for path in scenario_prod_python_files:
+            violations.extend(_private_imports_across_modules(path))
+        assert not violations, (
+            "Private cross-module imports in scenario_prod/:\n"
+            + "\n".join(violations)
+        )
+
+
+class TestScenarioProdNoLocalImports:
+    """No scenario_prod module should have import statements inside
+    function bodies. Local imports suggest circular dependencies or
+    lazy-loading workarounds that should be resolved structurally."""
+
+    @pytest.fixture
+    def scenario_prod_python_files(self) -> list[Path]:
+        return sorted(
+            p for p in SCENARIO_PROD_DIR.glob("*.py")
+            if p.name != "__init__.py"
+        )
+
+    def test_no_function_body_imports(self, scenario_prod_python_files):
+        """No import statements inside function bodies."""
+        violations: list[str] = []
+        for path in scenario_prod_python_files:
+            violations.extend(_has_local_imports(path))
+        assert not violations, (
+            "Local imports inside function bodies in scenario_prod/:\n"
+            + "\n".join(violations)
+        )
+
+
+class TestScenarioProdNoDirectCompleteCalls:
+    """No scenario_prod module should call llm_client.complete() directly.
+    All LLM calls must go through safe_llm_call or safe_llm_call_raw."""
+
+    def test_no_direct_complete_calls(self):
+        """No scenario_prod module calls .complete() directly."""
+        violations: list[str] = []
+        for path in sorted(SCENARIO_PROD_DIR.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if ".complete(" in source:
+                violations.append(
+                    f"{path.name}: calls .complete() directly — "
+                    f"must use safe_llm_call() or safe_llm_call_raw()"
+                )
+        assert not violations, (
+            "Direct .complete() calls in scenario_prod/:\n"
+            + "\n".join(violations)
+        )
+
+
+class TestEnrichmentModuleBoundary:
+    """Enrichment module must be a pure, leaf-level computation module.
+
+    ``enrichment.py`` computes deterministic enrichment blocks from
+    models and capability-profile data.  It must not depend on the
+    orchestrator (``run.py``) or any other scenario_prod module —
+    only on the model layer and the capability profile.
+    """
+
+    def test_enrichment_does_not_import_run(self):
+        """enrichment.py must not import from run.py (orchestrator)."""
+        path = SCENARIO_PROD_DIR / "enrichment.py"
+        imports = _extract_imports(path)
+        violations = [imp for imp in imports if "run" in imp.split(".")[-1]]
+        assert not violations, (
+            f"enrichment.py imports orchestrator module(s): {violations}"
+        )
+
+    def test_enrichment_does_not_import_scenario_prod_siblings(self):
+        """enrichment.py must not import from other scenario_prod modules.
+
+        It is a leaf module (layer 0) — only model-layer imports allowed.
+        """
+        path = SCENARIO_PROD_DIR / "enrichment.py"
+        internal = _scenario_prod_internal_imports(path)
+        # Filter out self-imports (shouldn't happen, but be safe)
+        siblings = [m for m in internal if m != "enrichment"]
+        assert not siblings, (
+            f"enrichment.py imports scenario_prod sibling(s): {siblings}"
+        )
+
+    def test_enrichment_imports_only_model_layer(self):
+        """enrichment.py may only import from stpa.models or models packages."""
+        path = SCENARIO_PROD_DIR / "enrichment.py"
+        imports = _extract_imports(path)
+        allowed_prefixes = (
+            "scenario_forge.stpa.models",
+            "scenario_forge.models.capability_profile",
+            "__future__",
+        )
+        violations = [
+            imp for imp in imports
+            if not imp.startswith(allowed_prefixes)
+            and imp not in ("typing", "pydantic")
+        ]
+        assert not violations, (
+            f"enrichment.py imports non-model module(s): {violations}"
+        )
+
+    def test_enrichment_exports_compute_functions(self):
+        """enrichment.py must export compute_system_context and compute_consumer_hints."""
+        mod = importlib.import_module(
+            "scenario_forge.stpa.scenario_prod.enrichment"
+        )
+        assert hasattr(mod, "compute_system_context")
+        assert hasattr(mod, "compute_consumer_hints")
+        assert callable(mod.compute_system_context)
+        assert callable(mod.compute_consumer_hints)
+        assert "compute_system_context" in mod.__all__
+        assert "compute_consumer_hints" in mod.__all__

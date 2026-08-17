@@ -6,11 +6,78 @@ plus the ScenarioSpec and faceting metadata.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 from scenario_forge.stpa.models.enriched_threat_set import CatalogMapping
 from scenario_forge.stpa.models.ica_enumeration import UCAType
 from scenario_forge.stpa.models.scenario_spec import ScenarioSpec
+
+
+class GherkinSpec(BaseModel):
+    """Structured Gherkin behavior specification (Stage 6 Call C output).
+
+    The fields capture the should/but structure:
+    - ``given`` — Given steps (process model state references).
+    - ``when`` — When steps (triggering event).
+    - ``then_expected`` — Then ... should ... steps (expected safe behavior).
+    - ``then_actual`` — But ... steps (what actually happens — the ICA).
+    """
+
+    feature: str
+    scenario: str
+    given: list[str]
+    when: list[str]
+    then_expected: list[str]
+    then_actual: list[str]
+
+    def to_feature_text(self) -> str:
+        """Render the structured spec to Gherkin ``.feature`` text."""
+        lines: list[str] = [f"Feature: {self.feature}"]
+        lines.append(f"Scenario: {self.scenario}")
+        for step in self.given:
+            lines.append(f"  {step}")
+        for step in self.when:
+            lines.append(f"  {step}")
+        for step in self.then_expected:
+            lines.append(f"  {step}")
+        for step in self.then_actual:
+            lines.append(f"  {step}")
+        return "\n".join(lines) + "\n"
+
+
+class SystemContext(BaseModel):
+    """Inline SP1 system context block for the scenario envelope.
+
+    Populated deterministically during assembly from the capability
+    profile and control structure — no LLM calls.  Lets adapters
+    interpret scenarios without separate SP1 artifacts.
+    """
+
+    target_responsibility_description: str
+    target_control_action_description: str
+    tool_inventory: list[str]  # tool names
+    active_zones: list[str]
+    multi_agent: bool
+    has_persistent_memory: bool
+
+
+class ConsumerHints(BaseModel):
+    """Deterministic consumer hints for adapter filtering.
+
+    Populated in a post-generation enrichment pass from the capability
+    profile, attack tree, and narrative — no LLM calls.  Lets adapters
+    self-select scenarios without LLM inference.
+    """
+
+    primary_attack_zone: str
+    requires_tool_execution: bool
+    requires_multi_turn: bool
+    requires_multi_agent: bool
+    requires_persistent_state: bool
+    garak_testability: Literal["high", "medium", "low"]
+    midojo_testability: Literal["high", "medium", "low"]
 
 
 class ScenarioEnvelope(BaseModel):
@@ -20,12 +87,16 @@ class ScenarioEnvelope(BaseModel):
     scenario_spec: ScenarioSpec
     narrative: str  # Stage 6 Call A output
     attack_tree: dict  # Stage 6 Call B output (YAML-serializable tree)
-    gherkin_spec: str  # Stage 6 Call C output
+    gherkin_spec: GherkinSpec  # Stage 6 Call C output (structured)
+    gherkin_raw: str = ""  # Raw LLM text for .feature file generation
     # Faceting metadata for querying/filtering
     target_responsibility: str
     ica_type: UCAType
     catalog_mappings: list[CatalogMapping] = Field(default_factory=list)
     provenance: str  # "structural" or "catalog_only"
+    # Enrichment blocks (optional, backward compat)
+    system_context: SystemContext | None = None
+    consumer_hints: ConsumerHints | None = None
 
     @model_validator(mode="after")
     def validate_scenario_id_match(self) -> ScenarioEnvelope:
@@ -39,5 +110,5 @@ class ScenarioEnvelope(BaseModel):
 
 
 # mutate4py-manifest-begin
-# {"version":1,"tested_at":"2026-08-08T11:52:38Z","module_hash":"d30f3163f40dc2eac5871555332b356ce184be5d9d0cdf729ce5621e1dbb1144","functions":[{"id":"func/ScenarioEnvelope.validate_scenario_id_match","name":"validate_scenario_id_match","line":31,"end_line":38,"hash":"ae66e01ea20d4bafb634c17253dfa96bea6a31c8e839f07ca0ec5a5c316bdbf4"}]}
+# {"version":1,"tested_at":"2026-08-10T15:27:50Z","module_hash":"4151755d97363724212ccd6f663f4031db284a406a354345c9731848d3f3a193","functions":[{"id":"func/GherkinSpec.to_feature_text","name":"to_feature_text","line":35,"end_line":47,"hash":"863c912640ed8326c91760dd6ec973f91472da7c7ab6243f15a4a3e320dea85f"},{"id":"func/ScenarioEnvelope.validate_scenario_id_match","name":"validate_scenario_id_match","line":102,"end_line":109,"hash":"ae66e01ea20d4bafb634c17253dfa96bea6a31c8e839f07ca0ec5a5c316bdbf4"}]}
 # mutate4py-manifest-end
