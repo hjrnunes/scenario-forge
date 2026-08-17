@@ -16,12 +16,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+QA_MODULES = Path(__file__).resolve().parents[1]
+if str(QA_MODULES) not in sys.path:
+    sys.path.insert(0, str(QA_MODULES))
 
-PROJECT_ROOT = next(
-    path
-    for path in Path(__file__).resolve().parents
-    if (path / "pyproject.toml").is_file()
+from qa_harness import (  # noqa: E402
+    PROJECT_ROOT,
+    QARunner,
+    child_env,
+    run_command,
+    write_capture as _write_capture,
 )
+
 QA_ROOT = PROJECT_ROOT / "tmp" / "qa-acceptance-framework"
 FEATURES_DIR = PROJECT_ROOT / "features"
 ACCEPTANCE_SH = PROJECT_ROOT / "scripts" / "acceptance.sh"
@@ -52,79 +58,6 @@ AFR_EXPECTED = (
     "AFR-08",
     "AFR-09",
 )
-
-
-class CheckResult:
-    def __init__(self, name: str, passed: bool, detail: str = "") -> None:
-        self.name = name
-        self.passed = passed
-        self.detail = detail
-
-    def __str__(self) -> str:
-        status = "PASS" if self.passed else "FAIL"
-        text = f"  [{status}] {self.name}"
-        if self.detail:
-            text += f"\n         {self.detail}"
-        return text
-
-
-class QARunner:
-    def __init__(self) -> None:
-        self.results: list[CheckResult] = []
-
-    def record(self, name: str, passed: bool, detail: str = "") -> None:
-        result = CheckResult(name, passed, detail)
-        self.results.append(result)
-        print(result, flush=True)
-
-    def check(self, name: str, passed: bool, detail: str = "") -> bool:
-        self.record(name, passed, detail)
-        return passed
-
-    def summary(self) -> int:
-        passed = sum(1 for item in self.results if item.passed)
-        failed = len(self.results) - passed
-        print(f"\nQA suite: {passed} passed, {failed} failed", flush=True)
-        return 0 if failed == 0 else 1
-
-
-def run_command(
-    argv: list[str],
-    *,
-    cwd: Path | None = None,
-    env: dict[str, str] | None = None,
-    timeout: int | None = None,
-    input_text: str | None = None,
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        argv,
-        cwd=str(cwd or PROJECT_ROOT),
-        env=env,
-        input=input_text,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-    )
-
-
-def write_capture(label: str, result: subprocess.CompletedProcess[str]) -> Path:
-    target = QA_ROOT / "captures" / label
-    target.mkdir(parents=True, exist_ok=True)
-    (target / "stdout.txt").write_text(result.stdout)
-    (target / "stderr.txt").write_text(result.stderr)
-    (target / "exit.txt").write_text(f"{result.returncode}\n")
-    return target
-
-
-def child_env(**updates: str | None) -> dict[str, str]:
-    env = os.environ.copy()
-    for key, value in updates.items():
-        if value is None:
-            env.pop(key, None)
-        else:
-            env[key] = value
-    return env
 
 
 def feature_paths() -> list[Path]:
@@ -228,7 +161,7 @@ def qa_afr_01(runner: QARunner) -> None:
         path.mkdir(parents=True)
 
     first = run_command([str(ACCEPTANCE_SH)], env=generation_env(), timeout=2400)
-    write_capture("qa-afr-01-generate", first)
+    _write_capture("qa-afr-01-generate", first, root=QA_ROOT)
     runner.check(
         "QA-AFR-01 generate completes",
         first.returncode in {0, 1},
@@ -278,7 +211,7 @@ def qa_afr_01(runner: QARunner) -> None:
     unrelated.write_text("keep\n")
 
     second = run_command([str(ACCEPTANCE_SH)], env=generation_env(), timeout=2400)
-    write_capture("qa-afr-01-refresh", second)
+    _write_capture("qa-afr-01-refresh", second, root=QA_ROOT)
     runner.check(
         "QA-AFR-01 stale mapped artifacts are removed",
         not stale_ir.exists() and not stale_test.exists() and not stale_meta.exists(),
@@ -290,7 +223,7 @@ def qa_afr_01(runner: QARunner) -> None:
     )
 
     third = run_command([str(ACCEPTANCE_SH)], env=generation_env(), timeout=2400)
-    write_capture("qa-afr-01-repeat", third)
+    _write_capture("qa-afr-01-repeat", third, root=QA_ROOT)
     after_ir = collect_generated(layout["ir"], "*.json")
     after_tests = collect_generated(layout["generated"], "*_acceptance_test.py")
     after_meta = collect_generated(layout["generated"] / "metadata", "*.json")
@@ -333,7 +266,7 @@ def qa_afr_02(runner: QARunner) -> subprocess.CompletedProcess[str]:
         env=env,
         timeout=1800,
     )
-    write_capture("qa-afr-02-test", result)
+    _write_capture("qa-afr-02-test", result, root=QA_ROOT)
     combined = result.stdout + "\n" + result.stderr
     outcomes = parse_runtime_lines(combined)
 
@@ -418,7 +351,7 @@ def qa_afr_03(runner: QARunner) -> None:
         env=env,
         timeout=300,
     )
-    write_capture("qa-afr-03-first", first)
+    _write_capture("qa-afr-03-first", first, root=QA_ROOT)
     second = run_command(
         [
             "uv",
@@ -431,7 +364,7 @@ def qa_afr_03(runner: QARunner) -> None:
         env=env,
         timeout=300,
     )
-    write_capture("qa-afr-03-second", second)
+    _write_capture("qa-afr-03-second", second, root=QA_ROOT)
     parent_after = dict(os.environ)
 
     first_out = parse_runtime_lines(first.stdout + first.stderr)
@@ -462,7 +395,7 @@ def qa_afr_04(runner: QARunner) -> None:
         env=env,
         timeout=300,
     )
-    write_capture("qa-afr-04-namespace", result)
+    _write_capture("qa-afr-04-namespace", result, root=QA_ROOT)
     combined = result.stdout + result.stderr
     runner.check(
         "QA-AFR-04 AFR-07 namespaced manifest loading passes",
@@ -475,7 +408,7 @@ def qa_afr_04(runner: QARunner) -> None:
         env=env,
         timeout=300,
     )
-    write_capture("qa-afr-04-nested", nested)
+    _write_capture("qa-afr-04-nested", nested, root=QA_ROOT)
     generated = (
         PROJECT_ROOT / "build/acceptance/generated/stage1_ordering_acceptance_test.py"
     ).read_text()
@@ -547,7 +480,7 @@ def qa_afr_05(runner: QARunner) -> None:
         input_text=payload,
         timeout=120,
     )
-    write_capture("qa-afr-05-worker", result)
+    _write_capture("qa-afr-05-worker", result, root=QA_ROOT)
     runner.check(
         "QA-AFR-05 ready appears on stderr, not stdout",
         "runner_adapter: ready" in result.stderr
@@ -607,7 +540,7 @@ def qa_afr_05(runner: QARunner) -> None:
 
 def qa_afr_06(runner: QARunner) -> None:
     status = run_command(["git", "status", "--short", "--untracked-files=all"])
-    write_capture("qa-afr-06-status", status)
+    _write_capture("qa-afr-06-status", status, root=QA_ROOT)
     tracked_generated = [
         line
         for line in status.stdout.splitlines()
