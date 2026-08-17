@@ -62,8 +62,8 @@ def load_modules() -> tuple[ModuleType, ...]:
     return modules
 
 
-def _register_one(api: Any, name: str, module: ModuleType) -> None:
-    """Register a single validated feature module, wrapping failures."""
+def register_one(api: Any, name: str, module: ModuleType) -> None:
+    """Register one validated feature module, wrapping failures."""
     if getattr(module, "FEATURE_ID", None) != name:
         raise RuntimeError(f"runtime feature order mismatch at {name}")
     try:
@@ -74,13 +74,16 @@ def _register_one(api: Any, name: str, module: ModuleType) -> None:
         ) from exc
 
 
+_register_one = register_one
+
+
 def register_all(api: Any, modules: tuple[ModuleType, ...] | None = None) -> None:
     """Invoke each validated feature registration exactly once."""
     selected = load_modules() if modules is None else modules
     if len(selected) != len(MODULES):
         raise RuntimeError("runtime feature registration set is incomplete")
     for name, module in zip(MODULES, selected):
-        _register_one(api, name, module)
+        register_one(api, name, module)
 
 
 # mutate4py-manifest-begin

@@ -10,14 +10,18 @@ import sys
 from pathlib import Path
 
 from generate_entrypoints import generate
-from snapshot import artifact_paths, discover_features, snapshot_layout
+from paths import project_root
+from snapshot import (
+    artifact_paths,
+    discover_features,
+    expected_artifacts,
+    snapshot_layout,
+)
 
 
 def _project_root(start: Path) -> Path:
-    for parent in (start, *start.parents):
-        if (parent / "pyproject.toml").is_file():
-            return parent
-    raise FileNotFoundError(f"could not find project root from {start}")
+    """Compatibility wrapper for callers of the old private helper."""
+    return project_root(start)
 
 
 def _is_aps_root(path: Path) -> bool:
@@ -38,15 +42,21 @@ def _aps_root(project_root: Path) -> Path:
 
 def _resolve_binary(name: str) -> str | None:
     found = shutil.which(name)
-    if found:
-        return found
-    for candidate in (
-        Path("/opt/homebrew/bin") / name,
-        Path("/usr/local/bin") / name,
-    ):
-        if candidate.is_file():
-            return str(candidate)
-    return None
+    candidates = (
+        found,
+        *(
+            str(Path(prefix) / name)
+            for prefix in ("/opt/homebrew/bin", "/usr/local/bin")
+        ),
+    )
+    return next(
+        (
+            candidate
+            for candidate in candidates
+            if candidate and (candidate == found or Path(candidate).is_file())
+        ),
+        None,
+    )
 
 
 def run_tool(command: list[str], cwd: Path | None = None) -> int:
@@ -60,6 +70,10 @@ def run_tool(command: list[str], cwd: Path | None = None) -> int:
         if fallback is None:
             raise FileNotFoundError(f"neither bb nor {task} is available")
         argv = [fallback, *args]
+    return _run_tool_command(argv, cwd)
+
+
+def _run_tool_command(argv: list[str], cwd: Path | None) -> int:
     result = subprocess.run(argv, cwd=cwd, check=False, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"command failed ({result.returncode}): {' '.join(argv)}")
@@ -68,18 +82,6 @@ def run_tool(command: list[str], cwd: Path | None = None) -> int:
 
 def _write_parents(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-
-
-def _expected_artifacts(root: Path) -> tuple[set[Path], set[Path], set[Path]]:
-    ir_files: set[Path] = set()
-    test_files: set[Path] = set()
-    meta_files: set[Path] = set()
-    for feature_path in discover_features(root):
-        paths = artifact_paths(feature_path)
-        ir_files.add(root / paths.ir_path)
-        test_files.add(root / paths.test_path)
-        meta_files.add(root / paths.metadata_path)
-    return ir_files, test_files, meta_files
 
 
 def _remove_stale(directory: Path, keep: set[Path], pattern: str) -> None:
@@ -112,7 +114,7 @@ def refresh_snapshot(root: Path | None = None, run_tests: bool = False) -> int:
         )
         generate(str(ir_abs), str(project_root / layout.generated_dir), feature_path)
 
-    keep_ir, keep_tests, keep_meta = _expected_artifacts(project_root)
+    keep_ir, keep_tests, keep_meta = expected_artifacts(project_root)
     _remove_stale(project_root / layout.ir_dir, keep_ir, "*.json")
     _remove_stale(
         project_root / layout.generated_dir, keep_tests, "*_acceptance_test.py"

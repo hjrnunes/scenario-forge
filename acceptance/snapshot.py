@@ -103,6 +103,19 @@ def discover_features(root: Path) -> list[str]:
     return found
 
 
+def expected_artifacts(root: Path) -> tuple[set[Path], set[Path], set[Path]]:
+    """Return the mapped IR, generated-test, and metadata files for a tree."""
+    ir_files: set[Path] = set()
+    test_files: set[Path] = set()
+    metadata_files: set[Path] = set()
+    for feature_path in discover_features(root):
+        paths = artifact_paths(feature_path)
+        ir_files.add(root / paths.ir_path)
+        test_files.add(root / paths.test_path)
+        metadata_files.add(root / paths.metadata_path)
+    return ir_files, test_files, metadata_files
+
+
 def find_step_data_tables(feature_path: Path) -> list[str]:
     """Return problems for `|` rows that are not inside an Examples block."""
     problems: list[str] = []
@@ -112,16 +125,22 @@ def find_step_data_tables(feature_path: Path) -> list[str]:
         feature_path.read_text(encoding="utf-8").splitlines(), start=1
     ):
         stripped = raw.strip()
-        if stripped.startswith("Examples:"):
-            in_examples = True
-            continue
-        if stripped.startswith(
-            ("Feature:", "Background:", "Scenario:", "Scenario Outline:")
-        ):
-            in_examples = False
-        if stripped.startswith("|") and stripped.endswith("|") and not in_examples:
+        in_examples = _update_examples_state(stripped, in_examples)
+        if _is_step_table(stripped, in_examples):
             problems.append(f"step data table in {rel}:{line_no}")
     return problems
+
+
+def _update_examples_state(line: str, in_examples: bool) -> bool:
+    if line.startswith("Examples:"):
+        return True
+    if line.startswith(("Feature:", "Background:", "Scenario:", "Scenario Outline:")):
+        return False
+    return in_examples
+
+
+def _is_step_table(line: str, in_examples: bool) -> bool:
+    return line.startswith("|") and line.endswith("|") and not in_examples
 
 
 _ABS_PATH = re.compile(r"(?:/Users/|/private/|file://)")
@@ -134,28 +153,48 @@ def _sha256_file(path: Path) -> str:
 def _scan_absolute_paths(root: Path) -> list[str]:
     problems: list[str] = []
     layout = snapshot_layout()
-    roots = (
+    for base in _snapshot_roots(root, layout):
+        if not base.exists():
+            continue
+        for path in base.rglob("*"):
+            problem = _absolute_path_problem(path, root, layout.dry_dir)
+            if problem:
+                problems.append(problem)
+    return problems
+
+
+def _snapshot_roots(root: Path, layout: SnapshotLayout) -> tuple[Path, ...]:
+    return (
         root / layout.features_dir,
         root / layout.ir_dir,
         root / layout.generated_dir,
     )
-    for base in roots:
-        if not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in {".feature", ".json", ".py", ".txt"}:
-                continue
-            if path.suffix == ".txt" and layout.dry_dir not in path.as_posix():
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                continue
-            if _ABS_PATH.search(text):
-                problems.append(f"absolute path in {path.relative_to(root).as_posix()}")
-    return problems
+
+
+def _absolute_path_problem(
+    path: Path,
+    root: Path,
+    dry_dir: str,
+) -> str | None:
+    if not _is_scannable_file(path, dry_dir):
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None
+    return _absolute_path_message(path, root, text)
+
+
+def _is_scannable_file(path: Path, dry_dir: str) -> bool:
+    if not path.is_file() or path.suffix not in {".feature", ".json", ".py", ".txt"}:
+        return False
+    return path.suffix != ".txt" or dry_dir in path.as_posix()
+
+
+def _absolute_path_message(path: Path, root: Path, text: str) -> str | None:
+    if not _ABS_PATH.search(text):
+        return None
+    return f"absolute path in {path.relative_to(root).as_posix()}"
 
 
 def _tracked_ignored_files(root: Path) -> list[str]:
@@ -221,59 +260,149 @@ def validate_snapshot(root: Path) -> list[str]:
     problems.extend(_scan_absolute_paths(root))
     layout = snapshot_layout()
 
-    expected_ir: set[Path] = set()
-    expected_tests: set[Path] = set()
-    expected_meta: set[Path] = set()
+    expected_ir, expected_tests, expected_meta = expected_artifacts(root)
     for feature_path in discover_features(root):
-        paths = artifact_paths(feature_path)
-        ir_abs = root / paths.ir_path
-        test_abs = root / paths.test_path
-        meta_abs = root / paths.metadata_path
-        expected_ir.add(ir_abs)
-        expected_tests.add(test_abs)
-        expected_meta.add(meta_abs)
-        if not ir_abs.is_file():
-            problems.append(f"missing IR for {feature_path}")
-        if not test_abs.is_file():
-            problems.append(f"missing generated test for {feature_path}")
-        if not meta_abs.is_file():
-            problems.append(f"missing metadata for {feature_path}")
-            continue
-        meta = json.loads(meta_abs.read_text(encoding="utf-8"))
-        if meta.get("feature_path") != paths.feature_path:
-            problems.append(f"metadata feature_path mismatch in {paths.metadata_path}")
-        if meta.get("ir_path") != paths.ir_path:
-            problems.append(f"metadata ir_path mismatch in {paths.metadata_path}")
-        feature_abs = root / feature_path
-        expected_hash = _sha256_file(feature_abs)
-        if meta.get("feature_hash") != expected_hash:
-            problems.append(f"stale feature_hash in {paths.metadata_path}")
-        for key in ("feature_path", "ir_path"):
-            pointed = root / str(meta.get(key, ""))
-            if not pointed.is_file():
-                problems.append(
-                    f"metadata points at missing {key} in {paths.metadata_path}"
-                )
+        problems.extend(_validate_feature_artifacts(root, feature_path))
 
-    ir_root = root / layout.ir_dir
-    if ir_root.exists():
-        for path in ir_root.rglob("*.json"):
-            if path.stem.endswith("_dry"):
-                problems.append(
-                    f"dry report in IR tree {path.relative_to(root).as_posix()}"
-                )
-            elif path not in expected_ir:
-                problems.append(f"orphan IR {path.relative_to(root).as_posix()}")
-    generated_root = root / layout.generated_dir
-    if generated_root.exists():
-        for path in generated_root.glob("*_acceptance_test.py"):
-            if path not in expected_tests:
-                problems.append(
-                    f"orphan generated test {path.relative_to(root).as_posix()}"
-                )
-    meta_root = root / layout.metadata_dir
-    if meta_root.exists():
-        for path in meta_root.glob("*.json"):
-            if path not in expected_meta:
-                problems.append(f"orphan metadata {path.relative_to(root).as_posix()}")
+    problems.extend(
+        _orphan_artifact_problems(
+            root,
+            layout,
+            expected_ir,
+            expected_tests,
+            expected_meta,
+        )
+    )
     return problems
+
+
+def _validate_feature_artifacts(root: Path, feature_path: str) -> list[str]:
+    paths = artifact_paths(feature_path)
+    mapped = {
+        "IR": root / paths.ir_path,
+        "generated test": root / paths.test_path,
+        "metadata": root / paths.metadata_path,
+    }
+    problems = [
+        f"missing {kind} for {feature_path}"
+        for kind, path in mapped.items()
+        if not path.is_file()
+    ]
+    metadata_path = mapped["metadata"]
+    if not metadata_path.is_file():
+        return problems
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    problems.extend(_metadata_problems(root, feature_path, paths, metadata))
+    return problems
+
+
+def _metadata_problems(
+    root: Path,
+    feature_path: str,
+    paths: ArtifactPaths,
+    metadata: dict,
+) -> list[str]:
+    problems = _metadata_identity_problems(paths, metadata)
+    problems.extend(_metadata_source_problems(root, feature_path, paths, metadata))
+    return problems
+
+
+def _metadata_identity_problems(
+    paths: ArtifactPaths,
+    metadata: dict,
+) -> list[str]:
+    problems: list[str] = []
+    if metadata.get("feature_path") != paths.feature_path:
+        problems.append(f"metadata feature_path mismatch in {paths.metadata_path}")
+    if metadata.get("ir_path") != paths.ir_path:
+        problems.append(f"metadata ir_path mismatch in {paths.metadata_path}")
+    return problems
+
+
+def _metadata_source_problems(
+    root: Path,
+    feature_path: str,
+    paths: ArtifactPaths,
+    metadata: dict,
+) -> list[str]:
+    problems: list[str] = []
+    if metadata.get("feature_hash") != _sha256_file(root / feature_path):
+        problems.append(f"stale feature_hash in {paths.metadata_path}")
+    problems.extend(
+        f"metadata points at missing {key} in {paths.metadata_path}"
+        for key in ("feature_path", "ir_path")
+        if not (root / str(metadata.get(key, ""))).is_file()
+    )
+    return problems
+
+
+def _orphan_artifact_problems(
+    root: Path,
+    layout: SnapshotLayout,
+    expected_ir: set[Path],
+    expected_tests: set[Path],
+    expected_meta: set[Path],
+) -> list[str]:
+    return (
+        _orphan_ir_problems(root, layout, expected_ir)
+        + _orphan_generated_problems(root, layout, expected_tests)
+        + _orphan_metadata_problems(root, layout, expected_meta)
+    )
+
+
+def _orphan_ir_problems(
+    root: Path,
+    layout: SnapshotLayout,
+    expected_ir: set[Path],
+) -> list[str]:
+    ir_root = root / layout.ir_dir
+    if not ir_root.exists():
+        return []
+    return [
+        problem
+        for path in ir_root.rglob("*.json")
+        if (problem := _ir_artifact_problem(root, path, expected_ir)) is not None
+    ]
+
+
+def _ir_artifact_problem(
+    root: Path,
+    path: Path,
+    expected_ir: set[Path],
+) -> str | None:
+    relative = path.relative_to(root).as_posix()
+    if path.stem.endswith("_dry"):
+        return f"dry report in IR tree {relative}"
+    if path not in expected_ir:
+        return f"orphan IR {relative}"
+    return None
+
+
+def _orphan_generated_problems(
+    root: Path,
+    layout: SnapshotLayout,
+    expected_tests: set[Path],
+) -> list[str]:
+    generated_root = root / layout.generated_dir
+    if not generated_root.exists():
+        return []
+    return [
+        f"orphan generated test {path.relative_to(root).as_posix()}"
+        for path in generated_root.glob("*_acceptance_test.py")
+        if path not in expected_tests
+    ]
+
+
+def _orphan_metadata_problems(
+    root: Path,
+    layout: SnapshotLayout,
+    expected_meta: set[Path],
+) -> list[str]:
+    meta_root = root / layout.metadata_dir
+    if not meta_root.exists():
+        return []
+    return [
+        f"orphan metadata {path.relative_to(root).as_posix()}"
+        for path in meta_root.glob("*.json")
+        if path not in expected_meta
+    ]

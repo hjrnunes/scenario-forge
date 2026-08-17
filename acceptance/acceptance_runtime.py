@@ -3,31 +3,40 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 import traceback
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
+from lifecycle import restore_environment, run_steps, scenario_context
 from live_llm_opt_in import (
     LIVE_LLM_ACCEPTANCE_MARKER,
     LIVE_LLM_SKIP_REASON,
     live_llm_acceptance_authorized,
     scenario_requires_live_llm_acceptance,
 )
+from registry import (
+    RegistrationAPI as _RegistrationAPI,
+    RegistrationStage as _RegistrationStage,
+    find_pattern_conflicts as _find_pattern_conflicts,
+    publish as _publish_registry,
+    resolve_handler,
+    track_registration,
+)
 from runtime_features.sp1_revision import (
     _h_rev_revision_run as _retained_rev_revision_run,
 )
 from runtime_shared import (
-    World,
     _GDStageError,
     _h_sp1_rev_run as _retained_sp1_rev_run,
     _resolve_value,
 )
+from runtime_world import World
 
-STEP_PATTERNS: list[tuple[re.Pattern, Any, str | None]] = []
+STEP_PATTERNS: list[tuple[Any, Any, str | None]] = []
 _CURRENT_REGISTRATION_FEATURE: str | None = None
 _CURRENT_EXECUTION_FEATURE: str | None = None
 _REGISTERED_PATTERN_KEYS: set[tuple[str, str, str | None]] = set()
@@ -40,25 +49,8 @@ def _set_feature(tag: str | None) -> None:
 
 
 def _track_registration(pattern: str, handler: Any, feature_tag: str | None) -> None:
-    """Record a registration and assert no exact duplicate exists.
-
-    Catches the most obvious shadowing bug: the same pattern string
-    registered twice with the same handler in the same scope.  A different
-    handler with the same pattern is a more subtle shadowing bug that is
-    detected at test time by ``find_pattern_conflicts`` rather than at
-    registration time, to avoid breaking pre-existing registrations that
-    predate this integrity check.
-    """
-    handler_name = getattr(handler, "__name__", repr(handler))
-    key = (pattern, handler_name, feature_tag)
-    if key in _REGISTERED_PATTERN_KEYS:
-        scope = f"feature {feature_tag!r}" if feature_tag else "global scope"
-        raise RuntimeError(
-            f"Duplicate step pattern registration in {scope}: "
-            f"{pattern!r} (handler {handler_name}) — "
-            f"second registration is redundant"
-        )
-    _REGISTERED_PATTERN_KEYS.add(key)
+    """Compatibility wrapper around the isolated registry seam."""
+    track_registration(_REGISTERED_PATTERN_KEYS, pattern, handler, feature_tag)
 
 
 def _register(pattern: str, handler: Any) -> None:
@@ -83,124 +75,12 @@ def _register_first(pattern: str, handler: Any) -> None:
 def find_pattern_conflicts(
     step_texts: list[str],
 ) -> list[tuple[str, str, str]]:
-    """Return same-scope conflicts from duplicate raw pattern registrations.
-
-    A conflict is two registrations with identical ``pattern`` strings but
-    different handlers in the same global or feature-tag scope.  Broad and
-    specific regular expressions may intentionally overlap and are not a
-    conflict.  The returned tuple keeps the existing
-    ``(step_text, first_pattern, second_pattern)`` shape: when supplied,
-    ``step_texts`` contributes the first witness matching the duplicate
-    pattern.  A deterministic sentinel is used when no witness is supplied.
-    """
-    scoped_patterns: dict[str | None, dict[str, list[tuple[Any, Any]]]] = {}
-    for pattern, handler, tag in STEP_PATTERNS:
-        scoped_patterns.setdefault(tag, {}).setdefault(pattern.pattern, []).append(
-            (pattern, handler)
-        )
-
-    conflicts: list[tuple[str, str, str]] = []
-    for patterns_by_raw_pattern in scoped_patterns.values():
-        for raw_pattern, registrations in patterns_by_raw_pattern.items():
-            distinct_handlers: list[tuple[Any, Any]] = []
-            for compiled_pattern, handler in registrations:
-                if not any(
-                    existing_handler is handler
-                    for _, existing_handler in distinct_handlers
-                ):
-                    distinct_handlers.append((compiled_pattern, handler))
-            if len(distinct_handlers) < 2:
-                continue
-
-            witness = next(
-                (text for text in step_texts if distinct_handlers[0][0].search(text)),
-                "<no supplied witness>",
-            )
-            conflicts.append((witness, raw_pattern, raw_pattern))
-    return conflicts
-
-
-class _RegistrationStage:
-    """Private transaction buffer used before publishing the registry."""
-
-    def __init__(self) -> None:
-        self.entries: list[tuple[int, int, bool, str, Any, str | None]] = []
-        self.keys: set[tuple[str, str, str | None]] = set()
-        self.feature: str | None = None
-        self._sequence = 0
-
-    def add(
-        self, pattern: str, handler: Any, first: bool, source_order: int | None
-    ) -> None:
-        tag = self.feature if first else None
-        handler_name = getattr(handler, "__name__", repr(handler))
-        key = (pattern, handler_name, tag)
-        if key in self.keys:
-            scope = f"feature {tag!r}" if tag else "global scope"
-            raise RuntimeError(
-                f"Duplicate step pattern registration in {scope}: "
-                f"{pattern!r} (handler {handler_name}) — second registration is redundant"
-            )
-        self.keys.add(key)
-        order = source_order if source_order is not None else self._sequence
-        self.entries.append((order, self._sequence, first, pattern, handler, tag))
-        self._sequence += 1
-
-
-class _RegistrationAPI:
-    """Explicit feature-module registration API backed by one stage."""
-
-    def __init__(self, stage: _RegistrationStage) -> None:
-        self._stage = stage
-        self.bindings: dict[str, Any] = {
-            "STEP_PATTERNS": STEP_PATTERNS,
-            "_REGISTERED_PATTERN_KEYS": _REGISTERED_PATTERN_KEYS,
-            "_register": _register,
-            "_register_first": _register_first,
-            "_set_feature": _set_feature,
-            "_track_registration": _track_registration,
-            "find_pattern_conflicts": find_pattern_conflicts,
-        }
-
-    def set_feature(self, tag: str | None) -> None:
-        self._stage.feature = tag
-
-    def register(
-        self, pattern: str, handler: Any, *, source_order: int | None = None
-    ) -> None:
-        self._stage.add(pattern, handler, False, source_order)
-
-    def register_first(
-        self, pattern: str, handler: Any, *, source_order: int | None = None
-    ) -> None:
-        self._stage.add(pattern, handler, True, source_order)
-
-    def install_handlers(self, namespaces: list[dict[str, Any]]) -> None:
-        for namespace in namespaces:
-            self.bindings.update(
-                {
-                    name: value
-                    for name, value in namespace.items()
-                    if name.startswith("_h_")
-                }
-            )
-        for namespace in namespaces:
-            namespace.update(self.bindings)
+    return _find_pattern_conflicts(STEP_PATTERNS, step_texts)
 
 
 def _publish(stage: _RegistrationStage) -> None:
-    patterns: list[tuple[re.Pattern, Any, str | None]] = []
-    for _, _, first, raw_pattern, handler, tag in sorted(
-        stage.entries, key=lambda entry: (entry[0], entry[1])
-    ):
-        value = (re.compile(raw_pattern, re.IGNORECASE), handler, tag)
-        if first:
-            patterns.insert(0, value)
-        else:
-            patterns.append(value)
-    STEP_PATTERNS[:] = patterns
-    _REGISTERED_PATTERN_KEYS.clear()
-    _REGISTERED_PATTERN_KEYS.update(stage.keys)
+    """Compatibility wrapper that publishes into the facade's registry."""
+    _publish_registry(stage, STEP_PATTERNS, _REGISTERED_PATTERN_KEYS)
 
 
 def _load_feature_registry() -> None:
@@ -210,11 +90,6 @@ def _load_feature_registry() -> None:
     stage = _RegistrationStage()
     api = _RegistrationAPI(stage)
     modules = runtime_manifest.load_modules()
-    import runtime_shared
-
-    api.install_handlers(
-        [runtime_shared.__dict__, *[module.__dict__ for module in modules]]
-    )
     runtime_manifest.register_all(api, modules)
     _publish(stage)
 
@@ -234,14 +109,9 @@ def execute_step(world: World, step: dict, examples: dict) -> tuple[bool, str]:
     world.current_data_table = step.get("data_table")
 
     try:
-        for pattern, handler, feature_tag in STEP_PATTERNS:
-            # Skip patterns tagged for a different feature than the one
-            # currently executing. Untagged patterns (feature_tag is None)
-            # are global and always match.
-            if feature_tag is not None and feature_tag != _CURRENT_EXECUTION_FEATURE:
-                continue
-            if pattern.search(text):
-                return handler(world, text, examples)
+        handler = resolve_handler(STEP_PATTERNS, text, _CURRENT_EXECUTION_FEATURE)
+        if handler is not None:
+            return handler(world, text, examples)
 
         return False, f"Unsupported step: {keyword} {text}"
     except (ValidationError, ValueError, _GDStageError) as e:
@@ -291,10 +161,86 @@ def _requires_live_llm_acceptance(
     return scenario_requires_live_llm_acceptance(scenario, background)
 
 
-def _restore_environment(environment: dict[str, str]) -> None:
-    """Restore the process environment after one scenario example."""
-    os.environ.clear()
-    os.environ.update(environment)
+def _scenario_examples(scenario: dict[str, Any]) -> list[dict]:
+    return scenario.get("examples") or [{}]
+
+
+def _should_skip_live_scenario(
+    scenario: dict[str, Any],
+    background_steps: list[Any],
+) -> bool:
+    return (
+        _requires_live_llm_acceptance(scenario, background_steps)
+        and not live_llm_acceptance_authorized()
+    )
+
+
+_restore_environment = restore_environment
+
+
+def current_execution_feature() -> str | None:
+    """Return the feature tag currently being executed."""
+    return _CURRENT_EXECUTION_FEATURE
+
+
+@contextmanager
+def execution_feature(tag: str | None):
+    """Temporarily set the feature tag and restore its enclosing value."""
+    global _CURRENT_EXECUTION_FEATURE
+    previous = _CURRENT_EXECUTION_FEATURE
+    _CURRENT_EXECUTION_FEATURE = tag
+    try:
+        yield
+    finally:
+        _CURRENT_EXECUTION_FEATURE = previous
+
+
+def _status_detail(world: World, separator: str) -> str:
+    detail = getattr(world, "acceptance_status_detail", "")
+    return f"{separator}{detail}" if detail else ""
+
+
+def _execute_example(
+    background_steps: list[dict],
+    scenario_steps: list[dict],
+    example: dict,
+    exec_name: str,
+) -> tuple[bool, str]:
+    with scenario_context() as context:
+        background_result = run_steps(
+            context.world,
+            background_steps,
+            example,
+            execute_step,
+            kind="background",
+        )
+        if not background_result.passed:
+            suffix = _status_detail(context.world, " (")
+            if suffix:
+                suffix += ")"
+            return (
+                False,
+                f"FAIL {exec_name}: background step failed: "
+                f"{background_result.error}{suffix}",
+            )
+
+        scenario_result = run_steps(
+            context.world,
+            scenario_steps,
+            example,
+            execute_step,
+            kind="scenario",
+        )
+        if not scenario_result.passed:
+            suffix = _status_detail(context.world, " (")
+            if suffix:
+                suffix += ")"
+            return (
+                False,
+                f"FAIL {exec_name}: {scenario_result.error}{suffix}",
+            )
+        suffix = _status_detail(context.world, ": ")
+        return True, f"PASS {exec_name}{suffix}"
 
 
 def execute_ir(ir_path: str) -> tuple[bool, str]:
@@ -302,10 +248,7 @@ def execute_ir(ir_path: str) -> tuple[bool, str]:
 
     Returns (all_passed, output).
     """
-    global _CURRENT_EXECUTION_FEATURE
-    previous_feature = _CURRENT_EXECUTION_FEATURE
-    _CURRENT_EXECUTION_FEATURE = _derive_feature_tag(ir_path)
-    try:
+    with execution_feature(_derive_feature_tag(ir_path)):
         with open(ir_path) as f:
             ir = json.load(f)
 
@@ -318,56 +261,24 @@ def execute_ir(ir_path: str) -> tuple[bool, str]:
         for s_idx, scenario in enumerate(scenarios):
             scenario_name = scenario.get("name", f"scenario_{s_idx}")
             steps = scenario.get("steps", [])
-            examples = scenario.get("examples", [])
-
-            if not examples:
-                examples = [{}]
+            examples = _scenario_examples(scenario)
 
             for e_idx, example in enumerate(examples):
                 exec_name = f"{scenario_name}/example_{e_idx + 1}"
-                if (
-                    _requires_live_llm_acceptance(scenario, background_steps)
-                    and not live_llm_acceptance_authorized()
-                ):
+                if _should_skip_live_scenario(scenario, background_steps):
                     output_lines.append(f"SKIP {exec_name}: {LIVE_LLM_SKIP_REASON}")
                     continue
 
-                world = World()
-                original_environment = dict(os.environ)
-                try:
-                    # Execute background steps
-                    for bg_step in background_steps:
-                        success, error = execute_step(world, bg_step, example)
-                        if not success:
-                            detail = getattr(world, "acceptance_status_detail", "")
-                            suffix = f" ({detail})" if detail else ""
-                            output_lines.append(
-                                f"FAIL {exec_name}: background step failed: {error}{suffix}"
-                            )
-                            all_passed = False
-                            break
-                    else:
-                        # Execute scenario steps
-                        for step in steps:
-                            success, error = execute_step(world, step, example)
-                            if not success:
-                                detail = getattr(world, "acceptance_status_detail", "")
-                                suffix = f" ({detail})" if detail else ""
-                                output_lines.append(
-                                    f"FAIL {exec_name}: {error}{suffix}"
-                                )
-                                all_passed = False
-                                break
-                        else:
-                            detail = getattr(world, "acceptance_status_detail", "")
-                            suffix = f": {detail}" if detail else ""
-                            output_lines.append(f"PASS {exec_name}{suffix}")
-                finally:
-                    _restore_environment(original_environment)
+                passed, line = _execute_example(
+                    background_steps,
+                    steps,
+                    example,
+                    exec_name,
+                )
+                output_lines.append(line)
+                all_passed = all_passed and passed
 
         return all_passed, "\n".join(output_lines)
-    finally:
-        _CURRENT_EXECUTION_FEATURE = previous_feature
 
 
 _load_feature_registry()

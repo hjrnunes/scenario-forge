@@ -15,15 +15,13 @@ import json
 import sys
 from pathlib import Path
 
+from paths import project_root
 from snapshot import artifact_paths, metadata_name
 
 
 def _project_root(start: Path) -> Path:
-    """Walk parents until pyproject.toml is found."""
-    for parent in (start, *start.parents):
-        if (parent / "pyproject.toml").is_file():
-            return parent
-    raise FileNotFoundError(f"could not find project root from {start}")
+    """Compatibility wrapper for callers of the old private helper."""
+    return project_root(start)
 
 
 def _sha256_bytes(data: bytes) -> str:
