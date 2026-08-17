@@ -18,4 +18,5 @@ __all__ = (
     "llm_helper_failure_defenses",
     "acceptance_hygiene",
     "acceptance_live_opt_in",
+    "acceptance_framework_refactor",
 )

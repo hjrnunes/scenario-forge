@@ -22,8 +22,24 @@ import traceback
 from pathlib import Path
 
 
+def _infrastructure_response(
+    error: str, *, job_id: str = "unknown", output: str = ""
+) -> dict:
+    """Build a protocol response for work that could not be executed."""
+    return {
+        "id": job_id,
+        "outcome": "infrastructure_error",
+        "output": output,
+        "error": error,
+        "duration": 0,
+    }
+
+
 def run_job(job: dict) -> dict:
     """Execute a single mutation job."""
+    if not isinstance(job, dict):
+        return _infrastructure_response("Job must be a JSON object")
+
     job_id = job.get("id", "unknown")
     feature_json = job.get("feature_json", "")
     timeout_str = job.get("timeout", "30s")
@@ -73,31 +89,21 @@ def run_job(job: dict) -> dict:
                 "duration": duration,
             }
         else:
-            return {
-                "id": job_id,
-                "outcome": "infrastructure_error",
-                "output": result.stdout,
-                "error": result.stderr or f"Exit code {result.returncode}",
-                "duration": duration,
-            }
+            return _infrastructure_response(
+                result.stderr or f"Exit code {result.returncode}",
+                job_id=job_id,
+                output=result.stdout,
+            ) | {"duration": duration}
     except subprocess.TimeoutExpired:
         duration = time.perf_counter_ns() - start
-        return {
-            "id": job_id,
-            "outcome": "infrastructure_error",
-            "output": "",
-            "error": f"Timeout after {timeout_seconds}s",
-            "duration": duration,
-        }
+        return _infrastructure_response(
+            f"Timeout after {timeout_seconds}s", job_id=job_id
+        ) | {"duration": duration}
     except Exception as e:
         duration = time.perf_counter_ns() - start
-        return {
-            "id": job_id,
-            "outcome": "infrastructure_error",
-            "output": "",
-            "error": f"{e}\n{traceback.format_exc()}",
-            "duration": duration,
-        }
+        return _infrastructure_response(
+            f"{e}\n{traceback.format_exc()}", job_id=job_id
+        ) | {"duration": duration}
 
 
 def main() -> int:
@@ -113,13 +119,7 @@ def main() -> int:
         try:
             job = json.loads(line)
         except json.JSONDecodeError as e:
-            response = {
-                "id": "unknown",
-                "outcome": "infrastructure_error",
-                "output": "",
-                "error": f"Invalid JSON: {e}",
-                "duration": 0,
-            }
+            response = _infrastructure_response(f"Invalid JSON: {e}")
             print(json.dumps(response), flush=True)
             continue
 
