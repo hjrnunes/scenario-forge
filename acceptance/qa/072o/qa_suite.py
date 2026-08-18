@@ -42,13 +42,20 @@ import sys
 from pathlib import Path
 from typing import Any
 
+QA_MODULES = Path(__file__).resolve().parents[1]
+if str(QA_MODULES) not in sys.path:
+    sys.path.insert(0, str(QA_MODULES))
+
+from qa_harness import (  # noqa: E402
+    PROJECT_ROOT,
+    CheckResult,
+    QARunner,
+)
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = next(
-    p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
-)
 PROMPTS_DIR = (
     PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "scenario_prod" / "prompts"
 )
@@ -62,41 +69,44 @@ STAGE6C_SYSTEM = PROMPTS_DIR / "stage6c_gherkin_system.j2"
 STAGE6C_USER = PROMPTS_DIR / "stage6c_gherkin_user.j2"
 
 # ---------------------------------------------------------------------------
-# Test framework
+# Compatibility adapter
 # ---------------------------------------------------------------------------
 
 
-class CheckResult:
-    """Result of a single QA check."""
-
-    def __init__(self, name: str, status: str, detail: str = ""):
-        self.name = name
-        self.status = status  # "PASS" | "FAIL" | "SKIP"
-        self.detail = detail
-
-    def __str__(self) -> str:
-        s = f"  [{self.status}] {self.name}"
-        if self.detail and self.status != "PASS":
-            s += f"\n         {self.detail}"
-        return s
+def _format_072o_result(result: CheckResult) -> str:
+    """Render a harness result with the 072o suite's deferred detail rules."""
+    status = result.status or ("PASS" if result.passed else "FAIL")
+    text = f"  [{status}] {result.name}"
+    if result.detail and status != "PASS":
+        text += f"\n         {result.detail}"
+    return text
 
 
-class QARunner:
-    """Collects and reports QA check results."""
+class SP3072oQARunner(QARunner):
+    """Shared harness runner with the 072o suite's deferred banner summary."""
 
-    def __init__(self) -> None:
-        self.results: list[CheckResult] = []
+    def record(self, name: str, passed: bool, detail: str = "") -> CheckResult:
+        result = CheckResult(name, bool(passed), detail)
+        self.results.append(result)
+        return result
 
-    def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(CheckResult(name, "PASS" if condition else "FAIL", detail))
+    def check(self, name: str, passed: bool, detail: str = "") -> bool:
+        self.record(name, passed, detail)
+        return bool(passed)
 
-    def skip(self, name: str, reason: str) -> None:
-        self.results.append(CheckResult(name, "SKIP", reason))
+    def skip(self, name: str, reason: str) -> CheckResult:
+        result = CheckResult(name, True, reason, "SKIP")
+        self.results.append(result)
+        return result
 
     def summary(self) -> int:
-        passed = sum(1 for r in self.results if r.status == "PASS")
-        failed = sum(1 for r in self.results if r.status == "FAIL")
-        skipped = sum(1 for r in self.results if r.status == "SKIP")
+        passed = sum(
+            result.passed and result.status != "SKIP" for result in self.results
+        )
+        failed = sum(
+            not result.passed and result.status != "SKIP" for result in self.results
+        )
+        skipped = sum(result.status == "SKIP" for result in self.results)
         total = len(self.results)
         print()
         print("=" * 72)
@@ -105,8 +115,8 @@ class QARunner:
             f"{failed} failed, {skipped} skipped (not executed)"
         )
         print("=" * 72)
-        for r in self.results:
-            print(r)
+        for result in self.results:
+            print(_format_072o_result(result))
         if skipped:
             print(
                 f"\n{skipped} CHECK(S) SKIPPED — live LLM endpoint or "
@@ -816,7 +826,7 @@ def main() -> int:
     if not any([args.static, args.dynamic, args.pipeline, args.all]):
         args.all = True
 
-    runner = QARunner()
+    runner = SP3072oQARunner()
 
     if args.static or args.all:
         print("--- Static checks (source text) ---")

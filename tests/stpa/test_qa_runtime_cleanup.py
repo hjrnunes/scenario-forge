@@ -571,6 +571,7 @@ _QA_RUNTIME_MODULES = (
     "acceptance/runtime_features/acceptance_qa_runtime_cleanup_checks.py",
 )
 _ALLOWED_QA_HARNESS_IMPORTERS = (
+    "acceptance/qa/072o/qa_suite.py",
     "acceptance/qa/shadow-cleanup/qa_suite.py",
     "acceptance/qa/stage1-split-reorder/qa_suite.py",
     "acceptance/qa/acceptance-framework-refactor/qa_suite.py",
