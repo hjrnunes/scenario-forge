@@ -52,13 +52,20 @@ import sys
 import tempfile
 from pathlib import Path
 
+QA_MODULES = Path(__file__).resolve().parents[1]
+if str(QA_MODULES) not in sys.path:
+    sys.path.insert(0, str(QA_MODULES))
+
+from qa_harness import (  # noqa: E402
+    PROJECT_ROOT,
+    CheckResult,
+    QARunner,
+)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = next(
-    p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
-)
 SRC_FILE = (
     PROJECT_ROOT
     / "src"
@@ -75,45 +82,41 @@ FEATURE_FILE = PROJECT_ROOT / "features" / "sp1_merge_fallback_sanitize.feature"
 
 
 # ---------------------------------------------------------------------------
-# Test framework
+# Compatibility adapter
 # ---------------------------------------------------------------------------
 
 
-class CheckResult:
-    """Result of a single QA check."""
+class FallbackQARunner(QARunner):
+    """Shared harness runner with the fallback suite's deferred banner summary."""
 
-    def __init__(self, name: str, passed: bool, detail: str = ""):
-        self.name = name
-        self.passed = passed
-        self.detail = detail
+    def record(self, name: str, passed: bool, detail: str = "") -> CheckResult:
+        result = CheckResult(name, bool(passed), detail)
+        self.results.append(result)
+        return result
 
-    def __str__(self) -> str:
-        status = "PASS" if self.passed else "FAIL"
-        s = f"  [{status}] {self.name}"
-        if self.detail:
-            s += f"\n         {self.detail}"
-        return s
+    def check(self, name: str, passed: bool, detail: str = "") -> bool:
+        self.record(name, passed, detail)
+        return bool(passed)
 
-
-class QARunner:
-    """Collects and reports QA check results."""
-
-    def __init__(self):
-        self.results: list[CheckResult] = []
-
-    def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(CheckResult(name, condition, detail))
+    def skip(self, name: str, reason: str) -> CheckResult:
+        result = CheckResult(name, True, reason, "SKIP")
+        self.results.append(result)
+        return result
 
     def summary(self) -> int:
-        passed = sum(1 for r in self.results if r.passed)
+        passed = sum(
+            result.passed and result.status != "SKIP" for result in self.results
+        )
+        failed = sum(
+            not result.passed and result.status != "SKIP" for result in self.results
+        )
         total = len(self.results)
-        failed = total - passed
         print()
         print("=" * 60)
         print(f"QA SUMMARY: {passed}/{total} passed, {failed} failed")
         print("=" * 60)
-        for r in self.results:
-            print(r)
+        for result in self.results:
+            print(result)
         if failed > 0:
             print(f"\n{failed} CHECK(S) FAILED")
             return 1
@@ -163,6 +166,11 @@ def _call_name(call: ast.Call) -> str:
     if isinstance(func, ast.Attribute):
         return func.attr
     return ""
+
+
+def _temporary_run_dir(prefix: str) -> tempfile.TemporaryDirectory[str]:
+    """Create an isolated run directory that is removed after the check."""
+    return tempfile.TemporaryDirectory(prefix=prefix)
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +420,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             ],
         )
 
-        with tempfile.TemporaryDirectory(prefix="qa_fallback_") as tmpdir:
+        with _temporary_run_dir("qa_fallback_") as tmpdir:
             cs, warnings = _assemble_with_fallback(rs, ces, Path(tmpdir), "qa-model")
 
         resp = cs.responsibilities[0]
@@ -539,7 +547,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             ],
         )
 
-        with tempfile.TemporaryDirectory(prefix="qa_fallback_strip_") as tmpdir:
+        with _temporary_run_dir("qa_fallback_strip_") as tmpdir:
             cs, warnings = _assemble_with_fallback(rs, ces, Path(tmpdir), "qa-model")
 
         # The strip tier should produce a ControlStructure with one RESP-1
@@ -622,7 +630,7 @@ def main() -> int:
     if not any([args.static, args.dynamic, args.all]):
         args.all = True
 
-    runner = QARunner()
+    runner = FallbackQARunner()
 
     if args.static or args.all:
         print("--- Static checks (AST analysis) ---")
