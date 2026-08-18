@@ -569,14 +569,6 @@ _QA_RUNTIME_MODULES = (
     "acceptance/runtime_features/acceptance_qa_runtime_cleanup.py",
     "acceptance/runtime_features/acceptance_qa_runtime_cleanup_harness.py",
     "acceptance/runtime_features/acceptance_qa_runtime_cleanup_checks.py",
-    "acceptance/runtime_features/phase4_qa_refresh_migration.py",
-    "acceptance/runtime_features/phase4_qa_refresh_migration_cli.py",
-    "acceptance/runtime_features/phase4_qa_refresh_migration_generated.py",
-    "acceptance/runtime_features/phase4_qa_refresh_migration_isolation.py",
-    "acceptance/runtime_features/phase4_qa_refresh_migration_process.py",
-    "acceptance/runtime_features/phase4_qa_refresh_migration_scope.py",
-    "acceptance/runtime_features/phase4_qa_refresh_migration_support.py",
-    "acceptance/runtime_features/phase5_qa_shadow_cleanup_migration.py",
 )
 _ALLOWED_QA_HARNESS_IMPORTERS = (
     "acceptance/qa/shadow-cleanup/qa_suite.py",
@@ -642,8 +634,6 @@ def test_manifest_registration_does_not_load_qa_harness():
 
     assert identities.count("acceptance_refresh") == 1
     assert identities.count("acceptance_qa_runtime_cleanup") == 1
-    assert identities.count("phase4_qa_refresh_migration") == 1
-    assert identities.count("phase5_qa_shadow_cleanup_migration") == 1
     assert after == before
 
 

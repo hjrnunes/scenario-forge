@@ -1,17 +1,4 @@
-"""Unit tests for the STPA end-to-end pipeline runner (stpa-run).
-
-Covers the 10 feature files in tests/stpa/features/stpa_run_*.feature:
-  - CLI interface (stpa_run_cli_interface)
-  - Input validation (stpa_run_input_validation)
-  - Error handling (stpa_run_error_handling)
-  - Model profiles resolution (stpa_run_model_profiles)
-  - SP1 execution (stpa_run_sp1_execution)
-  - SP2 execution (stpa_run_sp2_execution)
-  - SP3 execution (stpa_run_sp3_execution)
-  - Report generation (stpa_run_report)
-  - Resume behavior (stpa_run_resume)
-  - Summary output (stpa_run_summary)
-"""
+"""Unit tests for the STPA end-to-end pipeline runner (stpa-run)."""
 
 from __future__ import annotations
 

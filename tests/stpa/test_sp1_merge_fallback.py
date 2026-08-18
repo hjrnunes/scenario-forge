@@ -1,7 +1,7 @@
 """Unit tests for SP1 assembly fallback — ControlElementSet validation failures.
 
-Covers MergeFallback-01 through MergeFallback-10 from the Gherkin feature file:
-  tests/stpa/features/sp1_merge_fallback_degradation.feature
+Covers MergeFallback-01 through MergeFallback-10 from the fallback QA contract:
+  tests/stpa/qa/sp1_merge_fallback_qa.md
 
 When _assemble_with_fallback() fails because the Call 2b ControlElementSet
 contains invalid cross-references, the pipeline falls back to building a
