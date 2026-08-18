@@ -1,4 +1,4 @@
-# shadow-cleanup / duplicate-assertion
+# duplicate-assertion
 Feature: Exact-duplicate registration is rejected at import time
   The _track_registration function records every (pattern, handler,
   scope) tuple in _REGISTERED_PATTERN_KEYS. If the same tuple is

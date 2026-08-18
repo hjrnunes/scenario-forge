@@ -17,7 +17,9 @@ from pathlib import Path
 
 import pytest
 
-_PROJECT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+_PROJECT_ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
+)
 _ACCEPTANCE_DIR = _PROJECT_ROOT / "acceptance"
 sys.path.insert(0, str(_ACCEPTANCE_DIR))
 
@@ -196,9 +198,12 @@ class TestExecuteStepUnsupported:
 class TestExecuteIrBackgroundFailure:
     """Cover the background-step-failure path in execute_ir."""
 
-    def test_background_failure_marks_scenario_failed(self, isolated_registry, tmp_path):
+    def test_background_failure_marks_scenario_failed(
+        self, isolated_registry, tmp_path
+    ):
         _register(r"hardening bg ok", _dummy_handler)
         _register(r"hardening bg fail", _dummy_handler_b)
+
         # Override the fail handler to return failure
         def fail_handler(world: World, text: str, examples: dict) -> tuple[bool, str]:
             return False, "injected background failure"
@@ -218,8 +223,9 @@ class TestExecuteIrBackgroundFailure:
         assert all_passed is False
         assert "background step failed" in output
 
-
-    def test_scenario_step_failure_marks_scenario_failed(self, isolated_registry, tmp_path):
+    def test_scenario_step_failure_marks_scenario_failed(
+        self, isolated_registry, tmp_path
+    ):
         """Cover the scenario-step-failure path (distinct from background failure)."""
         _register(r"hardening bg ok", _dummy_handler)
         _register(r"hardening sc fail", _dummy_handler_b)
@@ -232,9 +238,12 @@ class TestExecuteIrBackgroundFailure:
         ir = {
             "background": [{"keyword": "Given", "text": "hardening bg ok"}],
             "scenarios": [
-                {"name": "sc_fail_scenario", "steps": [
-                    {"keyword": "Then", "text": "hardening sc fail"},
-                ]},
+                {
+                    "name": "sc_fail_scenario",
+                    "steps": [
+                        {"keyword": "Then", "text": "hardening sc fail"},
+                    ],
+                },
             ],
         }
         ir_path = tmp_path / "sc_fail.json"
@@ -255,6 +264,15 @@ class TestDeriveFeatureTagStage6:
 
     def test_stage6_prefix_maps_to_sp3(self):
         assert _derive_feature_tag("stage6_jpkw_output.json") == "sp3"
+
+    def test_flattened_shadow_cleanup_stems_keep_their_tag(self):
+        assert _derive_feature_tag("class-b-decisions.json") == "shadow_cleanup"
+        assert _derive_feature_tag("duplicate-assertion.json") == "shadow_cleanup"
+        assert _derive_feature_tag("no-shadowing-invariant.json") == "shadow_cleanup"
+        assert _derive_feature_tag("registration-priority.json") == "shadow_cleanup"
+
+    def test_flattened_sp3_stems_keep_their_tag(self):
+        assert _derive_feature_tag("sp3-anti-vacuity.json") == "sp3"
 
     def test_non_matching_prefix_returns_none(self):
         assert _derive_feature_tag("foundation_test.json") is None

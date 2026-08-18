@@ -1,4 +1,4 @@
-# shadow-cleanup / registration-priority
+# registration-priority
 Feature: Registration priority semantics
   The acceptance runtime uses two registration functions with distinct
   priority semantics. _register appends to the end of STEP_PATTERNS

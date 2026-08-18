@@ -1,4 +1,4 @@
-# shadow-cleanup / no-shadowing-invariant
+# no-shadowing-invariant
 Feature: No same-scope pattern shadowing after cleanup
   The acceptance runtime maintains an ordered STEP_PATTERNS list.
   Lookup takes the first match. When two patterns in the same scope

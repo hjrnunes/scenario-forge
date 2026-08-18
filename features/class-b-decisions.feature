@@ -1,4 +1,4 @@
-# shadow-cleanup / class-b-decisions
+# class-b-decisions
 Feature: Class B handler decisions exhibit correct behavior
   For each of the 12 Class B cases where the live handler is materially
   smaller than the dead handler it shadows, the chosen (live) handler
