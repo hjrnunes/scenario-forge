@@ -20,4 +20,5 @@ __all__ = (
     "acceptance_live_opt_in",
     "acceptance_framework_refactor",
     "acceptance_qa_runtime_cleanup",
+    "phase4_qa_refresh_migration",
 )
