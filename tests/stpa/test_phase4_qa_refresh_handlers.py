@@ -24,6 +24,7 @@ from registry import (  # noqa: E402
     RegistrationStage,
 )
 from runtime_features import phase4_qa_refresh_migration  # noqa: E402
+from runtime_features import phase4_qa_refresh_migration_scope as phase4_scope  # noqa: E402
 from runtime_features.acceptance_qa_runtime_cleanup import (  # noqa: E402
     register as register_aqrc,
 )
@@ -89,6 +90,25 @@ def test_phase4_sentinel_restores_endpoint_environment(monkeypatch):
     assert world.p4qrm_endpoint_environment is None
 
 
+def test_phase4_existing_suite_check_ignores_new_qa_executable(monkeypatch):
+    expected = "acceptance/qa/acceptance-refresh/qa_suite.py"
+    added = "acceptance/qa/phase4-qa-refresh-migration/qa_suite.py"
+    world = type(
+        "World",
+        (),
+        {"p4qrm_qa_changes": [expected, added]},
+    )()
+    monkeypatch.setattr(
+        phase4_scope,
+        "_git_tree_paths",
+        lambda _root: [expected],
+    )
+
+    passed, detail = phase4_scope._h_only_refresh_suite(world, "", {})
+
+    assert passed, detail
+
+
 def _imported_modules(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     names: list[str] = []
@@ -135,7 +155,7 @@ def test_phase4_overlap_does_not_steal_cleanup_handlers():
     registry = _published_overlap_registry()
     parent_text = "the parent environment and working directory remain unchanged"
     source_text = (
-        'the acceptance-refresh source feature '
+        "the acceptance-refresh source feature "
         '"acceptance-refresh/stage1b-grounding.feature" is generated'
     )
     src_text = 'no production path beneath "src/" is added, modified, or deleted'
@@ -164,7 +184,10 @@ def test_phase4_feature_tag_is_derived_from_generated_ir_path():
         _derive_feature_tag("build/acceptance/ir/phase4_qa_refresh_migration.json")
         == _PHASE4_ID
     )
-    assert _derive_feature_tag("build/acceptance/ir/acceptance_qa_runtime_cleanup.json") is None
+    assert (
+        _derive_feature_tag("build/acceptance/ir/acceptance_qa_runtime_cleanup.json")
+        is None
+    )
     assert _derive_feature_tag("foundation_test.json") is None
 
 

@@ -815,6 +815,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if (args.pipeline or args.all) and (not args.use_case or not args.risk_extraction):
+        print("ERROR: --use-case and --risk-extraction required for pipeline checks")
+        return 1
+
     runner = QARunner()
 
     if args.static or args.all:
@@ -822,11 +826,6 @@ def main() -> int:
         run_static_checks(runner)
 
     if args.pipeline or args.all:
-        if not args.use_case or not args.risk_extraction:
-            print(
-                "ERROR: --use-case and --risk-extraction required for pipeline checks"
-            )
-            return 1
         print("\n=== Pipeline checks (requires LLM endpoint) ===")
         run_pipeline_checks(
             runner,

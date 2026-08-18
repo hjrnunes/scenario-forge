@@ -34,7 +34,16 @@ def _h_change_set(world: World, text: str, examples: dict) -> tuple[bool, str]:
 
 def _h_only_refresh_suite(world: World, text: str, examples: dict) -> tuple[bool, str]:
     expected = "acceptance/qa/acceptance-refresh/qa_suite.py"
-    suites = [path for path in world.p4qrm_qa_changes if path.endswith("/qa_suite.py")]
+    baseline_suites = {
+        path
+        for path in _git_tree_paths("acceptance/qa")
+        if path.endswith("/qa_suite.py")
+    }
+    suites = [
+        path
+        for path in world.p4qrm_qa_changes
+        if path.endswith("/qa_suite.py") and path in baseline_suites
+    ]
     return suites == [expected], f"changed suites={suites}"
 
 
