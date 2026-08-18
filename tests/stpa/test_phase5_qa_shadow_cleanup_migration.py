@@ -146,3 +146,41 @@ def test_phase5_runtime_registration_is_one_scoped_feature_without_shadow_import
     assert len(api.entries) == len(
         {(pattern, handler) for pattern, handler, _feature in api.entries}
     )
+
+
+def test_phase5_scope_allows_independent_phase4_characterization(monkeypatch) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    sys.path.insert(0, str(_PROJECT_ROOT / "acceptance"))
+    from runtime_features import phase5_qa_shadow_cleanup_migration as phase5
+
+    phase4_suite = "acceptance/qa/phase4-qa-refresh-migration/qa_suite.py"
+    shadow_suite = "acceptance/qa/shadow-cleanup/qa_suite.py"
+    other_suite = "acceptance/qa/acceptance-refresh/qa_suite.py"
+    suites = [phase4_suite, shadow_suite, other_suite]
+    baseline = {
+        phase4_suite: b"phase4 completion\n",
+        shadow_suite: b"shadow baseline\n",
+        other_suite: b"other baseline\n",
+    }
+    current = {
+        phase4_suite: b"phase4 forward-compatible characterization\n",
+        shadow_suite: b"shadow baseline\n",
+        other_suite: b"other baseline\n",
+    }
+
+    monkeypatch.setattr(
+        phase5,
+        "_git_tree_paths",
+        lambda _ref, _root: suites,
+    )
+    monkeypatch.setattr(
+        phase5,
+        "_git_show",
+        lambda ref, path: (baseline if ref == phase5._BASELINE else current).get(path),
+    )
+
+    passed, detail = phase5._h_other_suites(SimpleNamespace(), "", {})
+
+    assert passed, detail

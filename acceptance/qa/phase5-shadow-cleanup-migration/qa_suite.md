@@ -126,8 +126,10 @@ scenarios.
    ```
 
 2. Verify `acceptance/qa/shadow-cleanup/qa_suite.py` is the only pre-existing
-   `qa_suite.py` changed. New Phase 5 specification, QA plan, and dedicated
-   acceptance test-glue modules are allowed; no other suite is migrated.
+   `qa_suite.py` changed by the Phase 5 migration, apart from the independently
+   characterized Phase 4 suite. New Phase 5 specification, QA plan, and
+   dedicated acceptance test-glue modules are allowed; no other suite is
+   migrated.
 3. Compare `acceptance/runtime_features/shadow_cleanup.py` with
    `$BASE_COMMIT`. Verify it is byte-for-byte unchanged; its baseline SHA-256
    is `bdcd184067c345559ac7646d9b24723c4a85eccc1e1ac3a8d0a7bd69e50adc45`.

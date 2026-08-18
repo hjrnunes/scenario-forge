@@ -90,7 +90,7 @@ Feature: Phase 5 QA shadow-cleanup migration
   Scenario: Phase 5 QA shadow-cleanup migration P5QSCM-07 migrates exactly one suite without changing shadow-cleanup registration
     Given the migration change set is compared with the Phase 5 migration baseline
     Then "acceptance/qa/shadow-cleanup/qa_suite.py" is the only existing QA suite changed
-    And every other existing QA suite is byte-for-byte unchanged
+    And every other existing QA suite is byte-for-byte unchanged outside the independent Phase 4 characterization
     And the pre-existing shadow-cleanup runtime feature is byte-for-byte unchanged
     And the shadow-cleanup feature identity, handler patterns, priorities, and scopes are unchanged
     And no production path beneath "src/" is added, modified, or deleted

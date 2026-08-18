@@ -24,6 +24,7 @@ _BASELINE = "5a79d55b35"
 _OPT_IN = "SCENARIO_FORGE_QA_PIPELINE"
 _QA_ROOT = PROJECT_ROOT / "tmp" / "qa-phase5-shadow-cleanup-migration"
 _QA_SUITE = PROJECT_ROOT / "acceptance" / "qa" / "shadow-cleanup" / "qa_suite.py"
+_INDEPENDENT_PHASE4_SUITE = "acceptance/qa/phase4-qa-refresh-migration/qa_suite.py"
 _SHADOW_RUNTIME = "acceptance/runtime_features/shadow_cleanup.py"
 _PROPERTY_TEST = PROJECT_ROOT / "tests" / "stpa" / "test_acceptance_harness_property.py"
 _GENERATED_ROOT = PROJECT_ROOT / "build" / "acceptance" / "generated"
@@ -630,7 +631,8 @@ def _h_other_suites(world: World, text: str, examples: dict) -> tuple[bool, str]
         if path.endswith("/qa_suite.py")
     }
     expected = "acceptance/qa/shadow-cleanup/qa_suite.py"
-    common = (baseline & current) - {expected}
+    independently_characterized = {expected, _INDEPENDENT_PHASE4_SUITE}
+    common = (baseline & current) - independently_characterized
     unchanged = all(
         _git_show(_BASELINE, path) == _git_show("HEAD", path) for path in common
     )
@@ -1028,7 +1030,7 @@ def register(api: object) -> None:
         source_order=24039,
     )
     api.register_first(
-        r"every other existing QA suite is byte-for-byte unchanged",
+        r"every other existing QA suite is byte-for-byte unchanged outside the independent Phase 4 characterization",
         _h_other_suites,
         source_order=24040,
     )
