@@ -6,20 +6,26 @@ artifacts with PyYAML. No Scenario Forge Python API is imported.
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from subprocess import CompletedProcess
 
 import yaml
 
+QA_MODULES = Path(__file__).resolve().parents[1]
+if str(QA_MODULES) not in sys.path:
+    sys.path.insert(0, str(QA_MODULES))
 
-ROOT = next(
-    path
-    for path in Path(__file__).resolve().parents
-    if (path / "pyproject.toml").is_file()
+from qa_harness import (  # noqa: E402
+    PROJECT_ROOT,
+    CheckResult,
+    QARunner,
+    child_env,
+    run_command,
 )
-QA_ROOT = ROOT / "tmp" / "qa-output-ingress-zone"
+
+QA_ROOT = PROJECT_ROOT / "tmp" / "qa-output-ingress-zone"
 
 EXPECTED = {
     "Audit Logs": ("output", None),
@@ -51,15 +57,43 @@ kc_subcodes:
 """
 
 
+class OutputIngressQARunner(QARunner):
+    """Shared harness runner that keeps the suite's PASS/Artifacts contract."""
+
+    def record(self, name: str, passed: bool, detail: str = "") -> CheckResult:
+        result = CheckResult(name, bool(passed), detail)
+        self.results.append(result)
+        return result
+
+    def check(self, name: str, passed: bool, detail: str = "") -> bool:
+        result = self.record(name, passed, detail)
+        if not result.passed:
+            raise AssertionError(detail or name)
+        return True
+
+    def skip(self, name: str, reason: str) -> CheckResult:
+        result = CheckResult(name, True, reason, "SKIP")
+        self.results.append(result)
+        return result
+
+    def summary(self, artifacts: Path | None = None) -> int:
+        for result in self.results:
+            if result.passed and result.status != "SKIP":
+                print(f"PASS {result.name}")
+        if artifacts is not None:
+            print(f"Artifacts: {artifacts.relative_to(PROJECT_ROOT)}")
+        return 0
+
+
 def run_cli(
     profile: Path,
     out_dir: Path,
     use_case: Path,
     risks: Path,
     mapping: Path,
-) -> subprocess.CompletedProcess[str]:
+) -> CompletedProcess[str]:
     """Run the generate command through its public CLI."""
-    return subprocess.run(
+    return run_command(
         [
             "uv",
             "run",
@@ -83,9 +117,8 @@ def run_cli(
             "qa-no-network",
             "--no-eval",
         ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
+        cwd=PROJECT_ROOT,
+        env=child_env(),
         timeout=120,
     )
 
@@ -109,7 +142,7 @@ def observed_values(path: Path) -> dict[str, tuple[str, str | None]]:
     }
 
 
-def require_cli_success(label: str, proc: subprocess.CompletedProcess[str]) -> None:
+def require_cli_success(label: str, proc: CompletedProcess[str]) -> None:
     """Assert the observable success contract for one CLI invocation."""
     detail = f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
     if proc.returncode != 0:
@@ -123,14 +156,11 @@ def require_cli_success(label: str, proc: subprocess.CompletedProcess[str]) -> N
         )
 
 
-def main() -> int:
-    QA_ROOT.mkdir(parents=True, exist_ok=True)
-    work = Path(tempfile.mkdtemp(prefix="run-", dir=QA_ROOT))
+def _write_inputs(work: Path) -> tuple[Path, Path, Path, Path]:
     use_case = work / "use-case.txt"
     risks = work / "risk-extraction.json"
     mapping = work / "mappings.sssom.tsv"
     source_profile = work / "capability-profile.yaml"
-
     use_case.write_text(
         "An AI assistant emits audit records and accepts user prompts.\n",
         encoding="utf-8",
@@ -138,6 +168,14 @@ def main() -> int:
     risks.write_text("[]\n", encoding="utf-8")
     mapping.write_text("", encoding="utf-8")
     source_profile.write_text(PROFILE, encoding="utf-8")
+    return use_case, risks, mapping, source_profile
+
+
+def main() -> int:
+    runner = OutputIngressQARunner()
+    QA_ROOT.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="run-", dir=QA_ROOT))
+    use_case, risks, mapping, source_profile = _write_inputs(work)
 
     first_out = work / "output-1"
     first = run_cli(source_profile, first_out, use_case, risks, mapping)
@@ -148,6 +186,10 @@ def main() -> int:
         raise AssertionError(
             f"QA-OIZ-01 generated unexpected entry points: {first_values}"
         )
+    runner.check(
+        "QA-OIZ-01: contradictory output ingress zone was normalized",
+        True,
+    )
 
     second_out = work / "output-2"
     second = run_cli(normalized, second_out, use_case, risks, mapping)
@@ -157,11 +199,12 @@ def main() -> int:
         raise AssertionError(
             f"QA-OIZ-02 generated unexpected entry points: {second_values}"
         )
+    runner.check(
+        "QA-OIZ-02: normalized profile reuse was idempotent",
+        True,
+    )
 
-    print("PASS QA-OIZ-01: contradictory output ingress zone was normalized")
-    print("PASS QA-OIZ-02: normalized profile reuse was idempotent")
-    print(f"Artifacts: {work.relative_to(ROOT)}")
-    return 0
+    return runner.summary(work)
 
 
 if __name__ == "__main__":
