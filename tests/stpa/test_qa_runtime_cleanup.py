@@ -572,6 +572,7 @@ _QA_RUNTIME_MODULES = (
 )
 _ALLOWED_QA_HARNESS_IMPORTERS = (
     "acceptance/qa/072o/qa_suite.py",
+    "acceptance/qa/f787/qa_suite.py",
     "acceptance/qa/output-ingress-zone/qa_suite.py",
     "acceptance/qa/shadow-cleanup/qa_suite.py",
     "acceptance/qa/stage1-split-reorder/qa_suite.py",
