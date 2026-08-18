@@ -576,8 +576,10 @@ _QA_RUNTIME_MODULES = (
     "acceptance/runtime_features/phase4_qa_refresh_migration_process.py",
     "acceptance/runtime_features/phase4_qa_refresh_migration_scope.py",
     "acceptance/runtime_features/phase4_qa_refresh_migration_support.py",
+    "acceptance/runtime_features/phase5_qa_shadow_cleanup_migration.py",
 )
 _ALLOWED_QA_HARNESS_IMPORTERS = (
+    "acceptance/qa/shadow-cleanup/qa_suite.py",
     "acceptance/qa/acceptance-framework-refactor/qa_suite.py",
     "acceptance/qa/acceptance-refresh/qa_suite.py",
 )
@@ -641,6 +643,7 @@ def test_manifest_registration_does_not_load_qa_harness():
     assert identities.count("acceptance_refresh") == 1
     assert identities.count("acceptance_qa_runtime_cleanup") == 1
     assert identities.count("phase4_qa_refresh_migration") == 1
+    assert identities.count("phase5_qa_shadow_cleanup_migration") == 1
     assert after == before
 
 
@@ -680,9 +683,7 @@ def test_acceptance_refresh_facade_keeps_handler_aliases():
         "_h_ar_valid_responsibility_set",
         "_h_ar_warnings_include",
     }
-    available = {
-        name for name in dir(acceptance_refresh) if name.startswith("_h_ar_")
-    }
+    available = {name for name in dir(acceptance_refresh) if name.startswith("_h_ar_")}
     assert expected <= available
     assert acceptance_refresh.__all__ == ["FEATURE_ID", "register"]
 

@@ -36,9 +36,10 @@ class CheckResult:
     name: str
     passed: bool
     detail: str = ""
+    status: str | None = None
 
     def __str__(self) -> str:
-        status = "PASS" if self.passed else "FAIL"
+        status = self.status or ("PASS" if self.passed else "FAIL")
         text = f"  [{status}] {self.name}"
         if self.detail:
             text += f"\n         {self.detail}"
@@ -61,9 +62,20 @@ class QARunner:
         self.record(name, passed, detail)
         return bool(passed)
 
+    def skip(self, name: str, reason: str) -> CheckResult:
+        """Record a visible skip without treating it as a failure."""
+        result = CheckResult(name, True, reason, "SKIP")
+        self.results.append(result)
+        print(result, flush=True)
+        return result
+
     def summary(self) -> int:
-        passed = sum(result.passed for result in self.results)
-        failed = len(self.results) - passed
+        passed = sum(
+            result.passed and result.status != "SKIP" for result in self.results
+        )
+        failed = sum(
+            not result.passed and result.status != "SKIP" for result in self.results
+        )
         print(f"\nQA suite: {passed} passed, {failed} failed", flush=True)
         return 0 if failed == 0 else 1
 

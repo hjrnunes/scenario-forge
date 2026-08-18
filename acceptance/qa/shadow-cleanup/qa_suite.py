@@ -59,13 +59,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+QA_MODULES = Path(__file__).resolve().parents[1]
+if str(QA_MODULES) not in sys.path:
+    sys.path.insert(0, str(QA_MODULES))
+
+from qa_harness import (  # noqa: E402
+    PROJECT_ROOT,
+    QARunner,
+    run_command,
+)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = next(
-    p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
-)
 ACCEPTANCE_DIR = PROJECT_ROOT / "acceptance"
 ACCEPTANCE_RUNTIME = ACCEPTANCE_DIR / "acceptance_runtime.py"
 IR_DIR = PROJECT_ROOT / "build" / "acceptance" / "ir"
@@ -334,67 +341,6 @@ SYNTHETIC_STEP_TEXTS: list[str] = [
     "the existing test suite is run",
     "critic findings with unjustified gaps",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Test framework
-# ---------------------------------------------------------------------------
-
-
-class CheckResult:
-    """Result of a single QA check."""
-
-    def __init__(self, name: str, status: str, detail: str = ""):
-        self.name = name
-        self.status = status  # "PASS" | "FAIL" | "SKIP"
-        self.detail = detail
-
-    def __str__(self) -> str:
-        s = f"  [{self.status}] {self.name}"
-        if self.detail and self.status != "PASS":
-            s += f"\n         {self.detail}"
-        return s
-
-
-class QARunner:
-    """Collects and reports QA check results."""
-
-    def __init__(self) -> None:
-        self.results: list[CheckResult] = []
-
-    def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(CheckResult(name, "PASS" if condition else "FAIL", detail))
-
-    def skip(self, name: str, reason: str) -> None:
-        self.results.append(CheckResult(name, "SKIP", reason))
-
-    def summary(self) -> int:
-        passed = sum(1 for r in self.results if r.status == "PASS")
-        failed = sum(1 for r in self.results if r.status == "FAIL")
-        skipped = sum(1 for r in self.results if r.status == "SKIP")
-        total = len(self.results)
-        print()
-        print("=" * 72)
-        print(
-            f"QA SUMMARY: {passed}/{total} passed, "
-            f"{failed} failed, {skipped} skipped (not executed)"
-        )
-        print("=" * 72)
-        for r in self.results:
-            print(r)
-        if skipped:
-            print(
-                f"\n{skipped} PIPELINE-MODE CHECK(S) NOT EXECUTED — these need a "
-                f"live LLM endpoint and a completed run; see --pipeline."
-            )
-        if failed > 0:
-            print(f"\n{failed} CHECK(S) FAILED")
-            return 1
-        if passed == 0:
-            print("\nNO CHECKS WERE EXECUTED")
-            return 0
-        print(f"\nALL {passed} EXECUTED CHECK(S) PASSED")
-        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -725,7 +671,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
     # --- Property tests pass with pytest (not xfail, not xpass) -------------
     if PROPERTY_TEST.is_file():
         try:
-            result = subprocess.run(
+            result = run_command(
                 [
                     sys.executable,
                     "-m",
@@ -740,21 +686,23 @@ def run_dynamic_checks(runner: QARunner) -> None:
                     "-p",
                     "no:cacheprovider",
                 ],
-                capture_output=True,
-                text=True,
                 timeout=120,
-                cwd=str(PROJECT_ROOT),
+                cwd=PROJECT_ROOT,
             )
             output = result.stdout + result.stderr
             # Check both tests passed (not xfailed, not xpassed)
             has_xfail = "xfail" in output.lower() or "xfailed" in output.lower()
             has_xpass = "xpassed" in output.lower()
             has_pass = "PASSED" in output
+            detail = (
+                f"rc={result.returncode}, "
+                f"stdout={result.stdout[:500]!r}, stderr={result.stderr[:500]!r}"
+            )
             runner.check(
                 f"sc-dynamic-{offset:02d}: both property tests pass "
                 f"(not xfail, not xpass)",
                 result.returncode == 0 and has_pass and not has_xfail and not has_xpass,
-                f"rc={result.returncode}, output snippet: {output[:500]}",
+                detail,
             )
         except subprocess.TimeoutExpired:
             runner.check(

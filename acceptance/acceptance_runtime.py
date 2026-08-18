@@ -134,6 +134,7 @@ _STEM_PREFIX_TAGS: tuple[tuple[str, str], ...] = (
     ("sp3-", "sp3"),
     ("stage6_", "sp3"),
     ("phase4_qa_refresh_migration", "phase4_qa_refresh_migration"),
+    ("phase5_qa_shadow_cleanup_migration", "phase5_qa_shadow_cleanup_migration"),
 )
 
 
