@@ -237,30 +237,6 @@ def test_run_command_defaults_to_project_root_from_nested_cwd(tmp_path, monkeypa
     assert result.stdout.strip() == str(_PROJECT_ROOT)
 
 
-def test_runtime_cleanup_handler_does_not_import_qa_harness():
-    source = (
-        _PROJECT_ROOT
-        / "acceptance"
-        / "runtime_features"
-        / "acceptance_qa_runtime_cleanup.py"
-    ).read_text()
-    tree = ast.parse(source)
-
-    imports = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-    ]
-    assert all(
-        not (isinstance(node, ast.ImportFrom) and node.module == "qa_harness")
-        and not (
-            isinstance(node, ast.Import)
-            and any(alias.name == "qa_harness" for alias in node.names)
-        )
-        for node in imports
-    )
-
-
 def test_only_migrated_qa_suite_imports_qa_harness():
     importers = []
     acceptance_root = _PROJECT_ROOT / "acceptance"
@@ -506,68 +482,6 @@ def test_acceptance_refresh_link_and_warning_handler_branches():
     assert not _h_ar_warnings_include(world, "malformed", {})[0]
 
 
-def test_qa_cleanup_checks_cover_refresh_parsing_and_generation(monkeypatch, tmp_path):
-    import runtime_features.acceptance_qa_runtime_cleanup_checks as checks
-
-    world = SimpleNamespace(
-        aqrc_refresh_entries=[
-            (priority, 0, True, "", None, "acceptance_refresh")
-            for priority in range(21826, 21839)
-        ]
-        + [(priority, 0, False, "", None, None) for priority in range(21916, 21941)],
-        aqrc_default_output="\n".join(f"PASS {name}" for name in checks._REFRESH_CASES),
-    )
-    assert checks._h_aqrc_feature_scope(world, "", {})[0]
-    assert checks._h_aqrc_global_scope(world, "", {})[0]
-    world.aqrc_refresh_entries = world.aqrc_refresh_entries[:-1]
-    assert not checks._h_aqrc_global_scope(world, "", {})[0]
-    assert checks._h_aqrc_default_refresh_passes(world, "", {})[0]
-    world.aqrc_default_output += "\nFAIL stage2-coordination-analysis"
-    assert not checks._h_aqrc_default_refresh_passes(world, "", {})[0]
-
-    source_text = (
-        "the acceptance-refresh source feature "
-        '"acceptance-refresh/generated.feature" is generated'
-    )
-    generated_path = tmp_path / "generated.py"
-    monkeypatch.setattr(checks, "_generated_test_path", lambda _: generated_path)
-
-    def generate_success(*args, **kwargs):
-        generated_path.write_text("# generated\n")
-        return subprocess.CompletedProcess(args[0], 0, "", "")
-
-    monkeypatch.setattr(checks, "_run_external_command", generate_success)
-    generated_world = SimpleNamespace()
-    assert checks._h_aqrc_source_generated(generated_world, source_text, {})[0]
-    assert generated_world.aqrc_source_test == generated_path
-
-    generated_path.unlink()
-    monkeypatch.setattr(
-        checks,
-        "_run_external_command",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
-            args[0], 1, "", "generation failed"
-        ),
-    )
-    assert not checks._h_aqrc_source_generated(SimpleNamespace(), source_text, {})[0]
-
-    generated_world.aqrc_source_output = "PASS one/example_1\nPASS two/example_1\n"
-    generated_world.aqrc_source_result = subprocess.CompletedProcess([], 0)
-    assert checks._h_aqrc_source_pass_count(
-        generated_world, "exactly 2 scenarios report PASS", {}
-    )[0]
-    generated_world.aqrc_source_result = subprocess.CompletedProcess([], 1)
-    assert not checks._h_aqrc_source_pass_count(
-        generated_world, "exactly 2 scenarios report PASS", {}
-    )[0]
-    assert not checks._h_aqrc_source_pass_count(generated_world, "malformed", {})[0]
-
-
-_QA_RUNTIME_MODULES = (
-    "acceptance/runtime_features/acceptance_qa_runtime_cleanup.py",
-    "acceptance/runtime_features/acceptance_qa_runtime_cleanup_harness.py",
-    "acceptance/runtime_features/acceptance_qa_runtime_cleanup_checks.py",
-)
 _ALLOWED_QA_HARNESS_IMPORTERS = (
     "acceptance/qa/acceptance_framework/qa_suite.py",
     "acceptance/qa/acceptance_registration.py",
@@ -593,15 +507,6 @@ def _imported_module_names(path: Path) -> list[str]:
         elif isinstance(node, ast.ImportFrom) and node.module:
             names.append(node.module)
     return names
-
-
-def test_qa_runtime_glue_never_imports_qa_harness():
-    for relative in _QA_RUNTIME_MODULES:
-        imports = _imported_module_names(_PROJECT_ROOT / relative)
-        assert all(
-            name != "qa_harness" and not name.startswith("qa_harness.")
-            for name in imports
-        ), relative
 
 
 def test_qa_harness_depends_only_on_stdlib():
@@ -638,7 +543,7 @@ def test_manifest_registration_does_not_load_qa_harness():
     }
 
     assert identities.count("acceptance_refresh") == 1
-    assert identities.count("acceptance_qa_runtime_cleanup") == 1
+    assert "acceptance_qa_runtime_cleanup" not in identities
     assert after == before
 
 

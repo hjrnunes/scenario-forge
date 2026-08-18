@@ -31,7 +31,6 @@ MODULES = (
     "acceptance_hygiene",
     "acceptance_live_opt_in",
     "acceptance_framework_refactor",
-    "acceptance_qa_runtime_cleanup",
 )
 
 
