@@ -51,29 +51,35 @@ import argparse
 import ast
 import json
 import re
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import yaml
 
+QA_MODULES = Path(__file__).resolve().parents[1]
+if str(QA_MODULES) not in sys.path:
+    sys.path.insert(0, str(QA_MODULES))
+
+from qa_harness import (  # noqa: E402
+    PROJECT_ROOT,
+    QARunner,
+    child_env,
+    run_command,
+)
+
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
-_PROJECT_ROOT = next(
-    p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
-)
-
 PROMPTS_DIR = (
-    _PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "system_model" / "prompts"
+    PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "system_model" / "prompts"
 )
-LEGACY_FEATURES_DIR = _PROJECT_ROOT / "tests" / "stpa" / "features"
-REFRESH_FEATURES_DIR = _PROJECT_ROOT / "features" / "acceptance-refresh"
-IR_DIR = _PROJECT_ROOT / "build" / "acceptance" / "ir"
-GENERATED_DIR = _PROJECT_ROOT / "build" / "acceptance" / "generated"
+LEGACY_FEATURES_DIR = PROJECT_ROOT / "tests" / "stpa" / "features"
+REFRESH_FEATURES_DIR = PROJECT_ROOT / "features" / "acceptance-refresh"
+IR_DIR = PROJECT_ROOT / "build" / "acceptance" / "ir"
+GENERATED_DIR = PROJECT_ROOT / "build" / "acceptance" / "generated"
 
 
 # ---------------------------------------------------------------------------
@@ -194,53 +200,6 @@ EXPECTED_STAGE1A_CALL_COUNT = 2
 
 
 # ---------------------------------------------------------------------------
-# Test framework
-# ---------------------------------------------------------------------------
-
-
-class CheckResult:
-    """Result of a single QA check."""
-
-    def __init__(self, name: str, passed: bool, detail: str = ""):
-        self.name = name
-        self.passed = passed
-        self.detail = detail
-
-    def __str__(self) -> str:
-        status = "PASS" if self.passed else "FAIL"
-        s = f"  [{status}] {self.name}"
-        if self.detail:
-            s += f"\n         {self.detail}"
-        return s
-
-
-class QARunner:
-    """Collects and reports QA check results."""
-
-    def __init__(self) -> None:
-        self.results: list[CheckResult] = []
-
-    def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(CheckResult(name, bool(condition), detail))
-
-    def summary(self) -> int:
-        passed = sum(1 for r in self.results if r.passed)
-        total = len(self.results)
-        failed = total - passed
-        print()
-        print("=" * 68)
-        print(f"QA SUMMARY: {passed}/{total} passed, {failed} failed")
-        print("=" * 68)
-        for r in self.results:
-            print(r)
-        if failed > 0:
-            print(f"\n{failed} CHECK(S) FAILED")
-            return 1
-        print("\nALL CHECKS PASSED")
-        return 0
-
-
-# ---------------------------------------------------------------------------
 # Corpus helpers
 # ---------------------------------------------------------------------------
 
@@ -259,7 +218,7 @@ def _strip_manifest_comments(text: str) -> str:
 
 FEATURE_ROOTS = [
     LEGACY_FEATURES_DIR,
-    _PROJECT_ROOT / "features",
+    PROJECT_ROOT / "features",
 ]
 
 # Negation markers that make an assertion a *negative* one. A retired symbol
@@ -603,7 +562,7 @@ def _entry_point_ir_refs(path: Path) -> list[str]:
 def _resolve_entry_point_ir_ref(reference: str) -> Path:
     """Resolve a generated entry point's repo-relative or absolute IR path."""
     path = Path(reference)
-    return path if path.is_absolute() else _PROJECT_ROOT / path
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 def check_entry_points_resolve(runner: QARunner) -> None:
@@ -715,11 +674,10 @@ def run_pipeline_checks(
         if capability_profile is not None:
             cmd += ["--profile", str(capability_profile)]
 
-        proc = subprocess.run(
+        proc = run_command(
             cmd,
-            cwd=_PROJECT_ROOT,
-            capture_output=True,
-            text=True,
+            cwd=PROJECT_ROOT,
+            env=child_env(),
             timeout=3600,
         )
         runner.check(

@@ -279,6 +279,34 @@ def test_only_migrated_qa_suite_imports_qa_harness():
     assert importers == list(_ALLOWED_QA_HARNESS_IMPORTERS)
 
 
+def test_acceptance_refresh_qa_suite_uses_shared_harness():
+    suite_path = (
+        _PROJECT_ROOT / "acceptance" / "qa" / "acceptance-refresh" / "qa_suite.py"
+    )
+    tree = ast.parse(suite_path.read_text(encoding="utf-8"))
+    imports = _imported_module_names(suite_path)
+
+    assert "qa_harness" in imports
+    assert not any(
+        isinstance(node, ast.ClassDef) and node.name in {"CheckResult", "QARunner"}
+        for node in ast.walk(tree)
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "run_command"
+        for node in ast.walk(tree)
+    )
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "subprocess"
+        and node.func.attr == "run"
+        for node in ast.walk(tree)
+    )
+
+
 def test_acceptance_refresh_handler_branches_remain_characterized(tmp_path):
     world = SimpleNamespace(
         sp1_run_dir=tmp_path,
@@ -544,6 +572,7 @@ _QA_RUNTIME_MODULES = (
 )
 _ALLOWED_QA_HARNESS_IMPORTERS = (
     "acceptance/qa/acceptance-framework-refactor/qa_suite.py",
+    "acceptance/qa/acceptance-refresh/qa_suite.py",
 )
 _ENV_NAME_CHARS = string.ascii_letters + string.digits + "_"
 _ENV_VALUE_CHARS = string.ascii_letters + string.digits + " ._-"
