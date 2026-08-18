@@ -31,15 +31,15 @@ Feature: Phase 4 QA refresh migration
     Then both runs exit with status 0
     And each recorded check is emitted once in recording order
     And both runs have identical ordered check results
-    And each run reports "<summary>"
+    And each run reports a zero-failure summary matching its ordered checks
     And the pipeline stand-in is invoked <pipeline_runs> time per run
     And the endpoint contact count remains 0
 
     Examples:
-      | mode       | summary                           | pipeline_runs |
-      | --static   | QA suite: 519 passed, 0 failed    | 0             |
-      | --pipeline | QA suite: 18 passed, 0 failed     | 1             |
-      | --all      | QA suite: 537 passed, 0 failed    | 1             |
+      | mode       | pipeline_runs |
+      | --static   | 0             |
+      | --pipeline | 1             |
+      | --all      | 1             |
 
   # Phase 4 QA refresh migration P4QRM-03 preserves invalid invocation outcomes
   Scenario Outline: Phase 4 QA refresh migration P4QRM-03 preserves invalid invocation outcomes
@@ -73,7 +73,7 @@ Feature: Phase 4 QA refresh migration
     When "--static" mode is run twice
     Then both runs discover the repository root
     And both runs exit with status 0
-    And both runs emit the same ordered checks and "QA suite: 519 passed, 0 failed"
+    And both runs emit the same ordered checks and a zero-failure summary
     And neither run changes the caller working directory
 
   # Phase 4 QA refresh migration P4QRM-06 preserves generated acceptance-refresh scenarios
@@ -93,13 +93,13 @@ Feature: Phase 4 QA refresh migration
       | acceptance-refresh/stage2-coordination-analysis.feature  | 12             |
       | acceptance-refresh/stage2-assembly-fallback.feature      | 8              |
 
-  # Phase 4 QA refresh migration P4QRM-07 migrates exactly one existing suite
-  Scenario: Phase 4 QA refresh migration P4QRM-07 migrates exactly one existing suite
-    Given the migration change set is compared with the Phase 4 migration baseline
-    Then "acceptance/qa/acceptance-refresh/qa_suite.py" is the only existing QA suite changed
-    And every other existing QA suite is byte-for-byte unchanged
-    And the shared QA harness is byte-for-byte unchanged
-    And acceptance-refresh runtime registration is byte-for-byte unchanged
+  # Phase 4 QA refresh migration P4QRM-07 preserves the Phase 4 boundary
+  Scenario: Phase 4 QA refresh migration P4QRM-07 preserves the Phase 4 boundary
+    Given the Phase 4 completion change set is compared with commit "5a79d55b35"
+    Then acceptance-refresh QA behavior is byte-for-byte unchanged from the Phase 4 completion baseline
+    And later independent QA-suite migrations are outside the Phase 4 change boundary
+    And the shared QA harness preserves its check and summary API behavior
+    And acceptance-refresh runtime registration is byte-for-byte unchanged from the Phase 4 completion baseline
     And no production path beneath "src/" is added, modified, or deleted
     And acceptance configuration and generation commands are byte-for-byte unchanged
 

@@ -116,20 +116,16 @@ def _h_checks_once(world: World, text: str, examples: dict) -> tuple[bool, str]:
     runs = getattr(world, "p4qrm_runs", [])
     if len(runs) != 2:
         return False, "two QA runs were not recorded"
-    expected_match = re.search(
-        r"QA suite: (\d+) passed, 0 failed",
-        str(examples.get("summary", "")),
-    )
-    expected_count = int(expected_match.group(1)) if expected_match else None
     details = []
     for result in runs:
         lines = _check_lines(_output(result))
         details.append((len(lines), len(set(lines))))
         if (
-            expected_count is None
-            or len(lines) != expected_count
+            not lines
             or len(lines) != len(set(lines))
             or any("[FAIL]" in line for line in lines)
+            or any("[SKIP]" in line for line in lines)
+            or any(not line.startswith("[PASS] ") for line in lines)
         ):
             return False, f"check line counts={details}"
     return True, ""
@@ -145,13 +141,21 @@ def _h_identical_checks(world: World, text: str, examples: dict) -> tuple[bool, 
 
 
 def _h_summary(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    match = re.search(r'run reports "([^"]+)"', text)
-    if match is None:
-        return False, f"Could not parse summary: {text}"
-    summary = match.group(1)
-    return all(_output(result).count(summary) == 1 for result in world.p4qrm_runs), (
-        f"summary {summary!r} was not emitted once per run"
-    )
+    failures = []
+    for result in world.p4qrm_runs:
+        matches = re.findall(
+            r"^QA suite: (\d+) passed, (\d+) failed$",
+            _output(result),
+            re.MULTILINE,
+        )
+        lines = _check_lines(_output(result))
+        if len(matches) != 1:
+            failures.append(f"summary occurrences={len(matches)}")
+            continue
+        passed, failed = (int(value) for value in matches[0])
+        if passed != len(lines) or failed != 0:
+            failures.append(f"summary=({passed}, {failed}) checks={len(lines)}")
+    return not failures, f"summary failures={failures}"
 
 
 def _h_standin_count(world: World, text: str, examples: dict) -> tuple[bool, str]:

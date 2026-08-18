@@ -47,14 +47,14 @@ from .phase4_qa_refresh_migration_process import (
 )
 from .phase4_qa_refresh_migration_scope import (
     _h_artifacts_untracked,
-    _h_change_set,
+    _h_completion_change_set,
     _h_config_unchanged,
     _h_generated_paths,
-    _h_harness_unchanged,
+    _h_harness_compatible,
+    _h_later_qa_changes_outside_boundary,
     _h_metadata_relative,
     _h_no_src_changes,
-    _h_only_refresh_suite,
-    _h_other_suites,
+    _h_refresh_suite_unchanged,
     _h_refresh_registration_unchanged,
     _h_run_hygiene,
     _h_scope_stable,
@@ -90,7 +90,10 @@ def register(api: object) -> None:
         r"each recorded check is emitted once in recording order", _h_checks_once
     )
     api.register(r"both runs have identical ordered check results", _h_identical_checks)
-    api.register(r'each run reports "([^"]+)"', _h_summary)
+    api.register(
+        r"each run reports a zero-failure summary matching its ordered checks",
+        _h_summary,
+    )
     api.register(
         r"the pipeline stand-in is invoked (\d+) time per run", _h_standin_count
     )
@@ -139,7 +142,7 @@ def register(api: object) -> None:
     api.register(r'"--static" mode is run twice', _h_nested_static)
     api.register(r"both runs discover the repository root", _h_nested_root)
     api.register(
-        r'both runs emit the same ordered checks and "QA suite: 519 passed, 0 failed"',
+        r"both runs emit the same ordered checks and a zero-failure summary",
         _h_nested_same,
     )
     api.register(
@@ -167,22 +170,23 @@ def register(api: object) -> None:
     )
     api.register(r"both runs report the same ordered scenario outcomes", _h_source_same)
     api.register(
-        r"the migration change set is compared with the Phase 4 migration baseline",
-        _h_change_set,
+        r'the Phase 4 completion change set is compared with commit "([^"]+)"',
+        _h_completion_change_set,
     )
     api.register(
-        r'"acceptance/qa/acceptance-refresh/qa_suite.py" is the only existing QA suite changed',
-        _h_only_refresh_suite,
+        r"acceptance-refresh QA behavior is byte-for-byte unchanged from the Phase 4 completion baseline",
+        _h_refresh_suite_unchanged,
     )
     api.register(
-        r"every other existing QA suite is byte-for-byte unchanged",
-        _h_other_suites,
+        r"later independent QA-suite migrations are outside the Phase 4 change boundary",
+        _h_later_qa_changes_outside_boundary,
     )
     api.register(
-        r"the shared QA harness is byte-for-byte unchanged", _h_harness_unchanged
+        r"the shared QA harness preserves its check and summary API behavior",
+        _h_harness_compatible,
     )
     api.register(
-        r"acceptance-refresh runtime registration is byte-for-byte unchanged",
+        r"acceptance-refresh runtime registration is byte-for-byte unchanged from the Phase 4 completion baseline",
         _h_refresh_registration_unchanged,
     )
     api.register_first(

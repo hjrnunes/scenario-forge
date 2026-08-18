@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ from runtime_shared import PROJECT_ROOT, World
 
 from .phase4_qa_refresh_migration_support import (
     _BASELINE,
+    _COMPLETION_BASELINE,
     _DRY_ROOT,
     _GENERATED_ROOT,
     _IR_ROOT,
@@ -30,6 +32,21 @@ from .phase4_qa_refresh_migration_support import (
 def _h_change_set(world: World, text: str, examples: dict) -> tuple[bool, str]:
     world.p4qrm_qa_changes = _git_diff_names("acceptance/qa")
     return True, ""
+
+
+def _h_completion_change_set(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    match = re.search(r'commit "([^"]+)"', text)
+    if match is None:
+        return False, f"Could not parse completion baseline: {text}"
+    baseline = match.group(1)
+    world.p4qrm_completion_baseline = baseline
+    world.p4qrm_completion_qa_changes = _git_diff_names("acceptance/qa", ref=baseline)
+    return (
+        baseline == _COMPLETION_BASELINE,
+        f"expected completion baseline {_COMPLETION_BASELINE}, got {baseline}",
+    )
 
 
 def _h_only_refresh_suite(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -78,16 +95,65 @@ def _git_tree_paths(root: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
-def _h_harness_unchanged(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    path = "acceptance/qa/qa_harness.py"
-    return _git_show(path) == (PROJECT_ROOT / path).read_bytes(), f"{path} changed"
+def _h_refresh_suite_unchanged(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    path = "acceptance/qa/acceptance-refresh/qa_suite.py"
+    baseline = getattr(world, "p4qrm_completion_baseline", _COMPLETION_BASELINE)
+    expected = _git_show(path, ref=baseline)
+    current = (PROJECT_ROOT / path).read_bytes()
+    return (
+        expected is not None and expected == current,
+        f"{path} differs from Phase 4 completion baseline {baseline}",
+    )
+
+
+def _h_later_qa_changes_outside_boundary(
+    world: World, text: str, examples: dict
+) -> tuple[bool, str]:
+    path = "acceptance/qa/acceptance-refresh/qa_suite.py"
+    baseline = getattr(world, "p4qrm_completion_baseline", _COMPLETION_BASELINE)
+    changes = _git_diff_names("acceptance/qa", ref=baseline)
+    return (
+        path not in changes,
+        f"Phase 4 acceptance-refresh suite appears in later changes: {changes}",
+    )
+
+
+def _h_harness_compatible(world: World, text: str, examples: dict) -> tuple[bool, str]:
+    """Verify the pre-Phase-5 check/summary contract through the CLI boundary."""
+    probe = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "sys.path.insert(0, str(Path('acceptance/qa').resolve()))\n"
+        "from qa_harness import QARunner\n"
+        "runner = QARunner()\n"
+        "passed = runner.check('compatibility pass', True)\n"
+        "failed = runner.check('compatibility failure', False)\n"
+        "status = runner.summary()\n"
+        "if passed is not True or failed is not False or status != 1:\n"
+        "    raise SystemExit(1)\n"
+    )
+    result = _run([sys.executable, "-c", probe])
+    output = f"{result.stdout}{result.stderr}"
+    compatible = (
+        result.returncode == 0
+        and "[PASS] compatibility pass" in output
+        and "[FAIL] compatibility failure" in output
+        and "QA suite: 1 passed, 1 failed" in output
+    )
+    return compatible, f"shared harness compatibility probe failed: {output!r}"
 
 
 def _h_refresh_registration_unchanged(
     world: World, text: str, examples: dict
 ) -> tuple[bool, str]:
     path = "acceptance/runtime_features/acceptance_refresh.py"
-    return _git_show(path) == (PROJECT_ROOT / path).read_bytes(), f"{path} changed"
+    baseline = _git_show(path, ref=_COMPLETION_BASELINE)
+    return (
+        baseline is not None and baseline == (PROJECT_ROOT / path).read_bytes(),
+        f"{path} differs from Phase 4 completion baseline {_COMPLETION_BASELINE}",
+    )
 
 
 def _h_no_src_changes(world: World, text: str, examples: dict) -> tuple[bool, str]:

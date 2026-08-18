@@ -18,6 +18,7 @@ from typing import Any
 from runtime_shared import PROJECT_ROOT, World
 
 _BASELINE = "9e112ea23a"
+_COMPLETION_BASELINE = "5a79d55b35"
 _QA_SUITE = PROJECT_ROOT / "acceptance" / "qa" / "acceptance-refresh" / "qa_suite.py"
 _GENERATED_ROOT = PROJECT_ROOT / "build" / "acceptance" / "generated"
 _IR_ROOT = PROJECT_ROOT / "build" / "acceptance" / "ir"
@@ -289,9 +290,9 @@ def _finish_sentinel(world: World) -> None:
         world.p4qrm_endpoint_environment = None
 
 
-def _git_show(path: str) -> bytes | None:
+def _git_show(path: str, ref: str = _BASELINE) -> bytes | None:
     result = subprocess.run(
-        ["git", "show", f"{_BASELINE}:{path}"],
+        ["git", "show", f"{ref}:{path}"],
         cwd=PROJECT_ROOT,
         capture_output=True,
         check=False,
@@ -299,9 +300,9 @@ def _git_show(path: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def _git_diff_names(*paths: str) -> list[str]:
+def _git_diff_names(*paths: str, ref: str = _BASELINE) -> list[str]:
     result = subprocess.run(
-        ["git", "diff", "--name-only", f"{_BASELINE}..HEAD", "--", *paths],
+        ["git", "diff", "--name-only", f"{ref}..HEAD", "--", *paths],
         cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,

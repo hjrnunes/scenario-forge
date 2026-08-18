@@ -157,21 +157,45 @@ def _h_nested_static(world: World, text: str, examples: dict) -> tuple[bool, str
 
 def _h_nested_root(world: World, text: str, examples: dict) -> tuple[bool, str]:
     runs = world.p4qrm_nested_runs
+    summaries = []
+    for result in runs:
+        matches = re.findall(
+            r"^QA suite: (\d+) passed, (\d+) failed$",
+            _output(result),
+            re.MULTILINE,
+        )
+        checks = _check_lines(_output(result))
+        summaries.append((matches, len(checks)))
     return (
         len(runs) == 2
         and all(
             result.returncode == 0
-            and "QA suite: 519 passed, 0 failed" in _output(result)
+            and len(matches) == 1
+            and int(matches[0][0]) == check_count
+            and int(matches[0][1]) == 0
+            for result, (matches, check_count) in zip(runs, summaries)
+        )
+        and all(
+            not any(
+                "[FAIL]" in line or "[SKIP]" in line
+                for line in _check_lines(_output(result))
+            )
             for result in runs
         ),
-        f"nested statuses={[result.returncode for result in runs]}",
+        f"nested statuses={[result.returncode for result in runs]} summaries={summaries}",
     )
 
 
 def _h_nested_same(world: World, text: str, examples: dict) -> tuple[bool, str]:
     runs = world.p4qrm_nested_runs
     return (
-        _check_lines(_output(runs[0])) == _check_lines(_output(runs[1])),
+        len(runs) == 2
+        and _check_lines(_output(runs[0])) == _check_lines(_output(runs[1]))
+        and all(
+            "QA suite: " in _output(result)
+            and re.search(r"QA suite: \d+ passed, 0 failed", _output(result))
+            for result in runs
+        ),
         "nested check order differs",
     )
 

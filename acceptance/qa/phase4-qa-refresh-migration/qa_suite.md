@@ -2,16 +2,16 @@
 
 Run from the repository root. Exercise only command-line entrypoints, process
 output, filesystem artifacts, and Git observations; do not import project
-modules. Set `BASE_COMMIT=9e112ea23a`, keep `SCENARIO_FORGE_QA_PIPELINE`
+modules. Set `BASE_COMMIT=5a79d55b35`, keep `SCENARIO_FORGE_QA_PIPELINE`
 unset, and store captures only below
 `tmp/qa-phase4-qa-refresh-migration/captures/`. Before every procedure, record
 stdout, stderr, exit status, working directory, environment, and
 `git status --porcelain=v1 -z --untracked-files=all`.
 
-The characterized pre-migration static baseline is 515 ordered PASS checks,
-`QA SUMMARY: 515/515 passed, 0 failed`, and exit `0`. The Phase 4 feature adds
-four deterministic corpus checks. After migration the shared report baseline
-is therefore `QA suite: 519 passed, 0 failed`.
+The Phase 4 completion baseline is `5a79d55b35`. Static checks are an ordered,
+deterministic sequence with zero failures; later independent QA migrations may
+add checks, so this suite verifies that the reported PASS total matches the
+checks emitted in that run rather than freezing a historical total.
 
 ## QA-P4QRM-01: CLI and deterministic reporting
 
@@ -26,12 +26,11 @@ is therefore `QA suite: 519 passed, 0 failed`.
    exits `1`, starts no child, and prints exactly
    `ERROR: --use-case and --risk-extraction required for pipeline checks`.
 5. Run `--static` twice. Verify each exits `0`, emits the static heading once,
-   emits every check once in the same recording order, and ends with
-   `QA suite: 519 passed, 0 failed`.
-6. Verify the 515 pre-migration check names retain their relative order and
-   result text. The only added static checks are the IR presence, entry-point
-   resolution, IR coverage, and canonical-IR-location checks for
-   `phase4_qa_refresh_migration`.
+   emits every check once in the same recording order, and reports
+   `QA suite: <emitted PASS count> passed, 0 failed`, with the count matching
+   the ordered PASS checks.
+6. Verify the Phase 4 corpus checks remain present. Do not require a frozen
+   total or reject later independent QA-suite checks.
 
 ## QA-P4QRM-02: subprocess, stream, and temporary-output isolation
 
@@ -76,8 +75,8 @@ is therefore `QA suite: 519 passed, 0 failed`.
 2. From that directory, invoke the absolute `.venv/bin/python` and absolute
    suite path with `--static`.
 3. Verify repository discovery succeeds, exit/status/check ordering matches
-   the root invocation, and the summary is
-   `QA suite: 519 passed, 0 failed`.
+   the root invocation, and the summary reports zero failures with its PASS
+   count matching the emitted ordered checks.
 4. Repeat and verify identical ordered results, unchanged caller cwd and
    environment, and isolated captures.
 
@@ -103,7 +102,7 @@ is therefore `QA suite: 519 passed, 0 failed`.
 4. Verify both runs have identical ordered scenario outcomes, exit `0`, and
    the sentinel observed zero contacts.
 
-## QA-P4QRM-05: exactly-one-suite and registration scope
+## QA-P4QRM-05: Phase 4 boundary and registration scope
 
 1. Run:
 
@@ -113,14 +112,17 @@ is therefore `QA suite: 519 passed, 0 failed`.
    git diff --name-only "$BASE_COMMIT"..HEAD -- src
    ```
 
-2. Verify `acceptance/qa/acceptance-refresh/qa_suite.py` is the only existing
-   `qa_suite.py` changed. The new Phase 4 QA plan is allowed; no other existing
-   suite is changed or migrated.
-3. Verify `acceptance/qa/qa_harness.py` is byte-for-byte unchanged.
-4. Verify the runtime manifest and all pre-existing runtime-feature files are
-   byte-for-byte unchanged, including acceptance-refresh feature identity,
-   handler patterns, priorities, and scopes.
-5. Verify no path below `src/` is added, modified, or deleted.
+2. Compare `acceptance/qa/acceptance-refresh/qa_suite.py` byte-for-byte with
+   the Phase 4 completion baseline. Its behavior must remain unchanged.
+3. Treat later independent QA-suite migrations as outside this Phase 4
+   boundary; they must not be reported as Phase 4 regressions.
+4. Verify the shared harness keeps its existing `check` return values,
+   recording order, PASS/FAIL formatting, and zero/nonzero `summary` behavior.
+   The later `skip` API is additive and must not change that contract.
+5. Compare `acceptance/runtime_features/acceptance_refresh.py` byte-for-byte
+   with the Phase 4 completion baseline, including feature identity, handler
+   patterns, priorities, and scopes. Do not freeze the later runtime manifest.
+6. Verify no path below `src/` is added, modified, or deleted.
 
 ## QA-P4QRM-06: configuration, generated output, and worktree preservation
 

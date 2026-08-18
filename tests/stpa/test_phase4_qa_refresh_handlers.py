@@ -4,7 +4,9 @@ import ast
 import importlib
 import os
 import sys
+from types import SimpleNamespace
 from pathlib import Path
+from subprocess import CompletedProcess
 
 from hypothesis import given, strategies as st
 
@@ -24,6 +26,8 @@ from registry import (  # noqa: E402
     RegistrationStage,
 )
 from runtime_features import phase4_qa_refresh_migration  # noqa: E402
+from runtime_features import phase4_qa_refresh_migration_cli as phase4_cli  # noqa: E402
+from runtime_features import phase4_qa_refresh_migration_isolation as phase4_isolation  # noqa: E402
 from runtime_features import phase4_qa_refresh_migration_scope as phase4_scope  # noqa: E402
 from runtime_features.acceptance_qa_runtime_cleanup import (  # noqa: E402
     register as register_aqrc,
@@ -90,6 +94,69 @@ def test_phase4_sentinel_restores_endpoint_environment(monkeypatch):
     assert world.p4qrm_endpoint_environment is None
 
 
+def test_phase4_result_checks_allow_additive_qa_checks():
+    output = "\n".join(
+        [f"  [PASS] check-{index}" for index in range(523)]
+        + ["", "QA suite: 523 passed, 0 failed"]
+    )
+    world = SimpleNamespace(
+        p4qrm_runs=[
+            CompletedProcess(["qa"], 0, output, ""),
+            CompletedProcess(["qa"], 0, output, ""),
+        ]
+    )
+
+    passed, detail = phase4_cli._h_checks_once(
+        world,
+        "each recorded check is emitted once in recording order",
+        {},
+    )
+
+    assert passed, detail
+
+
+def test_phase4_summary_check_requires_zero_failures_without_fixed_total():
+    output = "\n".join(
+        [f"  [PASS] check-{index}" for index in range(523)]
+        + ["", "QA suite: 523 passed, 0 failed"]
+    )
+    world = SimpleNamespace(
+        p4qrm_runs=[
+            CompletedProcess(["qa"], 0, output, ""),
+            CompletedProcess(["qa"], 0, output, ""),
+        ]
+    )
+
+    passed, detail = phase4_cli._h_summary(
+        world,
+        "each run reports a summary matching its ordered checks with 0 failed",
+        {},
+    )
+
+    assert passed, detail
+
+
+def test_phase4_nested_result_check_allows_additive_qa_checks():
+    output = "\n".join(
+        [f"  [PASS] check-{index}" for index in range(523)]
+        + ["", "QA suite: 523 passed, 0 failed"]
+    )
+    world = SimpleNamespace(
+        p4qrm_nested_runs=[
+            CompletedProcess(["qa"], 0, output, ""),
+            CompletedProcess(["qa"], 0, output, ""),
+        ]
+    )
+
+    passed, detail = phase4_isolation._h_nested_root(
+        world,
+        "both runs discover the repository root",
+        {},
+    )
+
+    assert passed, detail
+
+
 def test_phase4_existing_suite_check_ignores_new_qa_executable(monkeypatch):
     expected = "acceptance/qa/acceptance-refresh/qa_suite.py"
     added = "acceptance/qa/phase4-qa-refresh-migration/qa_suite.py"
@@ -105,6 +172,53 @@ def test_phase4_existing_suite_check_ignores_new_qa_executable(monkeypatch):
     )
 
     passed, detail = phase4_scope._h_only_refresh_suite(world, "", {})
+
+    assert passed, detail
+
+
+def test_phase4_scope_allows_independent_later_qa_suite_migrations(
+    monkeypatch, tmp_path
+):
+    expected = "acceptance/qa/acceptance-refresh/qa_suite.py"
+    later_suite = "acceptance/qa/shadow-cleanup/qa_suite.py"
+    baseline = b"phase-four-refresh-suite\n"
+    world = SimpleNamespace(p4qrm_qa_changes=[later_suite])
+    project_root = tmp_path
+    current = project_root / expected
+    current.parent.mkdir(parents=True, exist_ok=True)
+    current.write_bytes(baseline)
+
+    monkeypatch.setattr(
+        phase4_scope,
+        "PROJECT_ROOT",
+        project_root,
+    )
+    monkeypatch.setattr(
+        phase4_scope,
+        "_git_show",
+        lambda path, ref=phase4_scope._COMPLETION_BASELINE: baseline,
+    )
+
+    passed, detail = phase4_scope._h_refresh_suite_unchanged(world, "", {})
+
+    assert passed, detail
+    monkeypatch.setattr(
+        phase4_scope,
+        "_git_diff_names",
+        lambda *paths, ref=phase4_scope._COMPLETION_BASELINE: [later_suite],
+    )
+
+    passed, detail = phase4_scope._h_later_qa_changes_outside_boundary(world, "", {})
+
+    assert passed, detail
+
+
+def test_phase4_shared_harness_keeps_check_and_summary_contract():
+    passed, detail = phase4_scope._h_harness_compatible(
+        SimpleNamespace(),
+        "the shared QA harness preserves check and summary behavior",
+        {},
+    )
 
     assert passed, detail
 
