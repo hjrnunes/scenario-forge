@@ -56,6 +56,22 @@ opencode.json
 
 # Real model profiles (contains API keys — copy from ai/model-profiles.example.yaml)
 ai/model-profiles.yaml
+ai/model-profiles.yaml.backup
+ai/lab-dashboard.md
+ai/opencode-lab-director.md
+ai/presentations/
+
+# Local Claude lab-director scratch (tracked mayor commands stay committed)
+.claude/commands/lab-director-pass.md
+.claude/skills/
+
+# Local reference-gym scratch
+data/reference-gym/
+tests/test_reference_gym_contract.py
+
+# Beads local interaction log
+.beads/interactions.jsonl
+
 build/acceptance-mutation/
 build/acceptance/ir/
 build/acceptance/dry/
