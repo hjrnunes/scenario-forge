@@ -14,12 +14,11 @@ _PROJECT_ROOT = next(
     for path in Path(__file__).resolve().parents
     if (path / "pyproject.toml").is_file()
 )
-_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "f787" / "qa_suite.py"
+_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "sp2_stage3_prompts.py"
 sys.path.insert(0, str(_PROJECT_ROOT / "acceptance" / "qa"))
-sys.path.insert(0, str(_SUITE.parent))
 
 from qa_harness import CheckResult, child_env, find_project_root, run_command  # noqa: E402
-from qa_suite import F787QARunner, REGRESSION_MATRIX, _format_f787_result  # noqa: E402
+from sp2_stage3_prompts import F787QARunner, REGRESSION_MATRIX, _format_f787_result  # noqa: E402
 
 _STATIC_CHECKS = [
     "SP2-PR-static-01: stage3_system.j2 exists",
@@ -185,9 +184,7 @@ def _run_suite(*args: str, cwd: Path | None = None, env: dict[str, str] | None =
 
 def _check_names(output: str) -> list[str]:
     return [
-        line.split("] ", 1)[1]
-        for line in output.splitlines()
-        if line.startswith("  [")
+        line.split("] ", 1)[1] for line in output.splitlines() if line.startswith("  [")
     ]
 
 
@@ -252,7 +249,9 @@ def test_f787_static_mode_preserves_check_order_and_banner_summary() -> None:
     assert "--- Dynamic checks" not in result.stdout
     assert "--- Regression matrix" not in result.stdout
     assert "--- Pipeline-mode checks" not in result.stdout
-    assert "QA SUMMARY: 36/36 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 36/36 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert "ALL 36 EXECUTED CHECK(S) PASSED" in result.stdout
     assert "QA suite:" not in result.stdout
     first_check = result.stdout.index(lines[0])
@@ -275,7 +274,9 @@ def test_f787_dynamic_mode_preserves_check_order_and_banner_summary() -> None:
     assert "--- Static checks" not in result.stdout
     assert "--- Regression matrix" not in result.stdout
     assert "--- Pipeline-mode checks" not in result.stdout
-    assert "QA SUMMARY: 63/63 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 63/63 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert "ALL 63 EXECUTED CHECK(S) PASSED" in result.stdout
     first_check = result.stdout.index(lines[0])
     summary = result.stdout.index(
@@ -290,7 +291,9 @@ def test_f787_regression_mode_preserves_check_order_and_banner_summary() -> None
     lines = [line for line in result.stdout.splitlines() if line.startswith("  [")]
     assert _check_names(result.stdout) == _REGRESSION_CHECKS
     assert all(line.startswith("  [PASS] ") for line in lines)
-    assert "--- Regression matrix (existing stage3 slot-fill tests) ---" in result.stdout
+    assert (
+        "--- Regression matrix (existing stage3 slot-fill tests) ---" in result.stdout
+    )
     assert "--- Static checks" not in result.stdout
     assert "--- Dynamic checks" not in result.stdout
     assert "--- Pipeline-mode checks" not in result.stdout
@@ -346,16 +349,23 @@ def test_f787_all_mode_preserves_default_and_explicit_check_order(
         _STATIC_CHECKS + _DYNAMIC_CHECKS + _REGRESSION_CHECKS + _PIPELINE_CHECKS
     )
     assert [line[:8] for line in lines] == (["  [PASS]"] * 107 + ["  [SKIP]"] * 5)
-    assert result.stdout.index("--- Static checks (source text) ---") < result.stdout.index(
+    assert result.stdout.index(
+        "--- Static checks (source text) ---"
+    ) < result.stdout.index(
         "--- Dynamic checks (import + render + deterministic builders) ---"
     )
     assert result.stdout.index(
         "--- Dynamic checks (import + render + deterministic builders) ---"
-    ) < result.stdout.index("--- Regression matrix (existing stage3 slot-fill tests) ---")
+    ) < result.stdout.index(
+        "--- Regression matrix (existing stage3 slot-fill tests) ---"
+    )
     assert result.stdout.index(
         "--- Regression matrix (existing stage3 slot-fill tests) ---"
     ) < result.stdout.index("--- Pipeline-mode checks (live LLM endpoint) ---")
-    assert "QA SUMMARY: 107/112 passed, 0 failed, 5 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 107/112 passed, 0 failed, 5 skipped (not executed)"
+        in result.stdout
+    )
     assert "ALL 107 EXECUTED CHECK(S) PASSED" in result.stdout
     assert (
         "5 CHECK(S) SKIPPED — live LLM endpoint or pipeline run required; see --pipeline."
@@ -375,7 +385,9 @@ def test_f787_static_and_dynamic_flags_are_combinable() -> None:
     assert _check_names(result.stdout) == _STATIC_CHECKS + _DYNAMIC_CHECKS
     assert "--- Regression matrix" not in result.stdout
     assert "--- Pipeline-mode checks" not in result.stdout
-    assert "QA SUMMARY: 99/99 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 99/99 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert "ALL 99 EXECUTED CHECK(S) PASSED" in result.stdout
 
 
@@ -441,7 +453,9 @@ def test_f787_static_child_isolation_from_nested_cwd(
     result = _run_suite("--static", cwd=nested, env=isolated)
 
     assert result.returncode == 0
-    assert "QA SUMMARY: 36/36 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 36/36 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert Path.cwd() == nested
     assert os.environ["QA_PARENT_ONLY"] == "present"
     assert parent_environment["QA_PARENT_ONLY"] == "present"
@@ -462,7 +476,9 @@ def test_f787_dynamic_child_isolation_from_nested_cwd(
     result = _run_suite("--dynamic", cwd=nested, env=isolated)
 
     assert result.returncode == 0
-    assert "QA SUMMARY: 63/63 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 63/63 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert Path.cwd() == nested
     assert os.environ["QA_PARENT_ONLY"] == "present"
     assert "QA_PARENT_ONLY" not in isolated
@@ -491,8 +507,8 @@ def test_f787_regression_child_is_isolated_and_uses_project_root(
         )
         return SimpleNamespace(returncode=0, stdout="PASSED\n", stderr="")
 
-    monkeypatch.setattr("qa_suite.run_command", fake_run_command)
-    from qa_suite import run_regression_checks
+    monkeypatch.setattr("sp2_stage3_prompts.run_command", fake_run_command)
+    from sp2_stage3_prompts import run_regression_checks
 
     runner = F787QARunner()
     run_regression_checks(runner)
@@ -503,10 +519,15 @@ def test_f787_regression_child_is_isolated_and_uses_project_root(
     assert all(call["input_text"] is None for call in seen)
     assert all(call["parent_cwd"] == nested for call in seen)
     assert all(call["env"] is None for call in seen)
-    assert seen[0]["argv"][:4] == [sys.executable, "-m", "pytest", (
-        "tests/stpa/test_sp2_slot_filling.py::TestSystemPromptContent"
-        "::test_four_ica_types_in_system_prompt"
-    )]
+    assert seen[0]["argv"][:4] == [
+        sys.executable,
+        "-m",
+        "pytest",
+        (
+            "tests/stpa/test_sp2_slot_filling.py::TestSystemPromptContent"
+            "::test_four_ica_types_in_system_prompt"
+        ),
+    ]
     assert Path.cwd() == nested
     assert os.environ["QA_PARENT_ONLY"] == "present"
     assert [result.name for result in runner.results] == _REGRESSION_CHECKS

@@ -14,12 +14,11 @@ _PROJECT_ROOT = next(
     for path in Path(__file__).resolve().parents
     if (path / "pyproject.toml").is_file()
 )
-_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "output-ingress-zone" / "qa_suite.py"
+_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "output_ingress_zone.py"
 sys.path.insert(0, str(_PROJECT_ROOT / "acceptance" / "qa"))
-sys.path.insert(0, str(_SUITE.parent))
 
 from qa_harness import child_env, find_project_root, run_command  # noqa: E402
-from qa_suite import (  # noqa: E402
+from output_ingress_zone import (  # noqa: E402
     EXPECTED,
     OutputIngressQARunner,
     generated_profile,
@@ -52,7 +51,9 @@ kc_subcodes:
 """
 
 
-def _success_proc(stdout: str = "Pipeline complete.\n") -> subprocess.CompletedProcess[str]:
+def _success_proc(
+    stdout: str = "Pipeline complete.\n",
+) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(
         ["uv", "run", "scenario-forge", "generate"],
         0,
@@ -120,15 +121,17 @@ def test_output_ingress_cli_has_no_flags(
     assert "--pipeline" not in source
     assert "add_argument" not in source
 
-    monkeypatch.setattr("qa_suite.PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr("qa_suite.QA_ROOT", tmp_path / "tmp" / "qa-output-ingress-zone")
+    monkeypatch.setattr("output_ingress_zone.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "output_ingress_zone.QA_ROOT", tmp_path / "tmp" / "qa-output-ingress-zone"
+    )
     monkeypatch.setattr(sys, "argv", [str(_SUITE), "--help", "--static", "--bogus"])
 
     def fake_run_cli(_profile: Path, out_dir: Path, *_args: Path):
         _write_profile(out_dir)
         return _success_proc()
 
-    monkeypatch.setattr("qa_suite.run_cli", fake_run_cli)
+    monkeypatch.setattr("output_ingress_zone.run_cli", fake_run_cli)
     assert main() == 0
     output = capsys.readouterr()
     assert "unrecognized arguments" not in output.err
@@ -140,8 +143,8 @@ def test_output_ingress_success_preserves_pass_order_and_artifact_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     qa_root = tmp_path / "tmp" / "qa-output-ingress-zone"
-    monkeypatch.setattr("qa_suite.PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr("qa_suite.QA_ROOT", qa_root)
+    monkeypatch.setattr("output_ingress_zone.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("output_ingress_zone.QA_ROOT", qa_root)
     calls: list[tuple[Path, Path]] = []
 
     def fake_run_cli(profile: Path, out_dir: Path, *_args: Path):
@@ -149,7 +152,7 @@ def test_output_ingress_success_preserves_pass_order_and_artifact_path(
         _write_profile(out_dir)
         return _success_proc()
 
-    monkeypatch.setattr("qa_suite.run_cli", fake_run_cli)
+    monkeypatch.setattr("output_ingress_zone.run_cli", fake_run_cli)
 
     assert main() == 0
     output = capsys.readouterr().out.splitlines()
@@ -179,8 +182,10 @@ def test_output_ingress_success_preserves_pass_order_and_artifact_path(
 def test_output_ingress_short_circuits_before_second_generate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("qa_suite.PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr("qa_suite.QA_ROOT", tmp_path / "tmp" / "qa-output-ingress-zone")
+    monkeypatch.setattr("output_ingress_zone.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "output_ingress_zone.QA_ROOT", tmp_path / "tmp" / "qa-output-ingress-zone"
+    )
     calls: list[Path] = []
 
     def fake_run_cli(_profile: Path, out_dir: Path, *_args: Path):
@@ -192,7 +197,7 @@ def test_output_ingress_short_circuits_before_second_generate(
             stderr="cannot have an ingress zone",
         )
 
-    monkeypatch.setattr("qa_suite.run_cli", fake_run_cli)
+    monkeypatch.setattr("output_ingress_zone.run_cli", fake_run_cli)
 
     with pytest.raises(AssertionError, match="QA-OIZ-01 exited 3"):
         main()
@@ -208,8 +213,10 @@ def test_output_ingress_short_circuits_before_second_generate(
 def test_output_ingress_unexpected_profile_skips_second_generate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("qa_suite.PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr("qa_suite.QA_ROOT", tmp_path / "tmp" / "qa-output-ingress-zone")
+    monkeypatch.setattr("output_ingress_zone.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "output_ingress_zone.QA_ROOT", tmp_path / "tmp" / "qa-output-ingress-zone"
+    )
     calls: list[Path] = []
 
     def fake_run_cli(_profile: Path, out_dir: Path, *_args: Path):
@@ -225,9 +232,11 @@ entry_points:
         )
         return _success_proc()
 
-    monkeypatch.setattr("qa_suite.run_cli", fake_run_cli)
+    monkeypatch.setattr("output_ingress_zone.run_cli", fake_run_cli)
 
-    with pytest.raises(AssertionError, match="QA-OIZ-01 generated unexpected entry points"):
+    with pytest.raises(
+        AssertionError, match="QA-OIZ-01 generated unexpected entry points"
+    ):
         main()
 
     assert len(calls) == 1
@@ -259,7 +268,7 @@ def test_output_ingress_child_argv_cwd_env_and_stream_isolation(
             stderr="child-stderr\n",
         )
 
-    monkeypatch.setattr("qa_suite.run_command", fake_run_command)
+    monkeypatch.setattr("output_ingress_zone.run_command", fake_run_command)
     profile = tmp_path / "capability-profile.yaml"
     out_dir = tmp_path / "output"
     use_case = tmp_path / "use-case.txt"
@@ -334,7 +343,7 @@ def test_output_ingress_adapter_defers_legacy_pass_lines(
 
     artifacts = tmp_path / "run-fixture"
     artifacts.mkdir()
-    monkeypatch.setattr("qa_suite.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("output_ingress_zone.PROJECT_ROOT", tmp_path)
     assert runner.summary(artifacts) == 0
     output = capsys.readouterr().out.splitlines()
     assert output == [
@@ -349,7 +358,9 @@ def test_output_ingress_adapter_failure_does_not_print_pass(
 ) -> None:
     runner = OutputIngressQARunner()
     with pytest.raises(AssertionError, match="boom"):
-        runner.check("QA-OIZ-01: contradictory output ingress zone was normalized", False, "boom")
+        runner.check(
+            "QA-OIZ-01: contradictory output ingress zone was normalized", False, "boom"
+        )
     assert capsys.readouterr().out == ""
 
 
@@ -357,14 +368,14 @@ def test_output_ingress_work_dirs_are_left_in_place_after_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     qa_root = tmp_path / "tmp" / "qa-output-ingress-zone"
-    monkeypatch.setattr("qa_suite.PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr("qa_suite.QA_ROOT", qa_root)
+    monkeypatch.setattr("output_ingress_zone.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("output_ingress_zone.QA_ROOT", qa_root)
 
     def fake_run_cli(_profile: Path, out_dir: Path, *_args: Path):
         _write_profile(out_dir)
         return _success_proc()
 
-    monkeypatch.setattr("qa_suite.run_cli", fake_run_cli)
+    monkeypatch.setattr("output_ingress_zone.run_cli", fake_run_cli)
     assert main() == 0
     leftover = list(qa_root.glob("run-*"))
     assert leftover
@@ -377,15 +388,15 @@ def test_output_ingress_work_dirs_are_left_in_place_after_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     qa_root = tmp_path / "tmp" / "qa-output-ingress-zone"
-    monkeypatch.setattr("qa_suite.PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr("qa_suite.QA_ROOT", qa_root)
+    monkeypatch.setattr("output_ingress_zone.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("output_ingress_zone.QA_ROOT", qa_root)
 
     def fake_run_cli(_profile: Path, out_dir: Path, *_args: Path):
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "partial.txt").write_text("partial\n", encoding="utf-8")
         return subprocess.CompletedProcess(["uv"], 1, stdout="", stderr="boom")
 
-    monkeypatch.setattr("qa_suite.run_cli", fake_run_cli)
+    monkeypatch.setattr("output_ingress_zone.run_cli", fake_run_cli)
     with pytest.raises(AssertionError):
         main()
     leftover = list(qa_root.glob("run-*"))
@@ -399,7 +410,9 @@ def test_output_ingress_observed_values_and_generated_profile(tmp_path: Path) ->
     assert generated_profile(tmp_path / "output-1") == path
     assert observed_values(path) == EXPECTED
     _write_profile(tmp_path / "output-1" / "nested")
-    with pytest.raises(AssertionError, match="Expected one generated capability profile"):
+    with pytest.raises(
+        AssertionError, match="Expected one generated capability profile"
+    ):
         generated_profile(tmp_path / "output-1")
 
 

@@ -30,13 +30,13 @@ Two execution modes:
 Usage::
 
     # Static checks only (fast, no LLM)
-    uv run python acceptance/qa/fallback-fix/qa_suite.py --static
+    uv run python acceptance/qa/stage2_fallback.py --static
 
     # Dynamic checks (no LLM, uses acceptance runtime)
-    uv run python acceptance/qa/fallback-fix/qa_suite.py --dynamic
+    uv run python acceptance/qa/stage2_fallback.py --dynamic
 
     # All checks
-    uv run python acceptance/qa/fallback-fix/qa_suite.py --all
+    uv run python acceptance/qa/stage2_fallback.py --all
 
 Exit codes:
     0 — all checks passed
@@ -52,7 +52,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-QA_MODULES = Path(__file__).resolve().parents[1]
+QA_MODULES = Path(__file__).resolve().parent
 if str(QA_MODULES) not in sys.path:
     sys.path.insert(0, str(QA_MODULES))
 

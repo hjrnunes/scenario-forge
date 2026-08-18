@@ -12,7 +12,7 @@ capture the command, child environment, stdout, stderr, and exit status.
 ## QA-AQRC-01: shared harness and migrated-suite compatibility
 
 1. Run:
-   `env -u SCENARIO_FORGE_QA_PIPELINE uv run python acceptance/qa/acceptance-framework-refactor/qa_suite.py --skip-generate`.
+   `env -u SCENARIO_FORGE_QA_PIPELINE uv run python acceptance/qa/acceptance_framework/qa_suite.py --skip-generate`.
 2. Verify the documented `--skip-generate` option is accepted.
 3. Verify QA-AFR-01 is emitted once as a successful explicit skip, QA-AFR-02
    through QA-AFR-06 execute once in order, and the final summary uses

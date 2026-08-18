@@ -13,12 +13,11 @@ _PROJECT_ROOT = next(
     for path in Path(__file__).resolve().parents
     if (path / "pyproject.toml").is_file()
 )
-_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "fallback-fix" / "qa_suite.py"
+_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "stage2_fallback.py"
 sys.path.insert(0, str(_PROJECT_ROOT / "acceptance" / "qa"))
-sys.path.insert(0, str(_SUITE.parent))
 
 from qa_harness import child_env, find_project_root, run_command  # noqa: E402
-from qa_suite import FallbackQARunner, _temporary_run_dir  # noqa: E402
+from stage2_fallback import FallbackQARunner, _temporary_run_dir  # noqa: E402
 
 _STATIC_CHECKS = [
     "fallback-fix-static-01: _assemble_with_fallback is defined",
@@ -60,9 +59,7 @@ def _run_suite(*args: str, cwd: Path | None = None, env: dict[str, str] | None =
 
 def _check_names(output: str) -> list[str]:
     return [
-        line.split("] ", 1)[1]
-        for line in output.splitlines()
-        if line.startswith("  [")
+        line.split("] ", 1)[1] for line in output.splitlines() if line.startswith("  [")
     ]
 
 
@@ -129,7 +126,10 @@ def test_fallback_dynamic_mode_preserves_check_order_and_banner_summary() -> Non
     lines = [line for line in result.stdout.splitlines() if line.startswith("  [")]
     assert _check_names(result.stdout) == _DYNAMIC_CHECKS
     assert all(line.startswith("  [PASS] ") for line in lines)
-    assert "--- Dynamic checks (acceptance runtime + direct invocation) ---" in result.stdout
+    assert (
+        "--- Dynamic checks (acceptance runtime + direct invocation) ---"
+        in result.stdout
+    )
     assert "--- Static checks" not in result.stdout
     assert "QA SUMMARY: 11/11 passed, 0 failed" in result.stdout
     assert "ALL CHECKS PASSED" in result.stdout
@@ -147,7 +147,9 @@ def test_fallback_all_mode_preserves_default_and_explicit_check_order(
     lines = [line for line in result.stdout.splitlines() if line.startswith("  [")]
     assert _check_names(result.stdout) == _STATIC_CHECKS + _DYNAMIC_CHECKS
     assert all(line.startswith("  [PASS] ") for line in lines)
-    assert result.stdout.index("--- Static checks (AST analysis) ---") < result.stdout.index(
+    assert result.stdout.index(
+        "--- Static checks (AST analysis) ---"
+    ) < result.stdout.index(
         "--- Dynamic checks (acceptance runtime + direct invocation) ---"
     )
     assert "QA SUMMARY: 21/21 passed, 0 failed" in result.stdout
@@ -169,7 +171,9 @@ def test_fallback_adapter_defers_output_and_keeps_legacy_counts(
     assert capsys.readouterr().out == ""
     assert runner.summary() == 1
     output = capsys.readouterr().out
-    assert output.index("QA SUMMARY: 1/3 passed, 1 failed") < output.index("[PASS] first")
+    assert output.index("QA SUMMARY: 1/3 passed, 1 failed") < output.index(
+        "[PASS] first"
+    )
     assert output.index("[PASS] first") < output.index("[FAIL] second")
     assert output.index("[FAIL] second") < output.index("[SKIP] pipeline")
     assert "         details" in output

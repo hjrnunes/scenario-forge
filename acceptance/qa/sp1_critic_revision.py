@@ -50,13 +50,13 @@ Execution modes
 
 Usage::
 
-    uv run python acceptance/qa/critic-revision-fix/qa_suite.py --static
-    uv run python acceptance/qa/critic-revision-fix/qa_suite.py --dynamic
-    uv run python acceptance/qa/critic-revision-fix/qa_suite.py --all
+    uv run python acceptance/qa/sp1_critic_revision.py --static
+    uv run python acceptance/qa/sp1_critic_revision.py --dynamic
+    uv run python acceptance/qa/sp1_critic_revision.py --all
 
     # After a real pipeline run against a live endpoint:
     SCENARIO_FORGE_QA_PIPELINE=1 uv run python \\
-        acceptance/qa/critic-revision-fix/qa_suite.py \\
+        acceptance/qa/sp1_critic_revision.py \\
         --pipeline --run-dir output/<run>
 
 Exit codes:
@@ -75,7 +75,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-QA_MODULES = Path(__file__).resolve().parents[1]
+QA_MODULES = Path(__file__).resolve().parent
 if str(QA_MODULES) not in sys.path:
     sys.path.insert(0, str(QA_MODULES))
 

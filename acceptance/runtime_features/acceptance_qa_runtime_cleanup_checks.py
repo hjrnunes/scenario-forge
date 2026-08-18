@@ -24,13 +24,7 @@ _REFRESH_CASES = {
 
 
 def _h_aqrc_migrated_suite(world: World, text: str, examples: dict) -> tuple[bool, str]:
-    suite = (
-        PROJECT_ROOT
-        / "acceptance"
-        / "qa"
-        / "acceptance-framework-refactor"
-        / "qa_suite.py"
-    )
+    suite = PROJECT_ROOT / "acceptance" / "qa" / "acceptance_framework" / "qa_suite.py"
     result = _run_external_command(
         [sys.executable, str(suite), "--skip-generate"],
         env=_acceptance_child_environment(),
@@ -43,7 +37,7 @@ def _h_aqrc_migrated_suite(world: World, text: str, examples: dict) -> tuple[boo
 def _h_aqrc_migrated_exit(world: World, text: str, examples: dict) -> tuple[bool, str]:
     return (
         world.aqrc_afr_result.returncode == 0,
-        f"acceptance-framework-refactor exited {world.aqrc_afr_result.returncode}",
+        f"acceptance_framework exited {world.aqrc_afr_result.returncode}",
     )
 
 
@@ -85,11 +79,7 @@ def _h_aqrc_capture_layout(world: World, text: str, examples: dict) -> tuple[boo
 
 def _h_aqrc_cli_and_text(world: World, text: str, examples: dict) -> tuple[bool, str]:
     source = (
-        PROJECT_ROOT
-        / "acceptance"
-        / "qa"
-        / "acceptance-framework-refactor"
-        / "qa_suite.py"
+        PROJECT_ROOT / "acceptance" / "qa" / "acceptance_framework" / "qa_suite.py"
     ).read_text(encoding="utf-8")
     output = world.aqrc_afr_result.stdout + world.aqrc_afr_result.stderr
     return (

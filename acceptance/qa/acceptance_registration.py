@@ -39,9 +39,9 @@ Execution modes
 
 Usage::
 
-    uv run python acceptance/qa/shadow-cleanup/qa_suite.py --static
-    uv run python acceptance/qa/shadow-cleanup/qa_suite.py --dynamic
-    uv run python acceptance/qa/shadow-cleanup/qa_suite.py --all
+    uv run python acceptance/qa/acceptance_registration.py --static
+    uv run python acceptance/qa/acceptance_registration.py --dynamic
+    uv run python acceptance/qa/acceptance_registration.py --all
 
 Exit codes:
     0 — all executed checks passed (skipped pipeline checks do not fail)
@@ -59,7 +59,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-QA_MODULES = Path(__file__).resolve().parents[1]
+QA_MODULES = Path(__file__).resolve().parent
 if str(QA_MODULES) not in sys.path:
     sys.path.insert(0, str(QA_MODULES))
 

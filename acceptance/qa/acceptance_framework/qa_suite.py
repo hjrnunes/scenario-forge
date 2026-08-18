@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end QA suite for the acceptance framework refactor.
 
-Executable form of ``acceptance/qa/acceptance-framework-refactor/qa_suite.md``.
+Executable form of ``acceptance/qa/acceptance_framework/qa_suite.md``.
 Exercises only checked-in command-line entrypoints and the mutation worker's
 JSON-lines interface. Does not import project modules.
 """

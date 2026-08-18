@@ -276,13 +276,11 @@ def test_only_migrated_qa_suite_imports_qa_harness():
         ):
             importers.append(path.relative_to(_PROJECT_ROOT).as_posix())
 
-    assert importers == list(_ALLOWED_QA_HARNESS_IMPORTERS)
+    assert sorted(importers) == sorted(_ALLOWED_QA_HARNESS_IMPORTERS)
 
 
 def test_acceptance_refresh_qa_suite_uses_shared_harness():
-    suite_path = (
-        _PROJECT_ROOT / "acceptance" / "qa" / "acceptance-refresh" / "qa_suite.py"
-    )
+    suite_path = _PROJECT_ROOT / "acceptance" / "qa" / "snapshot_consistency.py"
     tree = ast.parse(suite_path.read_text(encoding="utf-8"))
     imports = _imported_module_names(suite_path)
 
@@ -571,16 +569,16 @@ _QA_RUNTIME_MODULES = (
     "acceptance/runtime_features/acceptance_qa_runtime_cleanup_checks.py",
 )
 _ALLOWED_QA_HARNESS_IMPORTERS = (
-    "acceptance/qa/072o/qa_suite.py",
-    "acceptance/qa/critic-revision-fix/qa_suite.py",
-    "acceptance/qa/f787/qa_suite.py",
-    "acceptance/qa/output-ingress-zone/qa_suite.py",
-    "acceptance/qa/shadow-cleanup/qa_suite.py",
-    "acceptance/qa/stage1-split-reorder/qa_suite.py",
-    "acceptance/qa/acceptance-framework-refactor/qa_suite.py",
-    "acceptance/qa/acceptance-refresh/qa_suite.py",
-    "acceptance/qa/stage2-restructure/qa_suite.py",
-    "acceptance/qa/fallback-fix/qa_suite.py",
+    "acceptance/qa/acceptance_framework/qa_suite.py",
+    "acceptance/qa/acceptance_registration.py",
+    "acceptance/qa/output_ingress_zone.py",
+    "acceptance/qa/snapshot_consistency.py",
+    "acceptance/qa/sp1_critic_revision.py",
+    "acceptance/qa/sp2_stage3_prompts.py",
+    "acceptance/qa/sp3_prompt_revision.py",
+    "acceptance/qa/stage1_ordering.py",
+    "acceptance/qa/stage2_decomposition.py",
+    "acceptance/qa/stage2_fallback.py",
 )
 _ENV_NAME_CHARS = string.ascii_letters + string.digits + "_"
 _ENV_VALUE_CHARS = string.ascii_letters + string.digits + " ._-"

@@ -19,14 +19,14 @@ Two execution modes:
 Usage::
 
     # Static checks only (fast, no LLM)
-    uv run python acceptance/qa/stage2-restructure/qa_suite.py --static
+    uv run python acceptance/qa/stage2_decomposition.py --static
 
     # Full pipeline checks (requires LLM endpoint)
-    uv run python acceptance/qa/stage2-restructure/qa_suite.py \\
+    uv run python acceptance/qa/stage2_decomposition.py \\
         --use-case <path> --risk-extraction <path>
 
     # All checks (static + pipeline)
-    uv run python acceptance/qa/stage2-restructure/qa_suite.py \\
+    uv run python acceptance/qa/stage2_decomposition.py \\
         --all --use-case <path> --risk-extraction <path>
 
 Exit codes:
@@ -44,7 +44,7 @@ from pathlib import Path
 
 import yaml
 
-QA_MODULES = Path(__file__).resolve().parents[1]
+QA_MODULES = Path(__file__).resolve().parent
 if str(QA_MODULES) not in sys.path:
     sys.path.insert(0, str(QA_MODULES))
 

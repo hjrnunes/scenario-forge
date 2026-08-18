@@ -14,12 +14,11 @@ _PROJECT_ROOT = next(
     for path in Path(__file__).resolve().parents
     if (path / "pyproject.toml").is_file()
 )
-_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "critic-revision-fix" / "qa_suite.py"
+_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "sp1_critic_revision.py"
 sys.path.insert(0, str(_PROJECT_ROOT / "acceptance" / "qa"))
-sys.path.insert(0, str(_SUITE.parent))
 
 from qa_harness import CheckResult, child_env, find_project_root, run_command  # noqa: E402
-from qa_suite import (  # noqa: E402
+from sp1_critic_revision import (  # noqa: E402
     CriticRevisionQARunner,
     _format_critic_revision_result,
     _temporary_run_dir,
@@ -238,9 +237,7 @@ def _run_suite(*args: str, cwd: Path | None = None, env: dict[str, str] | None =
 
 def _check_names(output: str) -> list[str]:
     return [
-        line.split("] ", 1)[1]
-        for line in output.splitlines()
-        if line.startswith("  [")
+        line.split("] ", 1)[1] for line in output.splitlines() if line.startswith("  [")
     ]
 
 
@@ -290,7 +287,9 @@ def test_critic_revision_static_mode_preserves_check_order_and_banner_summary() 
     assert "--- Static checks (AST + prompt source) ---" in result.stdout
     assert "--- Dynamic checks" not in result.stdout
     assert "--- Pipeline-mode checks" not in result.stdout
-    assert "QA SUMMARY: 99/99 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 99/99 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert "ALL 99 EXECUTED CHECK(S) PASSED" in result.stdout
     assert "QA suite:" not in result.stdout
     first_check = result.stdout.index(lines[0])
@@ -300,7 +299,9 @@ def test_critic_revision_static_mode_preserves_check_order_and_banner_summary() 
     assert first_check > summary
 
 
-def test_critic_revision_dynamic_mode_preserves_check_order_and_banner_summary() -> None:
+def test_critic_revision_dynamic_mode_preserves_check_order_and_banner_summary() -> (
+    None
+):
     result = _run_suite("--dynamic")
     assert result.returncode == 0
     lines = [line for line in result.stdout.splitlines() if line.startswith("  [")]
@@ -312,7 +313,9 @@ def test_critic_revision_dynamic_mode_preserves_check_order_and_banner_summary()
     )
     assert "--- Static checks" not in result.stdout
     assert "--- Pipeline-mode checks" not in result.stdout
-    assert "QA SUMMARY: 76/76 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 76/76 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert "ALL 76 EXECUTED CHECK(S) PASSED" in result.stdout
     first_check = result.stdout.index(lines[0])
     summary = result.stdout.index(
@@ -343,7 +346,11 @@ def test_critic_revision_pipeline_env_without_run_dir_still_skips() -> None:
     result = _run_suite("--pipeline", env=env)
     assert result.returncode == 0
     assert _check_names(result.stdout) == _PIPELINE_CHECKS
-    assert all(line.startswith("  [SKIP] ") for line in result.stdout.splitlines() if line.startswith("  ["))
+    assert all(
+        line.startswith("  [SKIP] ")
+        for line in result.stdout.splitlines()
+        if line.startswith("  [")
+    )
     assert "QA SUMMARY: 0/8 passed, 0 failed, 8 skipped (not executed)" in result.stdout
     assert "NO CHECKS WERE EXECUTED" in result.stdout
     assert result.stdout.count(_PIPELINE_SKIP_REASON) == 8
@@ -360,13 +367,18 @@ def test_critic_revision_all_mode_preserves_default_and_explicit_check_order(
         _STATIC_CHECKS + _DYNAMIC_CHECKS + _PIPELINE_CHECKS
     )
     assert [line[:8] for line in lines] == (["  [PASS]"] * 175 + ["  [SKIP]"] * 8)
-    assert result.stdout.index("--- Static checks (AST + prompt source) ---") < result.stdout.index(
+    assert result.stdout.index(
+        "--- Static checks (AST + prompt source) ---"
+    ) < result.stdout.index(
         "--- Dynamic checks (direct invocation + acceptance runtime) ---"
     )
     assert result.stdout.index(
         "--- Dynamic checks (direct invocation + acceptance runtime) ---"
     ) < result.stdout.index("--- Pipeline-mode checks (live LLM endpoint) ---")
-    assert "QA SUMMARY: 175/183 passed, 0 failed, 8 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 175/183 passed, 0 failed, 8 skipped (not executed)"
+        in result.stdout
+    )
     assert "ALL 175 EXECUTED CHECK(S) PASSED" in result.stdout
     assert _PIPELINE_SKIP_BANNER in result.stdout
     assert "QA suite:" not in result.stdout
@@ -382,7 +394,10 @@ def test_critic_revision_static_and_dynamic_flags_are_combinable() -> None:
     assert result.returncode == 0
     assert _check_names(result.stdout) == _STATIC_CHECKS + _DYNAMIC_CHECKS
     assert "--- Pipeline-mode checks" not in result.stdout
-    assert "QA SUMMARY: 175/175 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 175/175 passed, 0 failed, 0 skipped (not executed)"
+        in result.stdout
+    )
     assert "ALL 175 EXECUTED CHECK(S) PASSED" in result.stdout
 
 
@@ -471,7 +486,9 @@ def test_critic_revision_static_child_isolation_from_nested_cwd(
     result = _run_suite("--static", cwd=nested, env=isolated)
 
     assert result.returncode == 0
-    assert "QA SUMMARY: 99/99 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 99/99 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert Path.cwd() == nested
     assert os.environ["QA_PARENT_ONLY"] == "present"
     assert parent_environment["QA_PARENT_ONLY"] == "present"
@@ -492,7 +509,9 @@ def test_critic_revision_dynamic_child_isolation_from_nested_cwd(
     result = _run_suite("--dynamic", cwd=nested, env=isolated)
 
     assert result.returncode == 0
-    assert "QA SUMMARY: 76/76 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 76/76 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert Path.cwd() == nested
     assert os.environ["QA_PARENT_ONLY"] == "present"
     assert "QA_PARENT_ONLY" not in isolated
@@ -544,7 +563,5 @@ def test_critic_revision_pipeline_local_standin_does_not_contact_endpoint(
     assert runner.results[1].passed is True
     assert runner.results[1].status is None
     assert all(result.status == "SKIP" for result in runner.results[2:])
-    assert all(
-        str(run_dir) in (result.detail or "") for result in runner.results[2:]
-    )
+    assert all(str(run_dir) in (result.detail or "") for result in runner.results[2:])
     assert all("http" not in (result.detail or "").lower() for result in runner.results)

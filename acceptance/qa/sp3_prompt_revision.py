@@ -24,9 +24,9 @@ verifiable without an endpoint and must never be reported as PASS.
 
 Usage::
 
-    uv run python acceptance/qa/072o/qa_suite.py --static
-    uv run python acceptance/qa/072o/qa_suite.py --dynamic
-    uv run python acceptance/qa/072o/qa_suite.py --all
+    uv run python acceptance/qa/sp3_prompt_revision.py --static
+    uv run python acceptance/qa/sp3_prompt_revision.py --dynamic
+    uv run python acceptance/qa/sp3_prompt_revision.py --all
 
 Exit codes:
     0 — all executed checks passed (skipped checks do not fail)
@@ -42,7 +42,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-QA_MODULES = Path(__file__).resolve().parents[1]
+QA_MODULES = Path(__file__).resolve().parent
 if str(QA_MODULES) not in sys.path:
     sys.path.insert(0, str(QA_MODULES))
 

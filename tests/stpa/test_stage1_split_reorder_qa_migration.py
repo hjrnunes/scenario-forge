@@ -16,12 +16,11 @@ _PROJECT_ROOT = next(
     for path in Path(__file__).resolve().parents
     if (path / "pyproject.toml").is_file()
 )
-_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "stage1-split-reorder" / "qa_suite.py"
+_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "stage1_ordering.py"
 sys.path.insert(0, str(_PROJECT_ROOT / "acceptance" / "qa"))
-sys.path.insert(0, str(_SUITE.parent))
 
 from qa_harness import child_env, find_project_root, run_command  # noqa: E402
-from qa_suite import Stage1QARunner, _run_stpa_pipeline  # noqa: E402
+from stage1_ordering import Stage1QARunner, _run_stpa_pipeline  # noqa: E402
 
 
 def _run_suite(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None):
@@ -155,7 +154,9 @@ def test_stage1_adapter_defers_output_and_keeps_legacy_counts(
     assert capsys.readouterr().out == ""
     assert runner.summary() == 1
     output = capsys.readouterr().out
-    assert output.index("QA SUMMARY: 1/3 passed, 1 failed") < output.index("[PASS] first")
+    assert output.index("QA SUMMARY: 1/3 passed, 1 failed") < output.index(
+        "[PASS] first"
+    )
     assert output.index("[PASS] first") < output.index("[FAIL] second")
     assert output.index("[FAIL] second") < output.index("[SKIP] pipeline")
     assert "         details" in output
@@ -180,7 +181,7 @@ def test_stage1_pipeline_child_is_isolated_and_cleans_temp_output(
         seen["parent_cwd"] = Path.cwd()
         return SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
-    monkeypatch.setattr("qa_suite.run_command", fake_run_command)
+    monkeypatch.setattr("stage1_ordering.run_command", fake_run_command)
     output_dir = tmp_path / "stage1-output"
     result = _run_stpa_pipeline(
         "use-case.txt",
@@ -215,10 +216,10 @@ def test_stage1_pipeline_temp_dirs_are_removed_after_failure(
         (output_dir / "calls.jsonl").write_text("{}\n", encoding="utf-8")
         return SimpleNamespace(returncode=3, stdout="", stderr="boom")
 
-    monkeypatch.setattr("qa_suite.run_command", fake_run_command)
+    monkeypatch.setattr("stage1_ordering.run_command", fake_run_command)
     runner = Stage1QARunner()
     with redirect_stdout(io.StringIO()):
-        from qa_suite import run_pipeline_checks
+        from stage1_ordering import run_pipeline_checks
 
         run_pipeline_checks(runner, "use-case.txt", tmp_path / "risk.json")
 

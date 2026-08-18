@@ -13,12 +13,11 @@ _PROJECT_ROOT = next(
     for path in Path(__file__).resolve().parents
     if (path / "pyproject.toml").is_file()
 )
-_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "072o" / "qa_suite.py"
+_SUITE = _PROJECT_ROOT / "acceptance" / "qa" / "sp3_prompt_revision.py"
 sys.path.insert(0, str(_PROJECT_ROOT / "acceptance" / "qa"))
-sys.path.insert(0, str(_SUITE.parent))
 
 from qa_harness import CheckResult, child_env, find_project_root, run_command  # noqa: E402
-from qa_suite import SP3072oQARunner, _format_072o_result  # noqa: E402
+from sp3_prompt_revision import SP3072oQARunner, _format_072o_result  # noqa: E402
 
 _STATIC_CHECKS = [
     "SP3-072o-static-01: Stage 5 system template exists",
@@ -133,9 +132,7 @@ def _run_suite(*args: str, cwd: Path | None = None, env: dict[str, str] | None =
 
 def _check_names(output: str) -> list[str]:
     return [
-        line.split("] ", 1)[1]
-        for line in output.splitlines()
-        if line.startswith("  [")
+        line.split("] ", 1)[1] for line in output.splitlines() if line.startswith("  [")
     ]
 
 
@@ -184,7 +181,9 @@ def test_072o_static_mode_preserves_check_order_and_banner_summary() -> None:
     assert "--- Static checks (source text) ---" in result.stdout
     assert "--- Dynamic checks" not in result.stdout
     assert "--- Pipeline-mode checks" not in result.stdout
-    assert "QA SUMMARY: 54/54 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 54/54 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert "ALL 54 EXECUTED CHECK(S) PASSED" in result.stdout
     assert "QA suite:" not in result.stdout
     first_check = result.stdout.index(lines[0])
@@ -206,7 +205,9 @@ def test_072o_dynamic_mode_preserves_check_order_and_banner_summary() -> None:
     )
     assert "--- Static checks" not in result.stdout
     assert "--- Pipeline-mode checks" not in result.stdout
-    assert "QA SUMMARY: 28/28 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 28/28 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert "ALL 28 EXECUTED CHECK(S) PASSED" in result.stdout
     first_check = result.stdout.index(lines[0])
     summary = result.stdout.index(
@@ -257,13 +258,17 @@ def test_072o_all_mode_preserves_default_and_explicit_check_order(
         _STATIC_CHECKS + _DYNAMIC_CHECKS + _PIPELINE_CHECKS
     )
     assert [line[:8] for line in lines] == (["  [PASS]"] * 82 + ["  [SKIP]"] * 5)
-    assert result.stdout.index("--- Static checks (source text) ---") < result.stdout.index(
+    assert result.stdout.index(
+        "--- Static checks (source text) ---"
+    ) < result.stdout.index(
         "--- Dynamic checks (import + render + deterministic builders) ---"
     )
     assert result.stdout.index(
         "--- Dynamic checks (import + render + deterministic builders) ---"
     ) < result.stdout.index("--- Pipeline-mode checks (live LLM endpoint) ---")
-    assert "QA SUMMARY: 82/87 passed, 0 failed, 5 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 82/87 passed, 0 failed, 5 skipped (not executed)" in result.stdout
+    )
     assert "ALL 82 EXECUTED CHECK(S) PASSED" in result.stdout
     assert (
         "5 CHECK(S) SKIPPED — live LLM endpoint or pipeline run required; see --pipeline."
@@ -282,7 +287,9 @@ def test_072o_static_and_dynamic_flags_are_combinable() -> None:
     assert result.returncode == 0
     assert _check_names(result.stdout) == _STATIC_CHECKS + _DYNAMIC_CHECKS
     assert "--- Pipeline-mode checks" not in result.stdout
-    assert "QA SUMMARY: 82/82 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 82/82 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert "ALL 82 EXECUTED CHECK(S) PASSED" in result.stdout
 
 
@@ -348,7 +355,9 @@ def test_072o_static_child_isolation_from_nested_cwd(
     result = _run_suite("--static", cwd=nested, env=isolated)
 
     assert result.returncode == 0
-    assert "QA SUMMARY: 54/54 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 54/54 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert Path.cwd() == nested
     assert os.environ["QA_PARENT_ONLY"] == "present"
     assert parent_environment["QA_PARENT_ONLY"] == "present"
@@ -369,7 +378,9 @@ def test_072o_dynamic_child_isolation_from_nested_cwd(
     result = _run_suite("--dynamic", cwd=nested, env=isolated)
 
     assert result.returncode == 0
-    assert "QA SUMMARY: 28/28 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    assert (
+        "QA SUMMARY: 28/28 passed, 0 failed, 0 skipped (not executed)" in result.stdout
+    )
     assert Path.cwd() == nested
     assert os.environ["QA_PARENT_ONLY"] == "present"
     assert "QA_PARENT_ONLY" not in isolated

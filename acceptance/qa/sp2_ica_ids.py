@@ -6,7 +6,7 @@ The suite serves deterministic OpenAI-compatible responses, invokes
 published YAML artifacts and command output. It does not import project code.
 
 Usage:
-    uv run python acceptance/qa/sp2-ica-id-repair/qa_suite.py
+    uv run python acceptance/qa/sp2_ica_ids.py
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any
 import yaml
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 AIRBNB = ROOT / "output" / "runs" / "20260811-full3-airbnb"
 SLOT_RE = re.compile(r"slot_id:\s*(\S+)")
 TARGET = "RESP-3:CA-3-1"
