@@ -38,12 +38,23 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import yaml
+
+QA_MODULES = Path(__file__).resolve().parents[1]
+if str(QA_MODULES) not in sys.path:
+    sys.path.insert(0, str(QA_MODULES))
+
+from qa_harness import (  # noqa: E402
+    PROJECT_ROOT,
+    CheckResult,
+    QARunner,
+    child_env,
+    run_command,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -51,14 +62,7 @@ import yaml
 # ---------------------------------------------------------------------------
 
 PROMPTS_DIR = (
-    next(
-        p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
-    )
-    / "src"
-    / "scenario_forge"
-    / "stpa"
-    / "system_model"
-    / "prompts"
+    PROJECT_ROOT / "src" / "scenario_forge" / "stpa" / "system_model" / "prompts"
 )
 
 # Expected Stage 2 call-log steps (new decomposition)
@@ -101,45 +105,41 @@ EXPECTED_STAGE2_CALL_COUNT = 4
 
 
 # ---------------------------------------------------------------------------
-# Test framework
+# Compatibility adapter
 # ---------------------------------------------------------------------------
 
 
-class CheckResult:
-    """Result of a single QA check."""
+class Stage2QARunner(QARunner):
+    """Shared harness runner with the Stage 2 suite's deferred banner summary."""
 
-    def __init__(self, name: str, passed: bool, detail: str = ""):
-        self.name = name
-        self.passed = passed
-        self.detail = detail
+    def record(self, name: str, passed: bool, detail: str = "") -> CheckResult:
+        result = CheckResult(name, bool(passed), detail)
+        self.results.append(result)
+        return result
 
-    def __str__(self) -> str:
-        status = "PASS" if self.passed else "FAIL"
-        s = f"  [{status}] {self.name}"
-        if self.detail:
-            s += f"\n         {self.detail}"
-        return s
+    def check(self, name: str, passed: bool, detail: str = "") -> bool:
+        self.record(name, passed, detail)
+        return bool(passed)
 
-
-class QARunner:
-    """Collects and reports QA check results."""
-
-    def __init__(self):
-        self.results: list[CheckResult] = []
-
-    def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(CheckResult(name, condition, detail))
+    def skip(self, name: str, reason: str) -> CheckResult:
+        result = CheckResult(name, True, reason, "SKIP")
+        self.results.append(result)
+        return result
 
     def summary(self) -> int:
-        passed = sum(1 for r in self.results if r.passed)
+        passed = sum(
+            result.passed and result.status != "SKIP" for result in self.results
+        )
+        failed = sum(
+            not result.passed and result.status != "SKIP" for result in self.results
+        )
         total = len(self.results)
-        failed = total - passed
         print()
         print("=" * 60)
         print(f"QA SUMMARY: {passed}/{total} passed, {failed} failed")
         print("=" * 60)
-        for r in self.results:
-            print(r)
+        for result in self.results:
+            print(result)
         if failed > 0:
             print(f"\n{failed} CHECK(S) FAILED")
             return 1
@@ -380,7 +380,7 @@ def _run_stpa_pipeline(
     risk_extraction: Path,
     output_dir: Path,
     capability_profile: Path | None = None,
-) -> subprocess.CompletedProcess:
+):
     """Run `scenario-forge stpa-run` and return the completed process."""
     cmd = [
         "uv",
@@ -396,10 +396,10 @@ def _run_stpa_pipeline(
     ]
     if capability_profile is not None:
         cmd.extend(["--capability-profile", str(capability_profile)])
-    return subprocess.run(
+    return run_command(
         cmd,
-        capture_output=True,
-        text=True,
+        cwd=PROJECT_ROOT,
+        env=child_env(),
         timeout=600,
     )
 
@@ -727,7 +727,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    runner = QARunner()
+    runner = Stage2QARunner()
 
     do_static = args.static or args.all
     do_pipeline = args.pipeline or args.all

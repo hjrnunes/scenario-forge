@@ -575,6 +575,7 @@ _ALLOWED_QA_HARNESS_IMPORTERS = (
     "acceptance/qa/stage1-split-reorder/qa_suite.py",
     "acceptance/qa/acceptance-framework-refactor/qa_suite.py",
     "acceptance/qa/acceptance-refresh/qa_suite.py",
+    "acceptance/qa/stage2-restructure/qa_suite.py",
 )
 _ENV_NAME_CHARS = string.ascii_letters + string.digits + "_"
 _ENV_VALUE_CHARS = string.ascii_letters + string.digits + " ._-"
