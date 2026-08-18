@@ -33,6 +33,10 @@ _ENDPOINT_VARIABLES = (
 )
 
 
+def _generated_test_path(source_feature: str) -> Path:
+    return _GENERATED_ROOT / f"{Path(source_feature).stem}_acceptance_test.py"
+
+
 def _without_live_opt_in() -> dict[str, str]:
     environment = dict(os.environ)
     environment.pop(_OPT_IN, None)

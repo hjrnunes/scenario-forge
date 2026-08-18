@@ -66,8 +66,8 @@ FEATURE_ID = "phase4_qa_refresh_migration"
 
 
 def register(api: object) -> None:
-    """Register Phase 4 characterization steps in one global scope."""
-    api.set_feature(None)
+    """Register Phase 4 steps, scoping only the overlapping ones."""
+    api.set_feature(FEATURE_ID)
     api.register(r'the Phase 4 migration baseline is commit "([^"]+)"', _h_baseline)
     api.register(r"live endpoint opt-in is unset", _h_opt_in_unset)
     api.register(r"acceptance-refresh QA help is requested", _h_help)
@@ -153,7 +153,7 @@ def register(api: object) -> None:
     api.register(
         r"endpoint URLs target a local contact sentinel", _h_endpoint_configuration
     )
-    api.register_first(
+    api.register(
         r"its generated acceptance test is run twice with live opt-in unset",
         _h_run_generated,
     )

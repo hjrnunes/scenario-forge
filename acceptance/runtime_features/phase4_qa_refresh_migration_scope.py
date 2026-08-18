@@ -17,6 +17,7 @@ from .phase4_qa_refresh_migration_support import (
     _IR_ROOT,
     _MUTATION_ROOT,
     _content_snapshot,
+    _generated_test_path,
     _git_diff_names,
     _git_show,
     _run,
@@ -24,7 +25,6 @@ from .phase4_qa_refresh_migration_support import (
     _scope_is_unchanged,
     _status_snapshot,
 )
-from .phase4_qa_refresh_migration_generated import _generated_test_path
 
 
 def _h_change_set(world: World, text: str, examples: dict) -> tuple[bool, str]:

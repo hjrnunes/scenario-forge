@@ -111,9 +111,6 @@ def _h_failure_status(world: World, text: str, examples: dict) -> tuple[bool, st
 def _h_parent_unchanged(world: World, text: str, examples: dict) -> tuple[bool, str]:
     environment = getattr(world, "p4qrm_parent_environment", None)
     cwd = getattr(world, "p4qrm_parent_cwd", None)
-    if environment is None:
-        environment = getattr(world, "aqrc_parent_environment", None)
-        cwd = getattr(world, "aqrc_parent_cwd", None)
     if environment is None or cwd is None:
         return False, "parent environment and working directory were not recorded"
     return (

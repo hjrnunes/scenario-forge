@@ -4,21 +4,16 @@ from __future__ import annotations
 
 import re
 import sys
-from pathlib import Path
 
 from runtime_shared import PROJECT_ROOT, World
 
 from .phase4_qa_refresh_migration_support import (
-    _GENERATED_ROOT,
     _finish_sentinel,
+    _generated_test_path,
     _outcome_lines,
     _run,
     _start_sentinel,
 )
-
-
-def _generated_test_path(source_feature: str) -> Path:
-    return _GENERATED_ROOT / f"{Path(source_feature).stem}_acceptance_test.py"
 
 
 def _h_source_generated(world: World, text: str, examples: dict) -> tuple[bool, str]:
@@ -30,10 +25,6 @@ def _h_source_generated(world: World, text: str, examples: dict) -> tuple[bool, 
     generated = _generated_test_path(source_feature)
     world.p4qrm_source_feature = source_feature
     world.p4qrm_source_test = generated
-    # The acceptance-refresh cleanup feature shares this Given step. Retain
-    # its observable state names when this handler wins the overlap.
-    world.aqrc_source_feature = source_feature
-    world.aqrc_source_test = generated
     return (
         feature.is_file() and generated.is_file(),
         f"missing feature={feature} generated={generated}",
