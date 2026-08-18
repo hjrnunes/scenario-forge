@@ -75,13 +75,20 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+QA_MODULES = Path(__file__).resolve().parents[1]
+if str(QA_MODULES) not in sys.path:
+    sys.path.insert(0, str(QA_MODULES))
+
+from qa_harness import (  # noqa: E402
+    PROJECT_ROOT,
+    CheckResult,
+    QARunner,
+)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = next(
-    p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file()
-)
 SRC_ROOT = PROJECT_ROOT / "src"
 SYSTEM_MODEL_DIR = SRC_ROOT / "scenario_forge" / "stpa" / "system_model"
 CRITIC_FILE = SYSTEM_MODEL_DIR / "critic.py"
@@ -113,47 +120,45 @@ OBSERVED_TRUNCATION_POINT = 4096
 
 
 # ---------------------------------------------------------------------------
-# Test framework
+# Compatibility adapter
 # ---------------------------------------------------------------------------
 
 
-class CheckResult:
-    """Result of a single QA check."""
-
-    def __init__(self, name: str, status: str, detail: str = ""):
-        self.name = name
-        self.status = status  # "PASS" | "FAIL" | "SKIP"
-        self.detail = detail
-
-    def __str__(self) -> str:
-        s = f"  [{self.status}] {self.name}"
-        # Detail explains a failure or a skip; on a pass it is stale advice.
-        if self.detail and self.status != "PASS":
-            s += f"\n         {self.detail}"
-        return s
+def _format_critic_revision_result(result: CheckResult) -> str:
+    """Render a harness result with deferred detail rules."""
+    status = result.status or ("PASS" if result.passed else "FAIL")
+    text = f"  [{status}] {result.name}"
+    # Detail explains a failure or a skip; on a pass it is stale advice.
+    if result.detail and status != "PASS":
+        text += f"\n         {result.detail}"
+    return text
 
 
-class QARunner:
-    """Collects and reports QA check results."""
+class CriticRevisionQARunner(QARunner):
+    """Shared harness runner with this suite's deferred banner summary."""
 
-    def __init__(self) -> None:
-        self.results: list[CheckResult] = []
+    def record(self, name: str, passed: bool, detail: str = "") -> CheckResult:
+        result = CheckResult(name, bool(passed), detail)
+        self.results.append(result)
+        return result
 
-    def check(self, name: str, condition: bool, detail: str = "") -> None:
-        self.results.append(CheckResult(name, "PASS" if condition else "FAIL", detail))
+    def check(self, name: str, passed: bool, detail: str = "") -> bool:
+        self.record(name, passed, detail)
+        return bool(passed)
 
-    def skip(self, name: str, reason: str) -> None:
-        """Record a check that was deliberately not executed.
-
-        A skipped check never counts as a pass. Pipeline-mode checks use
-        this so that "not run" is visibly different from "verified".
-        """
-        self.results.append(CheckResult(name, "SKIP", reason))
+    def skip(self, name: str, reason: str) -> CheckResult:
+        result = CheckResult(name, True, reason, "SKIP")
+        self.results.append(result)
+        return result
 
     def summary(self) -> int:
-        passed = sum(1 for r in self.results if r.status == "PASS")
-        failed = sum(1 for r in self.results if r.status == "FAIL")
-        skipped = sum(1 for r in self.results if r.status == "SKIP")
+        passed = sum(
+            result.passed and result.status != "SKIP" for result in self.results
+        )
+        failed = sum(
+            not result.passed and result.status != "SKIP" for result in self.results
+        )
+        skipped = sum(result.status == "SKIP" for result in self.results)
         total = len(self.results)
         print()
         print("=" * 72)
@@ -162,8 +167,8 @@ class QARunner:
             f"{failed} failed, {skipped} skipped (not executed)"
         )
         print("=" * 72)
-        for r in self.results:
-            print(r)
+        for result in self.results:
+            print(_format_critic_revision_result(result))
         if skipped:
             print(
                 f"\n{skipped} PIPELINE-MODE CHECK(S) NOT EXECUTED — these need a "
@@ -177,6 +182,11 @@ class QARunner:
             return 0
         print(f"\nALL {passed} EXECUTED CHECK(S) PASSED")
         return 0
+
+
+def _temporary_run_dir(prefix: str) -> tempfile.TemporaryDirectory[str]:
+    """Create a child-owned temp directory that is always removed."""
+    return tempfile.TemporaryDirectory(prefix=prefix)
 
 
 # ---------------------------------------------------------------------------
@@ -1074,7 +1084,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
         )
 
         client = _StubLLMClient({RevisionDelta: RevisionDelta()})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_cap_") as tmpdir:
+        with _temporary_run_dir("qa_crf_cap_") as tmpdir:
             revised, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1123,7 +1133,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
                 )
             }
         )
-        with tempfile.TemporaryDirectory(prefix="qa_crf_dismiss_") as tmpdir:
+        with _temporary_run_dir("qa_crf_dismiss_") as tmpdir:
             revised, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1149,7 +1159,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
 
         # No dismissals => no dismissal warning.
         client = _StubLLMClient({RevisionDelta: RevisionDelta()})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_nodismiss_") as tmpdir:
+        with _temporary_run_dir("qa_crf_nodismiss_") as tmpdir:
             _, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1194,7 +1204,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             ]
         )
         client = _StubLLMClient({RevisionDelta: delta_all})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_alldis_") as tmpdir:
+        with _temporary_run_dir("qa_crf_alldis_") as tmpdir:
             _, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1225,7 +1235,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
         # Partial dismissal (1 of 2) → no all-dismissed warning.
         delta_partial = RevisionDelta(dismissed_gaps=["gap 1 is a false positive"])
         client = _StubLLMClient({RevisionDelta: delta_partial})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_partial_") as tmpdir:
+        with _temporary_run_dir("qa_crf_partial_") as tmpdir:
             _, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1293,7 +1303,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             ],
         )
         client = _StubLLMClient({RevisionDelta: delta_with_change})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_chgsuppress_") as tmpdir:
+        with _temporary_run_dir("qa_crf_chgsuppress_") as tmpdir:
             revised, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1323,7 +1333,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             ],
         )
         client = _StubLLMClient({RevisionDelta: delta_with_cp})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_cpsuppress_") as tmpdir:
+        with _temporary_run_dir("qa_crf_cpsuppress_") as tmpdir:
             _, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1342,7 +1352,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
         findings_empty = _qa_findings()
         delta_dismiss_empty = RevisionDelta(dismissed_gaps=["not applicable"])
         client = _StubLLMClient({RevisionDelta: delta_dismiss_empty})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_emptyfind_") as tmpdir:
+        with _temporary_run_dir("qa_crf_emptyfind_") as tmpdir:
             _, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1403,7 +1413,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
             ],
         )
         client = _StubLLMClient({RevisionDelta: delta_with_mod})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_modsuppress_") as tmpdir:
+        with _temporary_run_dir("qa_crf_modsuppress_") as tmpdir:
             _, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1458,7 +1468,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
         client = _StubLLMClient(
             {RevisionDelta: LengthFinishReasonError("Could not parse response")}
         )
-        with tempfile.TemporaryDirectory(prefix="qa_crf_trunc_") as tmpdir:
+        with _temporary_run_dir("qa_crf_trunc_") as tmpdir:
             revised, warnings = run_revision(
                 llm_client=client,
                 control_structure=cs,
@@ -1576,7 +1586,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
     try:
         # run_completeness_critic must forward the new context.
         client = _StubLLMClient({CriticFindings: CriticFindings()})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_critic_") as tmpdir:
+        with _temporary_run_dir("qa_crf_critic_") as tmpdir:
             run_completeness_critic(
                 llm_client=client,
                 control_structure=cs,
@@ -1606,7 +1616,7 @@ def run_dynamic_checks(runner: QARunner) -> None:
 
         # Default call site (no new context) must still render.
         client = _StubLLMClient({CriticFindings: CriticFindings()})
-        with tempfile.TemporaryDirectory(prefix="qa_crf_critic_bare_") as tmpdir:
+        with _temporary_run_dir("qa_crf_critic_bare_") as tmpdir:
             run_completeness_critic(
                 llm_client=client,
                 control_structure=cs,
@@ -1873,7 +1883,7 @@ def main() -> int:
     if not any([args.static, args.dynamic, args.pipeline, args.all]):
         args.all = True
 
-    runner = QARunner()
+    runner = CriticRevisionQARunner()
 
     if args.static or args.all:
         print("--- Static checks (AST + prompt source) ---")
